@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Padel Society i-League 2026 — Live Ranking</title>
+<style>
+:root {
+  --green-dark: #0e3320;
+  --green-light: #2d8a58;
+  --bronze: #cd7f32;
+  --bronze-dark: #5a2e0a;
+  --bronze-light: #e8a060;
+  --silver: #8a9ab0;
+  --silver-dark: #2a3a4a;
+  --silver-light: #b0c8e0;
+  --gold: #f0c040;
+  --white: #f5f5f0;
+  --gray: #8a8a82;
+  --bg: #0a0a08;
+  --card: #111110;
+  --border: #1e1e1c;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--white); font-family:'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif; min-height:100vh; padding:28px 16px; }
+header { text-align:center; margin-bottom:32px; }
+.title { font-size:clamp(20px,4vw,32px); font-weight:900; }
+.title .gold { color:var(--gold); }
+.subtitle { font-size:12px; color:var(--gray); margin-top:6px; }
+
+/* 탭 */
+.tabs { display:flex; gap:8px; justify-content:center; margin-bottom:24px; flex-wrap:wrap; }
+.tab { padding:10px 24px; border-radius:4px; border:1px solid var(--border); background:transparent; color:var(--gray); font-size:14px; font-weight:600; cursor:pointer; transition:all 0.2s; }
+.tab:hover { color:var(--white); }
+.tab.t-gold.on { background:var(--green-dark); border-color:var(--green-light); color:var(--gold); }
+.tab.t-bs.on { background:linear-gradient(90deg,var(--bronze-dark),var(--silver-dark)); border-color:var(--bronze-light); color:var(--white); }
+.tab.t-pair.on { background:#12122a; border-color:#6060e0; color:#a0a0ff; }
+
+/* 공통 */
+.wrap { max-width:860px; margin:0 auto; }
+.spinner { width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px; }
+@keyframes spin { to{transform:rotate(360deg)} }
+.status { text-align:center; padding:48px 20px; color:var(--gray); font-size:14px; }
+.refresh-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.refresh-btn { display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid var(--border);color:var(--gray);font-size:12px;padding:6px 14px;border-radius:4px;cursor:pointer;transition:all 0.2s; }
+.refresh-btn:hover { border-color:var(--gold);color:var(--gold); }
+.updated { font-size:11px; color:var(--gray); }
+
+/* 필터 */
+.filter-row { display:flex;gap:8px;margin-bottom:14px;align-items:center; }
+.filter-btn { padding:4px 14px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--gray);font-size:12px;cursor:pointer;transition:all 0.2s; }
+.filter-btn.fa { background:#2a2a28;border-color:var(--gray);color:var(--white); }
+.filter-btn.fb { background:var(--bronze-dark);border-color:var(--bronze-light);color:var(--white); }
+.filter-btn.fs { background:var(--silver-dark);border-color:var(--silver-light);color:var(--white); }
+
+/* 테이블 */
+table { width:100%;border-collapse:collapse;font-size:13px; }
+.gh { background:var(--green-dark);border-bottom:2px solid var(--green-light); }
+.bh { background:linear-gradient(90deg,var(--bronze-dark),var(--silver-dark));border-bottom:2px solid var(--bronze); }
+thead th { font-size:11px;letter-spacing:1.5px;font-weight:700;color:var(--gold);padding:11px 12px;text-align:center;white-space:nowrap; }
+thead th:nth-child(2) { text-align:left; }
+tbody tr { border-bottom:1px solid var(--border);transition:background 0.15s; }
+tbody tr:hover { background:#1a1a18; }
+tbody tr.bronze-row { border-left:2px solid var(--bronze); }
+tbody tr.silver-row { border-left:2px solid var(--silver-light); }
+tbody tr.excluded { opacity:0.4; }
+tbody td { padding:10px 12px;text-align:center;color:var(--gray); }
+tbody td:nth-child(2) { text-align:left;color:var(--white);font-weight:500; }
+.rn { font-size:16px;font-weight:900;color:var(--white); }
+.r1 { color:var(--gold)!important; }
+.r2 { color:#c0c0c0!important; }
+.r3 { color:var(--bronze-light)!important; }
+.pg { font-size:15px;font-weight:900;color:var(--green-light)!important; }
+.pb { font-size:15px;font-weight:900;color:var(--bronze-light)!important; }
+.ps { font-size:15px;font-weight:900;color:var(--silver-light)!important; }
+.badge { display:inline-block;font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700; }
+.bc { background:var(--bronze-dark);color:var(--bronze-light);border:1px solid var(--bronze); }
+.sc { background:var(--silver-dark);color:var(--silver-light);border:1px solid var(--silver); }
+.wr { font-size:11px;color:var(--gray); }
+.ex { font-size:10px;color:var(--gray);background:#1a1a18;padding:2px 8px;border-radius:10px; }
+
+/* info box */
+.info-box { display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px; }
+.info-card { background:var(--card);border:1px solid var(--border);border-radius:6px;padding:14px 16px;font-size:12px;color:var(--gray);line-height:1.7; }
+.info-card strong { color:var(--white);font-size:11px;letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px; }
+
+/* 페어 체커 */
+.pair-league-sw { display:flex;gap:8px;margin-bottom:20px; }
+.plb { padding:7px 18px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--gray);font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s; }
+.plb:hover { color:var(--white); }
+.plb.pg-on { background:var(--green-dark);border-color:var(--green-light);color:var(--gold); }
+.plb.pb-on { background:var(--bronze-dark);border-color:var(--bronze-light);color:var(--white); }
+.sel-info { font-size:13px;color:var(--gray);margin-bottom:14px; }
+.sel-info span { color:var(--gold);font-weight:700; }
+.pgrid { display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px;margin-bottom:24px; }
+.chip { padding:9px 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--gray);font-size:13px;font-weight:500;cursor:pointer;transition:all 0.2s;text-align:center;user-select:none; }
+.chip:hover { border-color:var(--white);color:var(--white); }
+.chip.on { background:#12122a;border-color:#6060e0;color:#a0a0ff;font-weight:700; }
+.chip.off { opacity:0.28;cursor:default;pointer-events:none; }
+.combos { display:flex;flex-direction:column;gap:10px; }
+.ccard { background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px; }
+.ccard.ok { border-color:#2d6a3a;background:#0e1e12; }
+.ccard.done { border-color:#4a2020;background:#1a0e0e;opacity:0.65; }
+.cteams { display:flex;align-items:center;gap:14px;flex:1;flex-wrap:wrap; }
+.tnames { font-size:14px;font-weight:700;color:var(--white); }
+.vs { font-size:11px;font-weight:900;color:var(--gray);letter-spacing:1px; }
+.cstatus { font-size:11px;font-weight:700;padding:5px 14px;border-radius:20px;white-space:nowrap;flex-shrink:0; }
+.cstatus.ok { background:#0e3320;color:#4ade80;border:1px solid #2d8a58; }
+.cstatus.done { background:#3a0e0e;color:#f87171;border:1px solid #8a2020; }
+.ph { text-align:center;padding:40px 20px;color:var(--gray);font-size:14px;line-height:1.9; }
+
+@media(max-width:560px) {
+  .info-box { grid-template-columns:1fr; }
+  .pgrid { grid-template-columns:repeat(auto-fill,minmax(85px,1fr)); }
+  .cteams { gap:8px; }
+  .tnames { font-size:13px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="title">Padel Society <span class="gold">i-League</span> 2026</div>
+  <div class="subtitle">Season 1 · Live Ranking</div>
+</header>
+
+<div class="tabs">
+  <button class="tab t-gold on" onclick="showTab('gold')">🥇 Gold+</button>
+  <button class="tab t-bs" onclick="showTab('bs')">🥉 Bronze &amp; 🥈 Silver</button>
+  <button class="tab t-pair" onclick="showTab('pair')">🎾 페어 체커</button>
+</div>
+
+<!-- 랭킹 패널 -->
+<div id="panel-rank" class="wrap">
+  <div class="refresh-row">
+    <button class="refresh-btn" onclick="loadRank()">↻ 새로고침</button>
+    <span class="updated" id="updated"></span>
+  </div>
+  <div class="filter-row" id="frow" style="display:none">
+    <span style="font-size:12px;color:var(--gray)">필터:</span>
+    <button class="filter-btn fa" onclick="setF('all',this)">전체</button>
+    <button class="filter-btn" onclick="setF('bronze',this)">Bronze만</button>
+    <button class="filter-btn" onclick="setF('silver',this)">Silver만</button>
+  </div>
+  <div id="status" class="status"><div class="spinner"></div>데이터 불러오는 중...</div>
+  <div id="rank-wrap" style="display:none">
+    <table><thead id="thead"></thead><tbody id="tbody"></tbody></table>
+    <div class="info-box" id="ibox"></div>
+  </div>
+</div>
+
+<!-- 페어 체커 패널 -->
+<div id="panel-pair" class="wrap" style="display:none">
+  <div class="pair-league-sw">
+    <button class="plb pg-on" id="plbg" onclick="setPL('gold')">🥇 Gold+</button>
+    <button class="plb" id="plbb" onclick="setPL('bs')">🥉 B&amp;S</button>
+  </div>
+  <div class="sel-info" id="si">플레이어를 <span>4명</span> 선택하면 가능한 조합이 표시돼요</div>
+  <div class="pgrid" id="pgrid"></div>
+  <div class="combos" id="combos"><div class="ph">⬆️ 위에서 플레이어 4명을 선택해주세요</div></div>
+</div>
+
+<script>
+// ── 설정 ──────────────────────────────────────────
+const SHEET = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT7pdjtoZw-fvXldKyu3SuCZULh0NsiP6xVURsLXwrH2volDhMPUqs7cnrvBEL_E5Ib5EWEH07EO38G/pub';
+const PROXY = 'https://corsproxy.io/?';
+const GID_G  = '2119811539';
+const GID_BS = '1357015090';
+const MIN_M  = 10, BM = 1.3;
+
+// ── 페어 체커 하드코딩 데이터 ─────────────────────
+const PLAYERS = {
+  gold: ["Ale", "Atom", "Damian", "Daniel", "HK", "Huny", "Jiwon", "Juan", "Jun", "PadelKiller", "Sean", "Son", "Tomasco", "dotdot"],
+  bs:   ["강민정", "강정민", "김배준", "김백규", "김유리", "나한결", "도우석", "박지희", "박진용", "방영철", "변영건", "서원기", "서형보", "신철", "안리나", "양지은", "유윤지", "이정선", "장진호", "조태호", "차우진", "허성균"]
+};
+const USED = {
+  gold: new Set(["Ale|Daniel||Jiwon|Tomasco", "Ale|Son||Daniel|dotdot", "Ale|Tomasco||Daniel|Jiwon", "Ale|Tomasco||Huny|Jiwon", "Ale|dotdot||Daniel|Son", "Ale|dotdot||Huny|Tomasco", "Atom|Damian||Sean|dotdot", "Atom|Daniel||Sean|dotdot", "Atom|Huny||PadelKiller|Tomasco", "Atom|Jiwon||Damian|Tomasco", "Atom|Jiwon||HK|Jun", "Atom|Jiwon||HK|Tomasco", "Atom|Jun||HK|Jiwon", "Atom|Jun||Jiwon|Son", "Atom|PadelKiller||Huny|Tomasco", "Atom|Sean||Daniel|dotdot", "Atom|Tomasco||Damian|Jiwon", "Atom|Tomasco||HK|Jiwon", "Atom|Tomasco||Huny|Sean", "Atom|Tomasco||Jiwon|PadelKiller", "Atom|Tomasco||Jiwon|dotdot", "Atom|dotdot||Daniel|Sean", "Daniel|Huny||PadelKiller|dotdot", "Daniel|Jiwon||HK|Juan", "Daniel|Juan||HK|Jiwon", "Daniel|Juan||Jun|Tomasco", "Daniel|Jun||Juan|Tomasco", "Daniel|Tomasco||Juan|Jun", "Daniel|dotdot||Huny|PadelKiller", "HK|Jiwon||PadelKiller|Sean", "HK|Jiwon||PadelKiller|Tomasco", "HK|PadelKiller||Jiwon|Sean", "HK|Sean||Jiwon|PadelKiller", "HK|Sean||Jiwon|Tomasco", "HK|Tomasco||Jiwon|Sean", "Huny|Juan||PadelKiller|Tomasco", "Huny|Jun||Sean|Tomasco", "Jun|PadelKiller||Tomasco|dotdot", "Jun|dotdot||PadelKiller|Tomasco", "PadelKiller|Sean||Son|dotdot"]),
+  bs:   new Set(["강민정|나한결||박지희|유윤지", "강민정|도우석||서형보|안리나", "강민정|박지희||나한결|유윤지", "강민정|방영철||김유리|변영건", "강민정|서형보||도우석|안리나", "강민정|서형보||방영철|변영건", "강민정|안리나||서형보|양지은", "강민정|양지은||서형보|안리나", "강민정|이정선||나한결|장진호", "강정민|김백규||서형보|허성균", "강정민|서형보||김백규|허성균", "강정민|조태호||박진용|서형보", "김배준|김백규||박진용|서원기", "김배준|김백규||박진용|신철", "김배준|박진용||김백규|서원기", "김배준|서원기||김백규|신철", "김배준|신철||김백규|박진용", "김배준|신철||김백규|서원기", "김배준|양지은||김백규|이정선", "김배준|이정선||김백규|양지은", "김백규|나한결||서형보|조태호", "김백규|박진용||방영철|차우진", "김백규|방영철||박진용|차우진", "김백규|이정선||서원기|차우진", "김백규|장진호||서형보|양지은", "김백규|조태호||나한결|서형보", "김백규|차우진||서원기|이정선", "김유리|나한결||박지희|박진용", "김유리|나한결||박지희|방영철", "김유리|나한결||방영철|장진호", "김유리|박지희||나한결|방영철", "김유리|박진용||나한결|박지희", "김유리|신철||방영철|서원기", "김유리|이정선||차우진|허성균", "김유리|차우진||이정선|허성균", "나한결|박진용||장진호|허성균", "나한결|서형보||이정선|장진호", "나한결|유윤지||이정선|허성균", "나한결|이정선||서형보|장진호", "나한결|장진호||박진용|허성균", "도우석|신철||서형보|조태호", "도우석|안리나||이정선|조태호", "도우석|이정선||안리나|조태호", "도우석|조태호||서형보|신철", "박지희|서원기||장진호|허성균", "박지희|서형보||장진호|허성균", "박지희|조태호||유윤지|허성균", "박지희|허성균||서원기|장진호", "박지희|허성균||유윤지|조태호", "박진용|변영건||서형보|이정선", "서원기|서형보||차우진|허성균", "서원기|신철||장진호|허성균", "서원기|장진호||신철|허성균", "서원기|허성균||서형보|차우진", "서원기|허성균||신철|장진호", "서형보|신철||장진호|허성균", "서형보|장진호||신철|허성균"])
+};
+
+// ── 상태 ──────────────────────────────────────────
+let curTab = 'gold', curF = 'all';
+let gData = [], bsData = [];
+let pLeague = 'gold', sel = [];
+
+// ── 유틸 ──────────────────────────────────────────
+const ckey = (a,b,c,d) => [  [a,b].sort().join('|'), [c,d].sort().join('|')  ].sort().join('||');
+
+async function fetchCSV(gid) {
+  const url = PROXY + encodeURIComponent(`${SHEET}?gid=${gid}&single=true&output=csv`);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('fetch failed');
+  const txt = await res.text();
+  return txt.trim().split('\n').map(line => {
+    const out=[]; let cur='', q=false;
+    for(const ch of line) {
+      if(ch==='"'){ q=!q; }
+      else if(ch===','&&!q){ out.push(cur.trim()); cur=''; }
+      else cur+=ch;
+    }
+    out.push(cur.trim()); return out;
+  });
+}
+
+function score(m,w,s,cat) {
+  if(!m) return 0;
+  const b=((w/m)*3+(s/m)*1)*Math.sqrt(m)*2;
+  return cat==='Bronze'?b*BM:b;
+}
+
+// ── 탭 전환 ───────────────────────────────────────
+function showTab(t) {
+  curTab = t;
+  document.querySelectorAll('.tab').forEach(el=>el.classList.remove('on'));
+  document.querySelector('.t-'+t).classList.add('on');
+  document.getElementById('panel-rank').style.display = t==='pair'?'none':'block';
+  document.getElementById('panel-pair').style.display = t==='pair'?'block':'none';
+  document.getElementById('frow').style.display = (!['pair'].includes(t)&&t==='bs')?'flex':'none';
+  if(t!=='pair') renderRank();
+}
+
+// ── 랭킹 로드 ─────────────────────────────────────
+async function loadRank() {
+  document.getElementById('status').style.display='block';
+  document.getElementById('status').innerHTML='<div class="spinner"></div>데이터 불러오는 중...';
+  document.getElementById('rank-wrap').style.display='none';
+  try {
+    const gr = await fetchCSV(GID_G);
+    gData=[];
+    for(let i=3;i<gr.length;i++){
+      const r=gr[i]; if(!r[1])continue;
+      const m=+r[2],w=+r[3],l=+r[4],s=+r[5]; if(isNaN(m))continue;
+      gData.push({name:r[1],m,w,l,s,pts:score(m,w,s,null)});
+    }
+    gData.sort((a,b)=>b.pts-a.pts);
+
+    const br = await fetchCSV(GID_BS);
+    bsData=[];
+    for(let i=3;i<br.length;i++){
+      const r=br[i]; if(!r[1])continue;
+      const cat=r[2],m=+r[3],w=+r[4],l=+r[5],s=+r[6],cpts=+r[17]||0; if(isNaN(m))continue;
+      bsData.push({name:r[1],cat,m,w,l,s,cpts,pts:score(m,w,s,cat)});
+    }
+    bsData.sort((a,b)=>b.pts-a.pts);
+
+    document.getElementById('updated').textContent='마지막 업데이트: '+new Date().toLocaleTimeString('ko-KR');
+    document.getElementById('status').style.display='none';
+    document.getElementById('rank-wrap').style.display='block';
+    renderRank();
+  } catch(e) {
+    document.getElementById('status').innerHTML=`<div style="color:#f87171;margin-bottom:12px">⚠️ 데이터를 불러올 수 없어요</div><button class="refresh-btn" style="margin-top:12px" onclick="loadRank()">↻ 다시 시도</button>`;
+  }
+}
+
+function setF(f,btn) {
+  curF=f;
+  document.querySelectorAll('.filter-btn').forEach(b=>b.className='filter-btn');
+  btn.classList.add(f==='all'?'fa':f==='bronze'?'fb':'fs');
+  renderRank();
+}
+
+function renderRank() {
+  const th=document.getElementById('thead'), tb=document.getElementById('tbody'), ib=document.getElementById('ibox');
+  if(curTab==='gold') {
+    th.innerHTML=`<tr class="gh"><th>Rank</th><th>Player</th><th>M</th><th>W</th><th>L</th><th>S</th><th>승률</th><th>Points</th></tr>`;
+    tb.innerHTML=''; let rk=0;
+    gData.forEach(p=>{
+      const ok=p.m>=MIN_M; if(ok)rk++;
+      const rc=ok&&rk<=3?`r${rk}`:''; const wr=Math.round(p.w/p.m*100)+'%';
+      const tr=document.createElement('tr'); if(!ok)tr.classList.add('excluded');
+      tr.innerHTML=`<td><span class="rn ${rc}">${ok?rk:'—'}</span></td><td>${p.name}</td><td>${p.m}</td><td>${p.w}</td><td>${p.l}</td><td>${p.s}</td><td class="wr">${wr}</td><td class="${ok?'pg':''}">${ok?p.pts.toFixed(2):'<span class="ex">10경기 미만</span>'}</td>`;
+      tb.appendChild(tr);
+    });
+    const q=gData.filter(p=>p.m>=MIN_M);
+    ib.innerHTML=`<div class="info-card"><strong>🥇 Gold+ 공식</strong>( W/M×3 + S/M×1 ) × √M × 2<br>최소 ${MIN_M}경기 이상 랭킹 등재</div><div class="info-card"><strong>📊 현황</strong>랭킹 등재: ${q.length}명 / 전체 ${gData.length}명<br>1위: ${q[0]?.name||'-'} (${q[0]?.pts.toFixed(2)||'-'}pts)</div>`;
+  } else {
+    th.innerHTML=`<tr class="bh"><th>Rank</th><th>Player</th><th>Cat</th><th>M</th><th>W</th><th>L</th><th>S</th><th>승률</th><th>C Pts</th><th>Points</th></tr>`;
+    tb.innerHTML='';
+    const fd=curF==='all'?bsData:bsData.filter(p=>p.cat?.toLowerCase()===curF);
+    let rk=0;
+    fd.forEach(p=>{
+      const ok=p.m>=MIN_M; if(ok)rk++;
+      const rc=ok&&rk<=3?`r${rk}`:''; const wr=Math.round(p.w/p.m*100)+'%';
+      const ib2=p.cat==='Bronze';
+      const tr=document.createElement('tr'); tr.className=ib2?'bronze-row':'silver-row'; if(!ok)tr.classList.add('excluded');
+      tr.innerHTML=`<td><span class="rn ${rc}">${ok?rk:'—'}</span></td><td>${p.name}</td><td><span class="badge ${ib2?'bc':'sc'}">${p.cat}</span></td><td>${p.m}</td><td>${p.w}</td><td>${p.l}</td><td>${p.s}</td><td class="wr">${wr}</td><td style="color:var(--gold);font-size:12px">${p.cpts||0}</td><td class="${ok?(ib2?'pb':'ps'):''}">${ok?p.pts.toFixed(2):'<span class="ex">10경기 미만</span>'}</td>`;
+      tb.appendChild(tr);
+    });
+    const q=bsData.filter(p=>p.m>=MIN_M);
+    const bt=q.find(p=>p.cat==='Bronze'), st=q.find(p=>p.cat==='Silver');
+    ib.innerHTML=`<div class="info-card"><strong>🥉 Bronze &amp; 🥈 Silver 공식</strong>Bronze: ( W/M×3 + S/M×1 ) × √M × 2 × <span style="color:var(--gold)">1.3</span><br>Silver: ( W/M×3 + S/M×1 ) × √M × 2<br>최소 ${MIN_M}경기 이상 랭킹 등재</div><div class="info-card"><strong>📊 현황</strong>🥉 Bronze 1위: ${bt?.name||'-'} (${bt?.pts.toFixed(2)||'-'}pts)<br>🥈 Silver 1위: ${st?.name||'-'} (${st?.pts.toFixed(2)||'-'}pts)</div>`;
+  }
+}
+
+// ── 페어 체커 ──────────────────────────────────────
+function setPL(league) {
+  pLeague=league; sel=[];
+  document.getElementById('plbg').className='plb'+(league==='gold'?' pg-on':'');
+  document.getElementById('plbb').className='plb'+(league==='bs'?' pb-on':'');
+  renderGrid(); renderCombos();
+}
+
+function toggle(name) {
+  if(sel.includes(name)) { sel=sel.filter(p=>p!==name); }
+  else { if(sel.length>=4) return; sel.push(name); }
+  renderGrid(); renderCombos();
+}
+
+function renderGrid() {
+  const grid=document.getElementById('pgrid');
+  grid.innerHTML='';
+  [...PLAYERS[pLeague]].sort().forEach(name=>{
+    const isOn=sel.includes(name);
+    const isOff=sel.length>=4&&!isOn;
+    const d=document.createElement('div');
+    d.className='chip'+(isOn?' on':'')+(isOff?' off':'');
+    d.textContent=name;
+    d.onclick=()=>toggle(name);
+    grid.appendChild(d);
+  });
+  const si=document.getElementById('si'), n=sel.length;
+  if(n===0) si.innerHTML='플레이어를 <span>4명</span> 선택하면 가능한 조합이 표시돼요';
+  else if(n<4) si.innerHTML=`<span>${n}명</span> 선택됨 — ${4-n}명 더 선택해주세요`;
+  else si.innerHTML=`선택: <span>${sel.join(', ')}</span>`;
+}
+
+function renderCombos() {
+  const box=document.getElementById('combos');
+  if(sel.length<4){ box.innerHTML='<div class="ph">⬆️ 위에서 플레이어 4명을 선택해주세요</div>'; return; }
+  const [a,b,c,d]=sel;
+  const combos=[
+    {t1:[a,b],t2:[c,d]},
+    {t1:[a,c],t2:[b,d]},
+    {t1:[a,d],t2:[b,c]},
+  ].map(co=>({...co, used:USED[pLeague].has(ckey(co.t1[0],co.t1[1],co.t2[0],co.t2[1]))}))
+   .sort((x,y)=>x.used-y.used);
+
+  box.innerHTML='';
+  combos.forEach(co=>{
+    const div=document.createElement('div');
+    div.className='ccard '+(co.used?'done':'ok');
+    div.innerHTML=`<div class="cteams"><div class="tnames">${co.t1[0]} / ${co.t1[1]}</div><div class="vs">VS</div><div class="tnames">${co.t2[0]} / ${co.t2[1]}</div></div><div class="cstatus ${co.used?'done':'ok'}">${co.used?'✕ 이미 진행함':'✓ 가능'}</div>`;
+    box.appendChild(div);
+  });
+}
+
+// ── 초기화 ────────────────────────────────────────
+renderGrid();
+loadRank();
+</script>
+</body>
+</html>
