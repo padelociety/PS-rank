@@ -381,9 +381,9 @@ function renderRecent() {
   list.innerHTML='';
   recentData.forEach(m => {
     const div = document.createElement('div');
-    const borderCls = m.league==='G+' ? 'mg' : (m.cat==='Bronze' ? 'mbs-b' : 'mbs-s');
-    const badgeCls  = m.league==='G+' ? 'ml-g' : (m.cat==='Bronze' ? 'ml-b' : 'ml-s');
-    const badgeTxt  = m.league==='G+' ? 'GOLD+' : (m.cat==='Bronze' ? 'BRONZE' : 'SILVER');
+    const borderCls = m.league==='G+' ? 'mg' : 'mbs-b';
+    const badgeCls  = m.league==='G+' ? 'ml-g' : 'ml-b';
+    const badgeTxt  = m.league==='G+' ? 'GOLD+' : 'B&S';
     div.className = `match-card ${borderCls}`;
     div.innerHTML = `
       <span class="match-date">${m.date}</span>
