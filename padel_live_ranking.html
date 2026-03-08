@@ -35,6 +35,7 @@ header { text-align:center; margin-bottom:32px; }
 .tab.t-gold.on { background:var(--green-dark); border-color:var(--green-light); color:var(--gold); }
 .tab.t-bs.on { background:linear-gradient(90deg,var(--bronze-dark),var(--silver-dark)); border-color:var(--bronze-light); color:var(--white); }
 .tab.t-pair.on { background:#12122a; border-color:#6060e0; color:#a0a0ff; }
+.tab.t-recent.on { background:#1a1a12; border-color:#a0a060; color:#e0d080; }
 
 /* 공통 */
 .wrap { max-width:860px; margin:0 auto; }
@@ -84,7 +85,21 @@ tbody td:nth-child(2) { text-align:left;color:var(--white);font-weight:500; }
 .info-card { background:var(--card);border:1px solid var(--border);border-radius:6px;padding:14px 16px;font-size:12px;color:var(--gray);line-height:1.7; }
 .info-card strong { color:var(--white);font-size:11px;letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px; }
 
-/* 페어 체커 */
+/* 최근 경기 */
+.match-list { display:flex;flex-direction:column;gap:10px; }
+.match-card { background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap; }
+.match-card.mg { border-left:3px solid var(--green-light); }
+.match-card.mbs-b { border-left:3px solid var(--bronze); }
+.match-card.mbs-s { border-left:3px solid var(--silver-light); }
+.match-date { font-size:11px;color:var(--gray);min-width:80px; }
+.match-league { font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;flex-shrink:0; }
+.ml-g { background:var(--green-dark);color:var(--gold);border:1px solid var(--green-light); }
+.ml-b { background:var(--bronze-dark);color:var(--bronze-light);border:1px solid var(--bronze); }
+.ml-s { background:var(--silver-dark);color:var(--silver-light);border:1px solid var(--silver); }
+.match-teams { display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap; }
+.match-team { font-size:13px;font-weight:600;color:var(--white); }
+.match-score { font-size:15px;font-weight:900;color:var(--gold);min-width:60px;text-align:center; }
+.match-vs { font-size:11px;color:var(--gray);font-weight:700; }
 .pair-league-sw { display:flex;gap:8px;margin-bottom:20px; }
 .plb { padding:7px 18px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--gray);font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s; }
 .plb:hover { color:var(--white); }
@@ -127,6 +142,7 @@ tbody td:nth-child(2) { text-align:left;color:var(--white);font-weight:500; }
   <button class="tab t-gold on" onclick="showTab('gold')">🥇 Gold+</button>
   <button class="tab t-bs" onclick="showTab('bs')">🥉 Bronze &amp; 🥈 Silver</button>
   <button class="tab t-pair" onclick="showTab('pair')">🎾 Pair Checker</button>
+  <button class="tab t-recent" onclick="showTab('recent')">📋 최근 경기</button>
 </div>
 
 <!-- 랭킹 패널 -->
@@ -148,13 +164,23 @@ tbody td:nth-child(2) { text-align:left;color:var(--white);font-weight:500; }
   </div>
 </div>
 
+<!-- 최근 경기 패널 -->
+<div id="panel-recent" class="wrap" style="display:none">
+  <div class="refresh-row">
+    <span style="font-size:13px;color:var(--gray)">Gold+ · B&S 합산 최근 10경기</span>
+    <span class="updated" id="updated-recent"></span>
+  </div>
+  <div id="recent-status" class="status"><div class="spinner"></div>데이터 불러오는 중...</div>
+  <div id="match-list" class="match-list" style="display:none"></div>
+</div>
+
 <!-- 페어 체커 패널 -->
 <div id="panel-pair" class="wrap" style="display:none">
   <div class="pair-league-sw">
     <button class="plb pg-on" id="plbg" onclick="setPL('gold')">🥇 Gold+</button>
     <button class="plb" id="plbb" onclick="setPL('bs')">🥉 B&amp;S</button>
   </div>
-  <div class="sel-info" id="si">플레이어를 <span>4명</span> 선택하면 가능한 조합이 표시돼요</div>
+  <div class="sel-info" id="si">Select <span>4 players</span> to see available pair combinations</div>
   <div class="pgrid" id="pgrid"></div>
   <div class="combos" id="combos"><div class="ph">⬆️ 위에서 플레이어 4명을 선택해주세요</div></div>
 </div>
@@ -219,10 +245,12 @@ function showTab(t) {
   curTab = t;
   document.querySelectorAll('.tab').forEach(el=>el.classList.remove('on'));
   document.querySelector('.t-'+t).classList.add('on');
-  document.getElementById('panel-rank').style.display = t==='pair'?'none':'block';
+  document.getElementById('panel-rank').style.display = (t==='pair'||t==='recent')?'none':'block';
   document.getElementById('panel-pair').style.display = t==='pair'?'block':'none';
-  document.getElementById('frow').style.display = (!['pair'].includes(t)&&t==='bs')?'flex':'none';
-  if(t!=='pair') renderRank();
+  document.getElementById('panel-recent').style.display = t==='recent'?'block':'none';
+  document.getElementById('frow').style.display = (!['pair','recent'].includes(t)&&t==='bs')?'flex':'none';
+  if(t==='recent') renderRecent();
+  else if(t!=='pair') renderRank();
 }
 
 // ── Match 탭에서 페어 데이터 파싱 ─────────────────
@@ -276,6 +304,25 @@ async function loadRank() {
     parseMatchData(mbsr, 'bs');
     renderGrid();
 
+    // 최근 경기 데이터 생성
+    function parseMatches(rows, league) {
+      const out = [];
+      for(let i=1; i<rows.length; i++) {
+        const r=rows[i]; if(!r[1]||!r[2]||!r[3]||!r[4]||!r[5])continue;
+        const sets=[];
+        for(let s=0;s<3;s++){
+          const a=r[6+s*2]?.trim(), b=r[7+s*2]?.trim();
+          if(a&&b&&(+a>0||+b>0)) sets.push(`${a}-${b}`);
+        }
+        if(sets.length===0) continue;
+        out.push({date:r[1],league,t1p1:r[2],t1p2:r[3],t2p1:r[4],t2p2:r[5],score:sets.join(' / ')});
+      }
+      return out;
+    }
+    recentData = [...parseMatches(mgr,'G+'), ...parseMatches(mbsr,'BS')];
+    recentData.sort((a,b)=>b.date.localeCompare(a.date));
+    recentData = recentData.slice(0,10);
+
     document.getElementById('updated').textContent='마지막 업데이트: '+new Date().toLocaleTimeString('ko-KR');
     document.getElementById('status').style.display='none';
     document.getElementById('rank-wrap').style.display='block';
@@ -325,6 +372,34 @@ function renderRank() {
   }
 }
 
+// ── 최근 경기 ──────────────────────────────────────
+let recentData = [];
+
+function renderRecent() {
+  if(recentData.length===0) return;
+  const list = document.getElementById('match-list');
+  list.innerHTML='';
+  recentData.forEach(m => {
+    const div = document.createElement('div');
+    const borderCls = m.league==='G+' ? 'mg' : (m.cat==='Bronze' ? 'mbs-b' : 'mbs-s');
+    const badgeCls  = m.league==='G+' ? 'ml-g' : (m.cat==='Bronze' ? 'ml-b' : 'ml-s');
+    const badgeTxt  = m.league==='G+' ? 'GOLD+' : (m.cat==='Bronze' ? 'BRONZE' : 'SILVER');
+    div.className = `match-card ${borderCls}`;
+    div.innerHTML = `
+      <span class="match-date">${m.date}</span>
+      <span class="match-league ${badgeCls}">${badgeTxt}</span>
+      <div class="match-teams">
+        <span class="match-team">${m.t1p1} / ${m.t1p2}</span>
+        <span class="match-score">${m.score}</span>
+        <span class="match-team">${m.t2p1} / ${m.t2p2}</span>
+      </div>`;
+    list.appendChild(div);
+  });
+  document.getElementById('recent-status').style.display='none';
+  list.style.display='flex';
+  document.getElementById('updated-recent').textContent='마지막 업데이트: '+new Date().toLocaleTimeString('ko-KR');
+}
+
 // ── 페어 체커 ──────────────────────────────────────
 function setPL(league) {
   pLeague=league; sel=[];
@@ -352,14 +427,14 @@ function renderGrid() {
     grid.appendChild(d);
   });
   const si=document.getElementById('si'), n=sel.length;
-  if(n===0) si.innerHTML='플레이어를 <span>4명</span> 선택하면 가능한 조합이 표시돼요';
-  else if(n<4) si.innerHTML=`<span>${n}명</span> 선택됨 — ${4-n}명 더 선택해주세요`;
-  else si.innerHTML=`선택: <span>${sel.join(', ')}</span>`;
+  if(n===0) si.innerHTML='Select <span>4 players</span> to see available pair combinations';
+  else if(n<4) si.innerHTML=`<span>${n} selected</span> — please select ${4-n} more`;
+  else si.innerHTML=`Selected: <span>${sel.join(', ')}</span>`;
 }
 
 function renderCombos() {
   const box=document.getElementById('combos');
-  if(sel.length<4){ box.innerHTML='<div class="ph">⬆️ 위에서 플레이어 4명을 선택해주세요</div>'; return; }
+  if(sel.length<4){ box.innerHTML='<div class="ph">⬆️ Select 4 players above to check pair combinations</div>'; return; }
   const [a,b,c,d]=sel;
   const combos=[
     {t1:[a,b],t2:[c,d]},
