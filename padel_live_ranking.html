@@ -27,12 +27,16 @@ header { text-align:center; margin-bottom:32px; }
 .title { font-size:clamp(20px,4vw,32px); font-weight:900; }
 .title .gold { color:var(--gold); }
 .subtitle { font-size:12px; color:var(--gray); margin-top:6px; }
+
+/* 탭 */
 .tabs { display:flex; gap:8px; justify-content:center; margin-bottom:24px; flex-wrap:wrap; }
 .tab { padding:10px 24px; border-radius:4px; border:1px solid var(--border); background:transparent; color:var(--gray); font-size:14px; font-weight:600; cursor:pointer; transition:all 0.2s; }
 .tab:hover { color:var(--white); }
 .tab.t-gold.on { background:var(--green-dark); border-color:var(--green-light); color:var(--gold); }
 .tab.t-bs.on { background:linear-gradient(90deg,var(--bronze-dark),var(--silver-dark)); border-color:var(--bronze-light); color:var(--white); }
 .tab.t-pair.on { background:#12122a; border-color:#6060e0; color:#a0a0ff; }
+
+/* 공통 */
 .wrap { max-width:860px; margin:0 auto; }
 .spinner { width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px; }
 @keyframes spin { to{transform:rotate(360deg)} }
@@ -41,11 +45,15 @@ header { text-align:center; margin-bottom:32px; }
 .refresh-btn { display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid var(--border);color:var(--gray);font-size:12px;padding:6px 14px;border-radius:4px;cursor:pointer;transition:all 0.2s; }
 .refresh-btn:hover { border-color:var(--gold);color:var(--gold); }
 .updated { font-size:11px; color:var(--gray); }
+
+/* 필터 */
 .filter-row { display:flex;gap:8px;margin-bottom:14px;align-items:center; }
 .filter-btn { padding:4px 14px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--gray);font-size:12px;cursor:pointer;transition:all 0.2s; }
 .filter-btn.fa { background:#2a2a28;border-color:var(--gray);color:var(--white); }
 .filter-btn.fb { background:var(--bronze-dark);border-color:var(--bronze-light);color:var(--white); }
 .filter-btn.fs { background:var(--silver-dark);border-color:var(--silver-light);color:var(--white); }
+
+/* 테이블 */
 table { width:100%;border-collapse:collapse;font-size:13px; }
 .gh { background:var(--green-dark);border-bottom:2px solid var(--green-light); }
 .bh { background:linear-gradient(90deg,var(--bronze-dark),var(--silver-dark));border-bottom:2px solid var(--bronze); }
@@ -70,9 +78,13 @@ tbody td:nth-child(2) { text-align:left;color:var(--white);font-weight:500; }
 .sc { background:var(--silver-dark);color:var(--silver-light);border:1px solid var(--silver); }
 .wr { font-size:11px;color:var(--gray); }
 .ex { font-size:10px;color:var(--gray);background:#1a1a18;padding:2px 8px;border-radius:10px; }
+
+/* info box */
 .info-box { display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px; }
 .info-card { background:var(--card);border:1px solid var(--border);border-radius:6px;padding:14px 16px;font-size:12px;color:var(--gray);line-height:1.7; }
 .info-card strong { color:var(--white);font-size:11px;letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px; }
+
+/* 페어 체커 */
 .pair-league-sw { display:flex;gap:8px;margin-bottom:20px; }
 .plb { padding:7px 18px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--gray);font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s; }
 .plb:hover { color:var(--white); }
@@ -96,6 +108,7 @@ tbody td:nth-child(2) { text-align:left;color:var(--white);font-weight:500; }
 .cstatus.ok { background:#0e3320;color:#4ade80;border:1px solid #2d8a58; }
 .cstatus.done { background:#3a0e0e;color:#f87171;border:1px solid #8a2020; }
 .ph { text-align:center;padding:40px 20px;color:var(--gray);font-size:14px;line-height:1.9; }
+
 @media(max-width:560px) {
   .info-box { grid-template-columns:1fr; }
   .pgrid { grid-template-columns:repeat(auto-fill,minmax(85px,1fr)); }
@@ -109,11 +122,14 @@ tbody td:nth-child(2) { text-align:left;color:var(--white);font-weight:500; }
   <div class="title">Padel Society <span class="gold">i-League</span> 2026</div>
   <div class="subtitle">Season 1 · Live Ranking</div>
 </header>
+
 <div class="tabs">
   <button class="tab t-gold on" onclick="showTab('gold')">🥇 Gold+</button>
   <button class="tab t-bs" onclick="showTab('bs')">🥉 Bronze &amp; 🥈 Silver</button>
   <button class="tab t-pair" onclick="showTab('pair')">🎾 페어 체커</button>
 </div>
+
+<!-- 랭킹 패널 -->
 <div id="panel-rank" class="wrap">
   <div class="refresh-row">
     <button class="refresh-btn" onclick="loadRank()">↻ 새로고침</button>
@@ -131,6 +147,8 @@ tbody td:nth-child(2) { text-align:left;color:var(--white);font-weight:500; }
     <div class="info-box" id="ibox"></div>
   </div>
 </div>
+
+<!-- 페어 체커 패널 -->
 <div id="panel-pair" class="wrap" style="display:none">
   <div class="pair-league-sw">
     <button class="plb pg-on" id="plbg" onclick="setPL('gold')">🥇 Gold+</button>
@@ -140,31 +158,39 @@ tbody td:nth-child(2) { text-align:left;color:var(--white);font-weight:500; }
   <div class="pgrid" id="pgrid"></div>
   <div class="combos" id="combos"><div class="ph">⬆️ 위에서 플레이어 4명을 선택해주세요</div></div>
 </div>
+
 <script>
+// ── 설정 ──────────────────────────────────────────
 const SHEET = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT7pdjtoZw-fvXldKyu3SuCZULh0NsiP6xVURsLXwrH2volDhMPUqs7cnrvBEL_E5Ib5EWEH07EO38G/pub';
-const PROXY = 'https://corsproxy.io/?';
 const GID_G  = '2119811539';
 const GID_BS = '1357015090';
 const GID_MATCH_G  = '52541838';
 const GID_MATCH_BS = '896797118';
 const MIN_M  = 10, BM = 1.3;
+
+// ── 페어 체커 동적 데이터 (구글 시트에서 자동 로드) ─────────────────────
 const PLAYERS = { gold: [], bs: [] };
 const USED    = { gold: new Set(), bs: new Set() };
+
+// ── 상태 ──────────────────────────────────────────
 let curTab = 'gold', curF = 'all';
 let gData = [], bsData = [];
 let pLeague = 'gold', sel = [];
-const ckey = (a,b,c,d) => [[a,b].sort().join('|'),[c,d].sort().join('|')].sort().join('||');
+
+// ── 유틸 ──────────────────────────────────────────
+const ckey = (a,b,c,d) => [  [a,b].sort().join('|'), [c,d].sort().join('|')  ].sort().join('||');
+
 async function fetchCSV(gid, attempt=0) {
-  const proxies = ['https://corsproxy.io/?','https://api.allorigins.win/raw?url='];
-  const sheetUrl = SHEET+'?gid='+gid+'&single=true&output=csv';
-  const url = proxies[attempt%proxies.length] + encodeURIComponent(sheetUrl);
+  const proxies = ['https://corsproxy.io/?', 'https://api.allorigins.win/raw?url='];
+  const sheetUrl = `${SHEET}?gid=${gid}&single=true&output=csv`;
+  const proxy = proxies[attempt % proxies.length];
+  const url = proxy + encodeURIComponent(sheetUrl);
   try {
     const res = await fetch(url, {signal: AbortSignal.timeout(8000)});
     if (!res.ok) throw new Error('fetch failed');
     const txt = await res.text();
     if (!txt || txt.length < 10) throw new Error('empty');
-    return txt.trim().split('
-').map(line => {
+    return txt.trim().split('\n').map(line => {
       const out=[]; let cur='', q=false;
       for(const ch of line) {
         if(ch==='"'){ q=!q; }
@@ -174,26 +200,37 @@ async function fetchCSV(gid, attempt=0) {
       out.push(cur.trim()); return out;
     });
   } catch(e) {
-    if(attempt < 3) { await new Promise(r => setTimeout(r, 1000*(attempt+1))); return fetchCSV(gid, attempt+1); }
+    if(attempt < 3) {
+      await new Promise(r => setTimeout(r, 1000*(attempt+1)));
+      return fetchCSV(gid, attempt+1);
+    }
     throw e;
   }
 }
+
 function score(m,w,s,cat) {
   if(!m) return 0;
   const b=((w/m)*3+(s/m)*1)*Math.sqrt(m)*2;
   return cat==='Bronze'?b*BM:b;
 }
+
+// ── 탭 전환 ───────────────────────────────────────
 function showTab(t) {
   curTab = t;
   document.querySelectorAll('.tab').forEach(el=>el.classList.remove('on'));
   document.querySelector('.t-'+t).classList.add('on');
   document.getElementById('panel-rank').style.display = t==='pair'?'none':'block';
   document.getElementById('panel-pair').style.display = t==='pair'?'block':'none';
-  document.getElementById('frow').style.display = (t==='bs')?'flex':'none';
+  document.getElementById('frow').style.display = (!['pair'].includes(t)&&t==='bs')?'flex':'none';
   if(t!=='pair') renderRank();
 }
+
+// ── Match 탭에서 페어 데이터 파싱 ─────────────────
 function parseMatchData(rows, league) {
-  const players = new Set(), used = new Set();
+  const players = new Set();
+  const used = new Set();
+  // 헤더: Match, Date, T1_P1, T1_P2, T2_P1, T2_P2, ...
+  // 행 인덱스: 0=헤더, 1~=데이터
   for(let i=1; i<rows.length; i++) {
     const r = rows[i];
     const p1=r[2]?.trim(), p2=r[3]?.trim(), p3=r[4]?.trim(), p4=r[5]?.trim();
@@ -204,12 +241,20 @@ function parseMatchData(rows, league) {
   PLAYERS[league] = [...players].sort();
   USED[league] = used;
 }
+
+// ── 랭킹 로드 ─────────────────────────────────────
 async function loadRank() {
   document.getElementById('status').style.display='block';
   document.getElementById('status').innerHTML='<div class="spinner"></div>데이터 불러오는 중...';
   document.getElementById('rank-wrap').style.display='none';
   try {
-    const [gr, br, mgr, mbsr] = await Promise.all([fetchCSV(GID_G), fetchCSV(GID_BS), fetchCSV(GID_MATCH_G), fetchCSV(GID_MATCH_BS)]);
+    const [gr, br, mgr, mbsr] = await Promise.all([
+      fetchCSV(GID_G),
+      fetchCSV(GID_BS),
+      fetchCSV(GID_MATCH_G),
+      fetchCSV(GID_MATCH_BS)
+    ]);
+
     gData=[];
     for(let i=3;i<gr.length;i++){
       const r=gr[i]; if(!r[1])continue;
@@ -217,6 +262,7 @@ async function loadRank() {
       gData.push({name:r[1],m,w,l,s,pts:score(m,w,s,null)});
     }
     gData.sort((a,b)=>b.pts-a.pts);
+
     bsData=[];
     for(let i=3;i<br.length;i++){
       const r=br[i]; if(!r[1])continue;
@@ -224,71 +270,81 @@ async function loadRank() {
       bsData.push({name:r[1],cat,m,w,l,s,cpts,pts:score(m,w,s,cat)});
     }
     bsData.sort((a,b)=>b.pts-a.pts);
+
+    // 페어 체커 데이터 동적 로드
     parseMatchData(mgr, 'gold');
     parseMatchData(mbsr, 'bs');
     renderGrid();
+
     document.getElementById('updated').textContent='마지막 업데이트: '+new Date().toLocaleTimeString('ko-KR');
     document.getElementById('status').style.display='none';
     document.getElementById('rank-wrap').style.display='block';
     renderRank();
   } catch(e) {
-    document.getElementById('status').innerHTML='<div style="color:#f87171;margin-bottom:12px">⚠️ 데이터를 불러올 수 없어요</div><button class="refresh-btn" style="margin-top:12px" onclick="loadRank()">↻ 다시 시도</button>';
+    document.getElementById('status').innerHTML=`<div style="color:#f87171;margin-bottom:12px">⚠️ 데이터를 불러올 수 없어요</div><button class="refresh-btn" style="margin-top:12px" onclick="loadRank()">↻ 다시 시도</button>`;
   }
 }
+
 function setF(f,btn) {
   curF=f;
   document.querySelectorAll('.filter-btn').forEach(b=>b.className='filter-btn');
   btn.classList.add(f==='all'?'fa':f==='bronze'?'fb':'fs');
   renderRank();
 }
+
 function renderRank() {
   const th=document.getElementById('thead'), tb=document.getElementById('tbody'), ib=document.getElementById('ibox');
   if(curTab==='gold') {
-    th.innerHTML='<tr class="gh"><th>Rank</th><th>Player</th><th>M</th><th>W</th><th>L</th><th>S</th><th>승률</th><th>Points</th></tr>';
+    th.innerHTML=`<tr class="gh"><th>Rank</th><th>Player</th><th>M</th><th>W</th><th>L</th><th>S</th><th>승률</th><th>Points</th></tr>`;
     tb.innerHTML=''; let rk=0;
     gData.forEach(p=>{
       const ok=p.m>=MIN_M; if(ok)rk++;
-      const rc=ok&&rk<=3?'r'+rk:''; const wr=Math.round(p.w/p.m*100)+'%';
+      const rc=ok&&rk<=3?`r${rk}`:''; const wr=Math.round(p.w/p.m*100)+'%';
       const tr=document.createElement('tr'); if(!ok)tr.classList.add('excluded');
-      tr.innerHTML='<td><span class="rn '+rc+'">'+(ok?rk:'—')+'</span></td><td>'+p.name+'</td><td>'+p.m+'</td><td>'+p.w+'</td><td>'+p.l+'</td><td>'+p.s+'</td><td class="wr">'+wr+'</td><td class="'+(ok?'pg':'')+'">'+(ok?p.pts.toFixed(2):'<span class="ex">10경기 미만</span>')+'</td>';
+      tr.innerHTML=`<td><span class="rn ${rc}">${ok?rk:'—'}</span></td><td>${p.name}</td><td>${p.m}</td><td>${p.w}</td><td>${p.l}</td><td>${p.s}</td><td class="wr">${wr}</td><td class="${ok?'pg':''}">${ok?p.pts.toFixed(2):'<span class="ex">10경기 미만</span>'}</td>`;
       tb.appendChild(tr);
     });
     const q=gData.filter(p=>p.m>=MIN_M);
-    ib.innerHTML='<div class="info-card"><strong>🥇 Gold+ 공식</strong>( W/M×3 + S/M×1 ) × √M × 2<br>최소 '+MIN_M+'경기 이상 랭킹 등재</div><div class="info-card"><strong>📊 현황</strong>랭킹 등재: '+q.length+'명 / 전체 '+gData.length+'명<br>1위: '+(q[0]?.name||'-')+' ('+(q[0]?.pts.toFixed(2)||'-')+'pts)</div>';
+    ib.innerHTML=`<div class="info-card"><strong>🥇 Gold+ 공식</strong>( W/M×3 + S/M×1 ) × √M × 2<br>최소 ${MIN_M}경기 이상 랭킹 등재</div><div class="info-card"><strong>📊 현황</strong>랭킹 등재: ${q.length}명 / 전체 ${gData.length}명<br>1위: ${q[0]?.name||'-'} (${q[0]?.pts.toFixed(2)||'-'}pts)</div>`;
   } else {
-    th.innerHTML='<tr class="bh"><th>Rank</th><th>Player</th><th>Cat</th><th>M</th><th>W</th><th>L</th><th>S</th><th>승률</th><th>C Pts</th><th>Points</th></tr>';
+    th.innerHTML=`<tr class="bh"><th>Rank</th><th>Player</th><th>Cat</th><th>M</th><th>W</th><th>L</th><th>S</th><th>승률</th><th>C Pts</th><th>Points</th></tr>`;
     tb.innerHTML='';
     const fd=curF==='all'?bsData:bsData.filter(p=>p.cat?.toLowerCase()===curF);
     let rk=0;
     fd.forEach(p=>{
       const ok=p.m>=MIN_M; if(ok)rk++;
-      const rc=ok&&rk<=3?'r'+rk:''; const wr=Math.round(p.w/p.m*100)+'%';
+      const rc=ok&&rk<=3?`r${rk}`:''; const wr=Math.round(p.w/p.m*100)+'%';
       const ib2=p.cat==='Bronze';
       const tr=document.createElement('tr'); tr.className=ib2?'bronze-row':'silver-row'; if(!ok)tr.classList.add('excluded');
-      tr.innerHTML='<td><span class="rn '+rc+'">'+(ok?rk:'—')+'</span></td><td>'+p.name+'</td><td><span class="badge '+(ib2?'bc':'sc')+'">'+p.cat+'</span></td><td>'+p.m+'</td><td>'+p.w+'</td><td>'+p.l+'</td><td>'+p.s+'</td><td class="wr">'+wr+'</td><td style="color:var(--gold);font-size:12px">'+(p.cpts||0)+'</td><td class="'+(ok?(ib2?'pb':'ps'):'')+'">'+(ok?p.pts.toFixed(2):'<span class="ex">10경기 미만</span>')+'</td>';
+      tr.innerHTML=`<td><span class="rn ${rc}">${ok?rk:'—'}</span></td><td>${p.name}</td><td><span class="badge ${ib2?'bc':'sc'}">${p.cat}</span></td><td>${p.m}</td><td>${p.w}</td><td>${p.l}</td><td>${p.s}</td><td class="wr">${wr}</td><td style="color:var(--gold);font-size:12px">${p.cpts||0}</td><td class="${ok?(ib2?'pb':'ps'):''}">${ok?p.pts.toFixed(2):'<span class="ex">10경기 미만</span>'}</td>`;
       tb.appendChild(tr);
     });
     const q=bsData.filter(p=>p.m>=MIN_M);
     const bt=q.find(p=>p.cat==='Bronze'), st=q.find(p=>p.cat==='Silver');
-    ib.innerHTML='<div class="info-card"><strong>🥉 Bronze &amp; 🥈 Silver 공식</strong>Bronze: ( W/M×3 + S/M×1 ) × √M × 2 × <span style="color:var(--gold)">1.3</span><br>Silver: ( W/M×3 + S/M×1 ) × √M × 2<br>최소 '+MIN_M+'경기 이상 랭킹 등재</div><div class="info-card"><strong>📊 현황</strong>🥉 Bronze 1위: '+(bt?.name||'-')+' ('+(bt?.pts.toFixed(2)||'-')+'pts)<br>🥈 Silver 1위: '+(st?.name||'-')+' ('+(st?.pts.toFixed(2)||'-')+'pts)</div>';
+    ib.innerHTML=`<div class="info-card"><strong>🥉 Bronze &amp; 🥈 Silver 공식</strong>Bronze: ( W/M×3 + S/M×1 ) × √M × 2 × <span style="color:var(--gold)">1.3</span><br>Silver: ( W/M×3 + S/M×1 ) × √M × 2<br>최소 ${MIN_M}경기 이상 랭킹 등재</div><div class="info-card"><strong>📊 현황</strong>🥉 Bronze 1위: ${bt?.name||'-'} (${bt?.pts.toFixed(2)||'-'}pts)<br>🥈 Silver 1위: ${st?.name||'-'} (${st?.pts.toFixed(2)||'-'}pts)</div>`;
   }
 }
+
+// ── 페어 체커 ──────────────────────────────────────
 function setPL(league) {
   pLeague=league; sel=[];
   document.getElementById('plbg').className='plb'+(league==='gold'?' pg-on':'');
   document.getElementById('plbb').className='plb'+(league==='bs'?' pb-on':'');
   renderGrid(); renderCombos();
 }
+
 function toggle(name) {
   if(sel.includes(name)) { sel=sel.filter(p=>p!==name); }
   else { if(sel.length>=4) return; sel.push(name); }
   renderGrid(); renderCombos();
 }
+
 function renderGrid() {
   const grid=document.getElementById('pgrid');
   grid.innerHTML='';
   [...PLAYERS[pLeague]].sort().forEach(name=>{
-    const isOn=sel.includes(name), isOff=sel.length>=4&&!isOn;
+    const isOn=sel.includes(name);
+    const isOff=sel.length>=4&&!isOn;
     const d=document.createElement('div');
     d.className='chip'+(isOn?' on':'')+(isOff?' off':'');
     d.textContent=name;
@@ -297,24 +353,31 @@ function renderGrid() {
   });
   const si=document.getElementById('si'), n=sel.length;
   if(n===0) si.innerHTML='플레이어를 <span>4명</span> 선택하면 가능한 조합이 표시돼요';
-  else if(n<4) si.innerHTML='<span>'+n+'명</span> 선택됨 — '+(4-n)+'명 더 선택해주세요';
-  else si.innerHTML='선택: <span>'+sel.join(', ')+'</span>';
+  else if(n<4) si.innerHTML=`<span>${n}명</span> 선택됨 — ${4-n}명 더 선택해주세요`;
+  else si.innerHTML=`선택: <span>${sel.join(', ')}</span>`;
 }
+
 function renderCombos() {
   const box=document.getElementById('combos');
   if(sel.length<4){ box.innerHTML='<div class="ph">⬆️ 위에서 플레이어 4명을 선택해주세요</div>'; return; }
   const [a,b,c,d]=sel;
-  const combos=[{t1:[a,b],t2:[c,d]},{t1:[a,c],t2:[b,d]},{t1:[a,d],t2:[b,c]}]
-    .map(co=>({...co, used:USED[pLeague].has(ckey(co.t1[0],co.t1[1],co.t2[0],co.t2[1]))}))
-    .sort((x,y)=>x.used-y.used);
+  const combos=[
+    {t1:[a,b],t2:[c,d]},
+    {t1:[a,c],t2:[b,d]},
+    {t1:[a,d],t2:[b,c]},
+  ].map(co=>({...co, used:USED[pLeague].has(ckey(co.t1[0],co.t1[1],co.t2[0],co.t2[1]))}))
+   .sort((x,y)=>x.used-y.used);
+
   box.innerHTML='';
   combos.forEach(co=>{
     const div=document.createElement('div');
     div.className='ccard '+(co.used?'done':'ok');
-    div.innerHTML='<div class="cteams"><div class="tnames">'+co.t1[0]+' / '+co.t1[1]+'</div><div class="vs">VS</div><div class="tnames">'+co.t2[0]+' / '+co.t2[1]+'</div></div><div class="cstatus '+(co.used?'done':'ok')+'">'+(co.used?'✕ 이미 진행함':'✓ 가능')+'</div>';
+    div.innerHTML=`<div class="cteams"><div class="tnames">${co.t1[0]} / ${co.t1[1]}</div><div class="vs">VS</div><div class="tnames">${co.t2[0]} / ${co.t2[1]}</div></div><div class="cstatus ${co.used?'done':'ok'}">${co.used?'✕ 이미 진행함':'✓ 가능'}</div>`;
     box.appendChild(div);
   });
 }
+
+// ── 초기화 ────────────────────────────────────────
 renderGrid();
 loadRank();
 </script>
