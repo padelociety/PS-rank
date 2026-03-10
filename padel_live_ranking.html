@@ -320,7 +320,7 @@ async function loadRank() {
       return out;
     }
     recentData = [...parseMatches(mgr,'G+'), ...parseMatches(mbsr,'BS')];
-    recentData.sort((a,b)=>b.date.localeCompare(a.date));
+    recentData.sort((a,b)=> b.date.localeCompare(a.date) || +b.match - +a.match);
     recentData = recentData.slice(0,10);
 
     document.getElementById('updated').textContent='마지막 업데이트: '+new Date().toLocaleTimeString('ko-KR');
