@@ -614,7 +614,7 @@ body {
   <div class="recent-header">
     <div>
       <div class="section-title gold" style="font-size:24px">최근 경기</div>
-      <div class="section-subtitle">Gold+ · B&S 합산 최근 10경기</div>
+      <div class="section-subtitle">Gold+ · B&S 합산 최근 20경기</div>
     </div>
     <span class="updated-tag" id="updated-recent"></span>
   </div>
@@ -777,7 +777,7 @@ async function loadData() {
     }
     recentData = [...parseMatches(mgr, 'G+'), ...parseMatches(mbsr, 'BS')];
     recentData.sort((a, b) => b.date.localeCompare(a.date) || +b.match - +a.match);
-    recentData = recentData.slice(0, 10);
+    recentData = recentData.slice(0, 20);
 
     const now = new Date().toLocaleTimeString('ko-KR');
     document.getElementById('updated-recent').textContent = now + ' 업데이트';
