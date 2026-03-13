@@ -740,6 +740,15 @@ function renderTeamDisplay() {
         ${teamB.map(p=>`<div class="team-player">${p}</div>`).join('')}
       </div>
     </div>`;
+
+  // 팀 이름 Firebase에 미리 반영
+  window._teamA = teamA;
+  window._teamB = teamB;
+  window._sets = sets;
+  window._curSet = 0;
+  setTimeout(() => {
+    if(typeof window.syncToFirebase === 'function') window.syncToFirebase();
+  }, 800);
 }
 
 function reshuffleTeams() {
@@ -795,10 +804,10 @@ function adjustScore(i, team, delta) {
   const el = document.getElementById(`score-${team}`);
   if(el) el.textContent = sets[i][team];
   // Firebase 동기화
-  window.sets = sets;
-  window.curSet = curSet;
-  window.teamA = teamA;
-  window.teamB = teamB;
+  window._sets = sets;
+  window._curSet = curSet;
+  window._teamA = teamA;
+  window._teamB = teamB;
   if(typeof window.syncToFirebase === 'function') window.syncToFirebase();
 }
 
@@ -876,10 +885,10 @@ async function goNext() {
     sets=[{a:0,b:0}];
     curSet=0;
     curStep=4;
-    window.sets = sets;
-    window.curSet = curSet;
-    window.teamA = teamA;
-    window.teamB = teamB;
+    window._sets = sets;
+    window._curSet = curSet;
+    window._teamA = teamA;
+    window._teamB = teamB;
     renderStep();
     renderScoreSection();
     // 팀 이름 Firebase에 반영
@@ -912,6 +921,53 @@ function showToast(msg) {
 
 // ── 초기화 ──────────────────────────────────────────────────
 renderStep();
+</script>
+
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBkrib1qzN8IE9NcW8tXTfKb4Z6JsOjcvE",
+  authDomain: "ps-score-868bb.firebaseapp.com",
+  databaseURL: "https://ps-score-868bb-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "ps-score-868bb",
+  storageBucket: "ps-score-868bb.firebasestorage.app",
+  messagingSenderId: "48470302084",
+  appId: "1:48470302084:web:b037acc0b58f7e85d191d1"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const sbRef = ref(db, 'scoreboard');
+
+let fbState = null;
+onValue(sbRef, snap => {
+  fbState = snap.val();
+});
+
+window.syncToFirebase = function() {
+  if (!fbState) return;
+  const s = window._sets || [];
+  const cs = window._curSet || 0;
+  const tA = window._teamA || [];
+  const tB = window._teamB || [];
+  const updated = {
+    ...fbState,
+    a: {
+      ...fbState.a,
+      name: tA.join(' / ') || fbState.a.name,
+      game: s[cs]?.a ?? fbState.a.game,
+    },
+    b: {
+      ...fbState.b,
+      name: tB.join(' / ') || fbState.b.name,
+      game: s[cs]?.b ?? fbState.b.game,
+    },
+  };
+  set(sbRef, updated);
+};
 </script>
 </body>
 </html>
