@@ -843,8 +843,10 @@ async function saveMatch() {
       t2p1: teamB[0], t2p2: teamB[1],
       sets: fullSets,
     };
+    // Apps Script는 no-cors로 전송 (응답 확인 불가지만 저장은 됨)
     await fetch(APPS_SCRIPT_URL, {
       method: 'POST',
+      mode: 'no-cors',
       body: JSON.stringify(payload),
     });
     showDone(today, scoreStr);
@@ -906,10 +908,8 @@ function goBack() {
 }
 
 function resetAll() {
-  curStep=1; league=null; players=[]; selPlayers=[]; teamA=[]; teamB=[]; sets=[{a:0,b:0}];
-  document.getElementById('footer').innerHTML = `
-    <button class="btn btn-back" id="btn-back" onclick="goBack()" style="display:none">← 뒤로</button>
-    <button class="btn btn-primary" id="btn-next" onclick="goNext()" disabled>다음</button>`;
+  curStep=1; league=null; players=[]; selPlayers=[]; teamA=[]; teamB=[]; sets=[{a:0,b:0}]; curSet=0;
+  window._sets=[{a:0,b:0}]; window._curSet=0; window._teamA=[]; window._teamB=[];
   renderStep();
 }
 
