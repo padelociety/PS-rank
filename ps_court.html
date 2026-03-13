@@ -468,6 +468,7 @@ body {
     <div class="header-sub">MATCH SETUP</div>
   </div>
   <div class="header-right">
+    <div id="fb-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:4px">🔴 Firebase 연결 중...</div>
     <div class="step-indicator" id="step-label">STEP 1 / 4</div>
     <div class="step-dots">
       <div class="step-dot active" id="dot-1"></div>
@@ -943,12 +944,27 @@ const db = getDatabase(app);
 const sbRef = ref(db, 'scoreboard');
 
 let fbState = null;
+
+const connRef = ref(db, '.info/connected');
+onValue(connRef, snap => {
+  const ok = snap.val() === true;
+  const el = document.getElementById('fb-status');
+  if(el) el.textContent = ok ? '🟢 Firebase 연결됨' : '🔴 Firebase 연결 중...';
+  if(el) el.style.color = ok ? 'var(--green)' : 'var(--text-dim)';
+});
+
 onValue(sbRef, snap => {
   fbState = snap.val();
+  const el = document.getElementById('fb-status');
+  if(el && fbState) el.textContent = '🟢 Firebase 연결됨';
 });
 
 window.syncToFirebase = function() {
-  if (!fbState) return;
+  const el = document.getElementById('fb-status');
+  if (!fbState) {
+    if(el) el.textContent = '⚠️ fbState 없음';
+    return;
+  }
   const s = window._sets || [];
   const cs = window._curSet || 0;
   const tA = window._teamA || [];
@@ -966,7 +982,11 @@ window.syncToFirebase = function() {
       game: s[cs]?.b ?? fbState.b.game,
     },
   };
-  set(sbRef, updated);
+  set(sbRef, updated).then(() => {
+    if(el) el.textContent = `🟢 동기화됨 (${s[cs]?.a ?? 0}-${s[cs]?.b ?? 0})`;
+  }).catch(err => {
+    if(el) el.textContent = '🔴 오류: ' + err.message;
+  });
 };
 </script>
 </body>
