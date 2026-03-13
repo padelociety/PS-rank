@@ -862,7 +862,6 @@ async function saveMatch() {
   ];
 
   try {
-    // 이미지 태그 GET 방식 — CORS 완전 우회
     const params = new URLSearchParams({
       league,
       date: today,
@@ -872,12 +871,13 @@ async function saveMatch() {
       s2a: fullSets[1].a, s2b: fullSets[1].b,
       s3a: fullSets[2].a, s3b: fullSets[2].b,
     });
-    await new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = img.onerror = resolve; // 응답 타입 관계없이 성공
-      img.src = `${APPS_SCRIPT_URL}?${params}`;
-      setTimeout(resolve, 5000); // 5초 타임아웃
+    const res = await fetch(`${APPS_SCRIPT_URL}?${params}`, {
+      method: 'GET',
+      credentials: 'omit',
+      redirect: 'follow',
     });
+    const json = await res.json();
+    if(!json.success) throw new Error(json.error || '저장 실패');
     showDone(today, scoreStr);
   } catch(e) {
     showToast('⚠️ 저장 실패: ' + e.message);
@@ -932,6 +932,8 @@ function goBack() {
 function resetAll() {
   curStep=1; league=null; players=[]; selPlayers=[]; teamA=[]; teamB=[]; sets=[{a:0,b:0}]; curSet=0;
   window._sets=[{a:0,b:0}]; window._curSet=0; window._teamA=[]; window._teamB=[];
+  const sec = document.getElementById('score-section');
+  if(sec) sec.innerHTML = '';
   renderStep();
 }
 
