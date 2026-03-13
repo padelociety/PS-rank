@@ -683,7 +683,9 @@ function renderStep() {
   } else if(curStep===3){
     footer.innerHTML=`<button class="btn btn-back" onclick="goBack()">← 뒤로</button><button class="btn btn-shuffle" onclick="reshuffleTeams()">🔀 다시 뽑기</button><button class="btn btn-primary" onclick="goNext()">스코어 입력 →</button>`;
   } else if(curStep===4){
-    footer.innerHTML=`<button class="btn btn-back" onclick="goBack()">← 뒤로</button><button class="btn btn-save" onclick="saveMatch()">💾 경기 저장</button>`;
+    const canNextSet = sets.length < 3 && curSet === sets.length - 1;
+    const nextSetBtn = canNextSet ? `<button class="btn btn-shuffle" onclick="nextSet()">➡️ 세트 완료</button>` : '';
+    footer.innerHTML=`<button class="btn btn-back" onclick="goBack()">← 뒤로</button>${nextSetBtn}<button class="btn btn-save" onclick="saveMatch()">💾 경기 저장</button>`;
   } else if(curStep===5){
     footer.innerHTML=`<button class="btn btn-primary" style="background:var(--gold);color:#000;flex:1" onclick="resetAll()">🎾 새 경기 시작</button>`;
   }
@@ -787,7 +789,7 @@ function renderScoreBoard() {
 
   const tabsHtml = sets.map((s,i) => `
     <button class="set-tab ${i===curSet?'active':''}" onclick="switchSet(${i})">${i+1}세트</button>
-  `).join('') + (sets.length < 3 ? `<button class="set-tab-add" onclick="addSet()">+</button>` : '');
+  `).join('');
 
   // curSet을 숫자로 고정해서 inline onclick에 넣음
   const cs = curSet;
@@ -831,6 +833,16 @@ function addSet() {
   sets.push({a:0,b:0});
   curSet = sets.length - 1;
   renderScoreBoard();
+  pushToFirebase();
+}
+
+function nextSet() {
+  if(sets.length >= 3) return;
+  // 현재 세트 점수를 완료된 세트로 확정하고 새 세트 추가
+  sets.push({a:0, b:0});
+  curSet = sets.length - 1;
+  renderScoreBoard();
+  renderStep(); // 푸터 버튼 업데이트
   pushToFirebase();
 }
 
