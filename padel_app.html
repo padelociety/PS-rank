@@ -677,45 +677,36 @@ let pLeague = 'gold', sel = [];
 const ckey = (a,b,c,d) => [[a,b].sort().join('|'),[c,d].sort().join('|')].sort().join('||');
 
 // ── CSV 패치 (proxy 순차 시도) ─────────────────────────────
-const PROXIES = [
-  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-  url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-  url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-];
-
-async function fetchCSV(gid) {
+async function fetchCSV(gid, attempt=0) {
   const sheetUrl = `${SHEET}?gid=${gid}&single=true&output=csv`;
-  let lastErr;
-  for (let i = 0; i < PROXIES.length; i++) {
-    const proxyUrl = PROXIES[i](sheetUrl);
-    try {
-      const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(9000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const txt = await res.text();
-      if (!txt || txt.length < 10) throw new Error('empty response');
-      // HTML 에러 페이지 걸러내기
-      if (txt.trim().startsWith('<')) throw new Error('got HTML instead of CSV');
-      return parseCSV(txt);
-    } catch(e) {
-      lastErr = e;
-      console.warn(`Proxy ${i} failed (${PROXIES[i](sheetUrl).split('?')[0]}):`, e.message);
-      await new Promise(r => setTimeout(r, 800));
+  const proxies = [
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(sheetUrl)}`,
+    `https://thingproxy.freeboard.io/fetch/${sheetUrl}`,
+    `https://corsproxy.io/?${encodeURIComponent(sheetUrl)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(sheetUrl)}`,
+  ];
+  const url = proxies[attempt % proxies.length];
+  try {
+    const res = await fetch(url, {signal: AbortSignal.timeout(10000)});
+    if (!res.ok) throw new Error('fetch failed ' + res.status);
+    const txt = await res.text();
+    if (!txt || txt.length < 10) throw new Error('empty');
+    return txt.trim().split('\n').map(line => {
+      const out=[]; let cur='', q=false;
+      for(const ch of line) {
+        if(ch==='"'){ q=!q; }
+        else if(ch===','&&!q){ out.push(cur.trim()); cur=''; }
+        else cur+=ch;
+      }
+      out.push(cur.trim()); return out;
+    });
+  } catch(e) {
+    if(attempt < 3) {
+      await new Promise(r => setTimeout(r, 800*(attempt+1)));
+      return fetchCSV(gid, attempt+1);
     }
+    throw e;
   }
-  throw lastErr || new Error('All proxies failed');
-}
-
-function parseCSV(txt) {
-  return txt.trim().split('\n').map(line => {
-    const out = []; let cur = '', q = false;
-    for (const ch of line) {
-      if (ch === '"') { q = !q; }
-      else if (ch === ',' && !q) { out.push(cur.trim()); cur = ''; }
-      else cur += ch;
-    }
-    out.push(cur.trim());
-    return out;
-  });
 }
 
 function score(m, w, s, cat) {
