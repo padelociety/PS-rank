@@ -548,7 +548,7 @@ const GID_MATCH_G  = '52541838';
 const GID_MATCH_BS = '896797118';
 
 // !! Apps Script URL — 나중에 설정 후 여기에 입력
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx39r5z7b6AZJCrllzyrnyf2Hg_nq62JYowjCgyEX0xd4TvgdbNuozJIPev455OcLjtuw/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbypETUGCD1AmSDoOCHWJv2N3myAHomeDqPpvnii8gYMkh-JRt5AvIpejFMqYi5PuZF_Rw/exec';
 
 // ── 상태 ───────────────────────────────────────────────────
 let curStep = 1;
@@ -862,21 +862,22 @@ async function saveMatch() {
   ];
 
   try {
-    const payload = {
+    // 이미지 태그 GET 방식 — CORS 완전 우회
+    const params = new URLSearchParams({
       league,
       date: today,
-      t1p1: teamA[0], t1p2: teamA[1],
-      t2p1: teamB[0], t2p2: teamB[1],
-      sets: fullSets,
-    };
-    // no-cors: 응답 못 받지만 저장은 됨 — 2초 후 성공 처리
-    fetch(APPS_SCRIPT_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload),
+      t1p1: teamA[0]||'', t1p2: teamA[1]||'',
+      t2p1: teamB[0]||'', t2p2: teamB[1]||'',
+      s1a: fullSets[0].a, s1b: fullSets[0].b,
+      s2a: fullSets[1].a, s2b: fullSets[1].b,
+      s3a: fullSets[2].a, s3b: fullSets[2].b,
     });
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = img.onerror = resolve; // 응답 타입 관계없이 성공
+      img.src = `${APPS_SCRIPT_URL}?${params}`;
+      setTimeout(resolve, 5000); // 5초 타임아웃
+    });
     showDone(today, scoreStr);
   } catch(e) {
     showToast('⚠️ 저장 실패: ' + e.message);
