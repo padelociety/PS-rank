@@ -769,27 +769,30 @@ function renderScoreSection() {
 function renderScoreBoard() {
   const wrap = document.getElementById('score-wrap');
   if(!wrap) return;
+
   const tabsHtml = sets.map((s,i) => `
-    <button class="set-tab ${i===curSet?'active ':'' }" onclick="switchSet(${i})">${i+1}세트</button>
+    <button class="set-tab ${i===curSet?'active':''}" onclick="switchSet(${i})">${i+1}세트</button>
   `).join('') + (sets.length < 3 ? `<button class="set-tab-add" onclick="addSet()">+</button>` : '');
 
+  // curSet을 숫자로 고정해서 inline onclick에 넣음
+  const cs = curSet;
   wrap.innerHTML = `
     <div class="set-tabs">${tabsHtml}</div>
     <div class="score-board">
       <div class="score-side side-a">
         <div class="score-side-name">${teamA.join('<br>')}</div>
-        <div class="score-big" id="score-a">${sets[curSet].a}</div>
+        <div class="score-big" id="score-a">${sets[cs].a}</div>
         <div class="score-btns">
-          <button class="score-btn" onclick="adjustScore(curSet,'a',-1)">−</button>
-          <button class="score-btn plus" onclick="adjustScore(curSet,'a',1)">+</button>
+          <button class="score-btn" onclick="adjustScore(${cs},'a',-1)">−</button>
+          <button class="score-btn plus" onclick="adjustScore(${cs},'a',1)">+</button>
         </div>
       </div>
       <div class="score-side side-b">
         <div class="score-side-name">${teamB.join('<br>')}</div>
-        <div class="score-big" id="score-b">${sets[curSet].b}</div>
+        <div class="score-big" id="score-b">${sets[cs].b}</div>
         <div class="score-btns">
-          <button class="score-btn" onclick="adjustScore(curSet,'b',-1)">−</button>
-          <button class="score-btn plus" onclick="adjustScore(curSet,'b',1)">+</button>
+          <button class="score-btn" onclick="adjustScore(${cs},'b',-1)">−</button>
+          <button class="score-btn plus" onclick="adjustScore(${cs},'b',1)">+</button>
         </div>
       </div>
     </div>`;
@@ -806,7 +809,7 @@ function adjustScore(i, team, delta) {
   if(el) el.textContent = sets[i][team];
   // Firebase 동기화
   window._sets = sets;
-  window._curSet = curSet;
+  window._curSet = i;
   window._teamA = teamA;
   window._teamB = teamB;
   if(typeof window.syncToFirebase === 'function') window.syncToFirebase();
