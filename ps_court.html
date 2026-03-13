@@ -241,87 +241,103 @@ body {
 }
 
 /* ── STEP 4: 스코어 ── */
-.score-section { max-width: 700px; }
-.score-teams {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 28px;
-  text-align: center;
-}
-.score-team-name { font-size: 20px; font-weight: 800; line-height: 1.4; }
-.score-vs { font-family: 'Bebas Neue', sans-serif; font-size: 28px; color: var(--text-dim); }
-
-.set-row {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 20px 24px;
-  margin-bottom: 12px;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 16px;
-}
-.set-label {
-  grid-column: 1/-1;
-  font-family: 'Bebas Neue', sans-serif;
-  font-size: 16px;
-  letter-spacing: 2px;
-  color: var(--text-dim);
-  margin-bottom: 8px;
-}
-.score-ctrl {
+/* ── 스코어 입력 (앱 스타일) ── */
+.score-wrap {
   display: flex;
-  align-items: center;
-  gap: 16px;
-  justify-content: center;
+  flex-direction: column;
+  height: 100%;
+  gap: 0;
 }
-.score-btn {
-  width: 56px; height: 56px;
-  border-radius: 50%;
-  border: 2px solid var(--border);
+.set-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.set-tab {
+  flex: 1;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
   background: var(--surface2);
-  color: var(--text);
-  font-size: 28px;
+  color: var(--text-dim);
+  font-family: 'Pretendard', sans-serif;
+  font-size: 15px;
   font-weight: 700;
   cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  transition: all 0.15s;
-  font-family: 'Pretendard', sans-serif;
-  -webkit-tap-highlight-color: transparent;
-}
-.score-btn:active { transform: scale(0.9); background: var(--surface3); }
-.score-num {
-  font-family: 'Bebas Neue', sans-serif;
-  font-size: 52px;
-  line-height: 1;
-  min-width: 48px;
-  text-align: center;
-  color: var(--text);
-}
-.score-separator {
-  font-family: 'Bebas Neue', sans-serif;
-  font-size: 36px;
-  color: var(--text-dim);
+  transition: all 0.2s;
   text-align: center;
 }
-.add-set-btn {
-  width: 100%;
-  padding: 18px;
+.set-tab.active { background: var(--surface3); border-color: var(--gold); color: var(--gold); }
+.set-tab-add {
+  flex: 0 0 auto;
+  padding: 12px 16px;
   border-radius: var(--radius-sm);
-  border: 2px dashed var(--border);
+  border: 1px dashed var(--border);
   background: transparent;
   color: var(--text-dim);
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 20px;
   cursor: pointer;
   font-family: 'Pretendard', sans-serif;
   transition: all 0.2s;
-  margin-bottom: 12px;
 }
-.add-set-btn:active { background: var(--surface); }
+.set-tab-add:active { background: var(--surface); }
+
+.score-board {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  flex: 1;
+}
+.score-side {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 20px 12px;
+}
+.score-side.side-a { border-color: rgba(46,204,113,0.3); }
+.score-side.side-b { border-color: rgba(245,200,66,0.25); }
+.score-side-name {
+  font-size: 16px;
+  font-weight: 800;
+  text-align: center;
+  line-height: 1.4;
+}
+.score-side.side-a .score-side-name { color: var(--green); }
+.score-side.side-b .score-side-name { color: var(--gold); }
+.score-big {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 96px;
+  line-height: 1;
+  color: var(--text);
+}
+.score-side.side-a .score-big { color: var(--green); }
+.score-side.side-b .score-big { color: var(--gold); }
+.score-btns {
+  display: flex;
+  gap: 12px;
+}
+.score-btn {
+  width: 64px; height: 64px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 32px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.1s;
+  font-family: 'Pretendard', sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.score-btn:active { transform: scale(0.92); background: var(--surface3); }
+.score-btn.plus { background: var(--surface3); font-size: 36px; }
 
 /* ── 푸터 버튼 ── */
 .footer {
@@ -500,9 +516,8 @@ body {
   </div>
 
   <!-- STEP 4: 스코어 입력 -->
-  <div class="screen" id="screen-4">
-    <div class="screen-title">스코어 입력</div>
-    <div class="score-section" id="score-section"></div>
+  <div class="screen" id="screen-4" style="display:flex;flex-direction:column;height:100%">
+    <div class="score-section" id="score-section" style="flex:1;display:flex;flex-direction:column;"></div>
   </div>
 
   <!-- STEP 5: 완료 -->
@@ -732,47 +747,66 @@ function reshuffleTeams() {
   renderTeamDisplay();
 }
 
-// ── STEP 4: 스코어 렌더 (게임 단위) ───────────────────────
+// ── STEP 4: 스코어 렌더 (앱 스타일) ──────────────────────
+let curSet = 0;
+
 function renderScoreSection() {
   const sec = document.getElementById('score-section');
-  sec.innerHTML = `
-    <div class="score-teams">
-      <div class="score-team-name" style="color:var(--green)">${teamA.join('<br>')}</div>
-      <div class="score-vs">VS</div>
-      <div class="score-team-name" style="color:var(--gold)">${teamB.join('<br>')}</div>
-    </div>
-    ${sets.map((s,i)=>renderSetRow(i)).join('')}
-    ${sets.length < 3 ? `<button class="add-set-btn" onclick="addSet()">+ ${sets.length+1}세트 추가</button>` : ''}`;
+  sec.innerHTML = `<div class="score-wrap" id="score-wrap"></div>`;
+  renderScoreBoard();
 }
 
-function renderSetRow(i) {
-  return `
-    <div class="set-row" id="set-row-${i}">
-      <div class="set-label">${i+1}세트</div>
-      <div class="score-ctrl">
-        <button class="score-btn" onclick="adjustScore(${i},'a',-1)">−</button>
-        <div class="score-num" id="score-a-${i}">${sets[i].a}</div>
-        <button class="score-btn" onclick="adjustScore(${i},'a',1)">+</button>
+function renderScoreBoard() {
+  const wrap = document.getElementById('score-wrap');
+  if(!wrap) return;
+  const tabsHtml = sets.map((s,i) => `
+    <button class="set-tab ${i===curSet?'active ':'' }" onclick="switchSet(${i})">${i+1}세트</button>
+  `).join('') + (sets.length < 3 ? `<button class="set-tab-add" onclick="addSet()">+</button>` : '');
+
+  wrap.innerHTML = `
+    <div class="set-tabs">${tabsHtml}</div>
+    <div class="score-board">
+      <div class="score-side side-a">
+        <div class="score-side-name">${teamA.join('<br>')}</div>
+        <div class="score-big" id="score-a">${sets[curSet].a}</div>
+        <div class="score-btns">
+          <button class="score-btn" onclick="adjustScore(curSet,'a',-1)">−</button>
+          <button class="score-btn plus" onclick="adjustScore(curSet,'a',1)">+</button>
+        </div>
       </div>
-      <div class="score-separator">:</div>
-      <div class="score-ctrl">
-        <button class="score-btn" onclick="adjustScore(${i},'b',-1)">−</button>
-        <div class="score-num" id="score-b-${i}">${sets[i].b}</div>
-        <button class="score-btn" onclick="adjustScore(${i},'b',1)">+</button>
+      <div class="score-side side-b">
+        <div class="score-side-name">${teamB.join('<br>')}</div>
+        <div class="score-big" id="score-b">${sets[curSet].b}</div>
+        <div class="score-btns">
+          <button class="score-btn" onclick="adjustScore(curSet,'b',-1)">−</button>
+          <button class="score-btn plus" onclick="adjustScore(curSet,'b',1)">+</button>
+        </div>
       </div>
     </div>`;
 }
 
+function switchSet(i) {
+  curSet = i;
+  renderScoreBoard();
+}
+
 function adjustScore(i, team, delta) {
   sets[i][team] = Math.max(0, sets[i][team] + delta);
-  const el = document.getElementById(`score-${team}-${i}`);
+  const el = document.getElementById(`score-${team}`);
   if(el) el.textContent = sets[i][team];
+  // Firebase 동기화
+  window.sets = sets;
+  window.curSet = curSet;
+  window.teamA = teamA;
+  window.teamB = teamB;
+  if(typeof window.syncToFirebase === 'function') window.syncToFirebase();
 }
 
 function addSet() {
   if(sets.length >= 3) return;
   sets.push({a:0,b:0});
-  renderScoreSection();
+  curSet = sets.length - 1;
+  renderScoreBoard();
 }
 
 // ── 경기 저장 ───────────────────────────────────────────────
@@ -840,9 +874,18 @@ async function goNext() {
     renderTeamDisplay();
   } else if(curStep===3) {
     sets=[{a:0,b:0}];
+    curSet=0;
     curStep=4;
+    window.sets = sets;
+    window.curSet = curSet;
+    window.teamA = teamA;
+    window.teamB = teamB;
     renderStep();
     renderScoreSection();
+    // 팀 이름 Firebase에 반영
+    setTimeout(() => {
+      if(typeof window.syncToFirebase === 'function') window.syncToFirebase();
+    }, 1000);
   }
 }
 
