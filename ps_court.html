@@ -855,7 +855,6 @@ async function saveMatch() {
   const today = new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\. /g,'-').replace('.','');
   const scoreStr = sets.map(s=>`${s.a}-${s.b}`).join(', ');
 
-  // sets를 항상 3개로 맞춤 (없는 세트는 0-0)
   const fullSets = [
     sets[0] || {a:0, b:0},
     sets[1] || {a:0, b:0},
@@ -863,17 +862,19 @@ async function saveMatch() {
   ];
 
   try {
-    const payload = {
+    // GET 방식으로 전송 (CORS 우회)
+    const params = new URLSearchParams({
       league,
       date: today,
       t1p1: teamA[0], t1p2: teamA[1],
       t2p1: teamB[0], t2p2: teamB[1],
-      sets: fullSets,
-    };
-    const res = await fetch(APPS_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(payload),
+      s1a: fullSets[0].a, s1b: fullSets[0].b,
+      s2a: fullSets[1].a, s2b: fullSets[1].b,
+      s3a: fullSets[2].a, s3b: fullSets[2].b,
+    });
+    const res = await fetch(`${APPS_SCRIPT_URL}?${params}`, {
+      method: 'GET',
+      redirect: 'follow',
     });
     const json = await res.json();
     if(!json.success) throw new Error(json.error || '저장 실패');
