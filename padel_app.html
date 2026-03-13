@@ -593,7 +593,6 @@ body {
 
 <!-- 페이지: 랭킹 -->
 <div class="page active" id="page-rank">
-  <!-- 탭 스위처 -->
   <div class="rank-tabs" style="margin-top:16px">
     <button class="rank-tab active-gold" id="tab-gold" onclick="switchRank('gold')">🥇 GOLD+</button>
     <button class="rank-tab" id="tab-bs" onclick="switchRank('bs')">🥉 BRONZE &amp; 🥈 SILVER</button>
@@ -677,35 +676,52 @@ let pLeague = 'gold', sel = [];
 
 const ckey = (a,b,c,d) => [[a,b].sort().join('|'),[c,d].sort().join('|')].sort().join('||');
 
-// ── CSV 패치 ───────────────────────────────────────────────
-async function fetchCSV(gid, attempt=0) {
-  const proxies = ['https://corsproxy.io/?','https://api.allorigins.win/raw?url='];
+// ── CSV 패치 (proxy 순차 시도) ─────────────────────────────
+const PROXIES = [
+  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+];
+
+async function fetchCSV(gid) {
   const sheetUrl = `${SHEET}?gid=${gid}&single=true&output=csv`;
-  const url = proxies[attempt % proxies.length] + encodeURIComponent(sheetUrl);
-  try {
-    const res = await fetch(url, {signal: AbortSignal.timeout(8000)});
-    if (!res.ok) throw new Error('fetch failed');
-    const txt = await res.text();
-    if (!txt || txt.length < 10) throw new Error('empty');
-    return txt.trim().split('\n').map(line => {
-      const out=[]; let cur='', q=false;
-      for(const ch of line) {
-        if(ch==='"'){ q=!q; }
-        else if(ch===','&&!q){ out.push(cur.trim()); cur=''; }
-        else cur+=ch;
-      }
-      out.push(cur.trim()); return out;
-    });
-  } catch(e) {
-    if(attempt < 3) { await new Promise(r=>setTimeout(r,1000*(attempt+1))); return fetchCSV(gid,attempt+1); }
-    throw e;
+  let lastErr;
+  for (let i = 0; i < PROXIES.length; i++) {
+    const proxyUrl = PROXIES[i](sheetUrl);
+    try {
+      const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(9000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const txt = await res.text();
+      if (!txt || txt.length < 10) throw new Error('empty response');
+      // HTML 에러 페이지 걸러내기
+      if (txt.trim().startsWith('<')) throw new Error('got HTML instead of CSV');
+      return parseCSV(txt);
+    } catch(e) {
+      lastErr = e;
+      console.warn(`Proxy ${i} failed (${PROXIES[i](sheetUrl).split('?')[0]}):`, e.message);
+      await new Promise(r => setTimeout(r, 800));
+    }
   }
+  throw lastErr || new Error('All proxies failed');
 }
 
-function score(m,w,s,cat) {
-  if(!m) return 0;
-  const b=((w/m)*3+(s/m)*1)*Math.sqrt(m)*2;
-  return cat==='Bronze'?b*BM:b;
+function parseCSV(txt) {
+  return txt.trim().split('\n').map(line => {
+    const out = []; let cur = '', q = false;
+    for (const ch of line) {
+      if (ch === '"') { q = !q; }
+      else if (ch === ',' && !q) { out.push(cur.trim()); cur = ''; }
+      else cur += ch;
+    }
+    out.push(cur.trim());
+    return out;
+  });
+}
+
+function score(m, w, s, cat) {
+  if (!m) return 0;
+  const b = ((w/m)*3 + (s/m)*1) * Math.sqrt(m) * 2;
+  return cat === 'Bronze' ? b * BM : b;
 }
 
 // ── 데이터 로드 ────────────────────────────────────────────
@@ -723,64 +739,69 @@ async function loadData() {
 
     // Gold+
     gData = [];
-    for(let i=3; i<gr.length; i++) {
-      const r=gr[i]; if(!r[1]) continue;
-      const m=+r[2],w=+r[3],l=+r[4],s=+r[5]; if(isNaN(m)) continue;
-      gData.push({name:r[1],m,w,l,s,pts:score(m,w,s,null)});
+    for (let i = 3; i < gr.length; i++) {
+      const r = gr[i]; if (!r[1]) continue;
+      const m = +r[2], w = +r[3], l = +r[4], s = +r[5]; if (isNaN(m)) continue;
+      gData.push({ name: r[1], m, w, l, s, pts: score(m, w, s, null) });
     }
-    gData.sort((a,b)=>b.pts-a.pts);
+    gData.sort((a, b) => b.pts - a.pts);
 
     // B&S
     bsData = [];
-    for(let i=3; i<br.length; i++) {
-      const r=br[i]; if(!r[1]) continue;
-      const cat=r[2],m=+r[3],w=+r[4],l=+r[5],s=+r[6],cpts=+r[17]||0; if(isNaN(m)) continue;
-      bsData.push({name:r[1],cat,m,w,l,s,cpts,pts:score(m,w,s,cat)});
+    for (let i = 3; i < br.length; i++) {
+      const r = br[i]; if (!r[1]) continue;
+      const cat = r[2], m = +r[3], w = +r[4], l = +r[5], s = +r[6], cpts = +r[17] || 0;
+      if (isNaN(m)) continue;
+      bsData.push({ name: r[1], cat, m, w, l, s, cpts, pts: score(m, w, s, cat) });
     }
-    bsData.sort((a,b)=>b.pts-a.pts);
+    bsData.sort((a, b) => b.pts - a.pts);
 
     // 페어 체커
-    for(const [rows,lg] of [[mgr,'gold'],[mbsr,'bs']]) {
-      const ps=new Set(), us=new Set();
-      for(let i=1;i<rows.length;i++) {
-        const r=rows[i];
-        const p1=r[2]?.trim(),p2=r[3]?.trim(),p3=r[4]?.trim(),p4=r[5]?.trim();
-        if(!p1||!p2||!p3||!p4) continue;
-        ps.add(p1);ps.add(p2);ps.add(p3);ps.add(p4);
-        us.add(ckey(p1,p2,p3,p4));
+    for (const [rows, lg] of [[mgr, 'gold'], [mbsr, 'bs']]) {
+      const ps = new Set(), us = new Set();
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        const p1 = r[2]?.trim(), p2 = r[3]?.trim(), p3 = r[4]?.trim(), p4 = r[5]?.trim();
+        if (!p1 || !p2 || !p3 || !p4) continue;
+        ps.add(p1); ps.add(p2); ps.add(p3); ps.add(p4);
+        us.add(ckey(p1, p2, p3, p4));
       }
-      PLAYERS[lg]=[...ps].sort(); USED[lg]=us;
+      PLAYERS[lg] = [...ps].sort(); USED[lg] = us;
     }
 
     // 최근 경기
     function parseMatches(rows, league) {
-      const out=[];
-      for(let i=1;i<rows.length;i++) {
-        const r=rows[i]; if(!r[1]||!r[2]||!r[3]||!r[4]||!r[5]) continue;
-        const sets=[];
-        for(let s=0;s<3;s++) {
-          const a=r[6+s*2]?.trim(),b=r[7+s*2]?.trim();
-          if(a&&b&&(+a>0||+b>0)) sets.push(`${a}-${b}`);
+      const out = [];
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i]; if (!r[1] || !r[2] || !r[3] || !r[4] || !r[5]) continue;
+        const sets = [];
+        for (let s = 0; s < 3; s++) {
+          const a = r[6 + s*2]?.trim(), b = r[7 + s*2]?.trim();
+          if (a && b && (+a > 0 || +b > 0)) sets.push(`${a}-${b}`);
         }
-        if(!sets.length) continue;
-        out.push({date:r[1],league,match:r[0],t1p1:r[2],t1p2:r[3],t2p1:r[4],t2p2:r[5],score:sets.join(' / ')});
+        if (!sets.length) continue;
+        out.push({ date: r[1], league, match: r[0], t1p1: r[2], t1p2: r[3], t2p1: r[4], t2p2: r[5], score: sets.join(' / ') });
       }
       return out;
     }
-    recentData = [...parseMatches(mgr,'G+'),...parseMatches(mbsr,'BS')];
-    recentData.sort((a,b)=>b.date.localeCompare(a.date)||+b.match-+a.match);
-    recentData = recentData.slice(0,10);
+    recentData = [...parseMatches(mgr, 'G+'), ...parseMatches(mbsr, 'BS')];
+    recentData.sort((a, b) => b.date.localeCompare(a.date) || +b.match - +a.match);
+    recentData = recentData.slice(0, 10);
 
     const now = new Date().toLocaleTimeString('ko-KR');
     document.getElementById('updated-recent').textContent = now + ' 업데이트';
-    document.getElementById('rank-status').style.display='none';
-    document.getElementById('rank-content').style.display='block';
+    document.getElementById('rank-status').style.display = 'none';
+    document.getElementById('rank-content').style.display = 'block';
 
     renderRank();
     renderRecent();
     renderGrid();
   } catch(e) {
-    document.getElementById('rank-status').innerHTML = `<div style="color:#f87171;font-size:14px">⚠️ 데이터를 불러올 수 없어요<br><br></div><button onclick="loadData()" style="padding:10px 24px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:10px;font-size:13px;cursor:pointer;font-family:Pretendard,sans-serif;">다시 시도</button>`;
+    console.error('loadData error:', e);
+    document.getElementById('rank-status').innerHTML = `
+      <div style="color:#f87171;font-size:14px">⚠️ 데이터를 불러올 수 없어요<br><br>
+      <span style="font-size:12px;color:var(--text-dim)">${e.message}</span><br><br></div>
+      <button onclick="loadData()" style="padding:10px 24px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:10px;font-size:13px;cursor:pointer;font-family:Pretendard,sans-serif;">다시 시도</button>`;
   } finally {
     btn.classList.remove('spinning');
   }
@@ -789,25 +810,25 @@ async function loadData() {
 // ── 페이지 전환 ────────────────────────────────────────────
 function showPage(p) {
   curPage = p;
-  document.querySelectorAll('.page').forEach(el=>el.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
-  document.getElementById('page-'+p).classList.add('active');
-  document.getElementById('nav-'+p).classList.add('active');
+  document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  document.getElementById('page-' + p).classList.add('active');
+  document.getElementById('nav-' + p).classList.add('active');
 }
 
 // ── 랭킹 ──────────────────────────────────────────────────
 function switchRank(t) {
   rankTab = t;
-  document.getElementById('tab-gold').className = 'rank-tab' + (t==='gold'?' active-gold':'');
-  document.getElementById('tab-bs').className   = 'rank-tab' + (t==='bs'?' active-bs':'');
-  document.getElementById('bs-filter').className = 'bs-filter' + (t==='bs'?' show':'');
+  document.getElementById('tab-gold').className = 'rank-tab' + (t === 'gold' ? ' active-gold' : '');
+  document.getElementById('tab-bs').className   = 'rank-tab' + (t === 'bs'   ? ' active-bs'   : '');
+  document.getElementById('bs-filter').className = 'bs-filter' + (t === 'bs' ? ' show' : '');
   renderRank();
 }
 
 function setFilter(f, btn) {
   bsFilter = f;
-  document.querySelectorAll('.filter-chip').forEach(b=>b.className='filter-chip');
-  btn.classList.add(f==='all'?'all-on':f==='bronze'?'bronze-on':'silver-on');
+  document.querySelectorAll('.filter-chip').forEach(b => b.className = 'filter-chip');
+  btn.classList.add(f === 'all' ? 'all-on' : f === 'bronze' ? 'bronze-on' : 'silver-on');
   renderRank();
 }
 
@@ -816,17 +837,17 @@ function renderRank() {
   const summary = document.getElementById('stat-summary');
   list.innerHTML = '';
 
-  if(rankTab==='gold') {
-    let rk=0;
+  if (rankTab === 'gold') {
+    let rk = 0;
     gData.forEach(p => {
-      const ok = p.m>=MIN_M; if(ok) rk++;
-      const rc = ok&&rk<=3?`rank-${rk}`:'';
-      const nc = ok&&rk<=3?`r${rk}`:'dash';
-      const wr = p.m>0?Math.round(p.w/p.m*100)+'%':'0%';
+      const ok = p.m >= MIN_M; if (ok) rk++;
+      const rc = ok && rk <= 3 ? `rank-${rk}` : '';
+      const nc = ok && rk <= 3 ? `r${rk}` : 'dash';
+      const wr = p.m > 0 ? Math.round(p.w / p.m * 100) + '%' : '0%';
       const div = document.createElement('div');
-      div.className = `rank-card ${rc} ${!ok?'excluded':''}`;
+      div.className = `rank-card ${rc} ${!ok ? 'excluded' : ''}`;
       div.innerHTML = `
-        <div class="rank-num ${nc}">${ok?rk:'—'}</div>
+        <div class="rank-num ${nc}">${ok ? rk : '—'}</div>
         <div class="rank-info">
           <div class="rank-name">${p.name}</div>
           <div class="rank-meta">
@@ -842,57 +863,57 @@ function renderRank() {
         </div>`;
       list.appendChild(div);
     });
-    const q = gData.filter(p=>p.m>=MIN_M);
+    const q = gData.filter(p => p.m >= MIN_M);
     summary.innerHTML = `
       <div class="stat-card"><div class="stat-card-label">🏆 랭킹 등재</div><div class="stat-card-value">${q.length}명 / 전체 ${gData.length}명</div></div>
-      <div class="stat-card"><div class="stat-card-label">🥇 1위</div><div class="stat-card-value">${q[0]?.name||'-'}<br><span style="color:var(--gold)">${q[0]?.pts.toFixed(1)||'-'} pts</span></div></div>`;
+      <div class="stat-card"><div class="stat-card-label">🥇 1위</div><div class="stat-card-value">${q[0]?.name || '-'}<br><span style="color:var(--gold)">${q[0]?.pts.toFixed(1) || '-'} pts</span></div></div>`;
   } else {
-    const fd = bsFilter==='all'?bsData:bsData.filter(p=>p.cat?.toLowerCase()===bsFilter);
-    let rk=0;
+    const fd = bsFilter === 'all' ? bsData : bsData.filter(p => p.cat?.toLowerCase() === bsFilter);
+    let rk = 0;
     fd.forEach(p => {
-      const ok = p.m>=MIN_M; if(ok) rk++;
-      const rc = ok&&rk<=3?`rank-${rk}`:'';
-      const nc = ok&&rk<=3?`r${rk}`:'dash';
-      const ib = p.cat==='Bronze';
-      const wr = p.m>0?Math.round(p.w/p.m*100)+'%':'0%';
+      const ok = p.m >= MIN_M; if (ok) rk++;
+      const rc = ok && rk <= 3 ? `rank-${rk}` : '';
+      const nc = ok && rk <= 3 ? `r${rk}` : 'dash';
+      const ib = p.cat === 'Bronze';
+      const wr = p.m > 0 ? Math.round(p.w / p.m * 100) + '%' : '0%';
       const div = document.createElement('div');
-      div.className = `rank-card ${rc} ${ib?'bronze-card':'silver-card'} ${!ok?'excluded':''}`;
+      div.className = `rank-card ${rc} ${ib ? 'bronze-card' : 'silver-card'} ${!ok ? 'excluded' : ''}`;
       div.innerHTML = `
-        <div class="rank-num ${nc}">${ok?rk:'—'}</div>
+        <div class="rank-num ${nc}">${ok ? rk : '—'}</div>
         <div class="rank-info">
           <div class="rank-name">${p.name}</div>
           <div class="rank-meta">
-            <span class="cat-badge ${ib?'cat-bronze':'cat-silver'}">${p.cat}</span>
+            <span class="cat-badge ${ib ? 'cat-bronze' : 'cat-silver'}">${p.cat}</span>
             <span class="rank-stat"><span>${p.m}</span>경기</span>
             <span class="rank-stat"><span>${p.w}</span>승</span>
           </div>
         </div>
         <div class="rank-pts">
           ${ok
-            ? `<div class="pts-value ${ib?'bronze-pts':'silver-pts'}">${p.pts.toFixed(1)}</div><div class="pts-label">PTS</div>`
+            ? `<div class="pts-value ${ib ? 'bronze-pts' : 'silver-pts'}">${p.pts.toFixed(1)}</div><div class="pts-label">PTS</div>`
             : `<div class="pts-min">10경기 미만</div>`}
         </div>`;
       list.appendChild(div);
     });
-    const q  = bsData.filter(p=>p.m>=MIN_M);
-    const bt = q.find(p=>p.cat==='Bronze'), st=q.find(p=>p.cat==='Silver');
+    const q  = bsData.filter(p => p.m >= MIN_M);
+    const bt = q.find(p => p.cat === 'Bronze'), st = q.find(p => p.cat === 'Silver');
     summary.innerHTML = `
-      <div class="stat-card"><div class="stat-card-label">🥉 Bronze 1위</div><div class="stat-card-value">${bt?.name||'-'}<br><span style="color:var(--bronze-light)">${bt?.pts.toFixed(1)||'-'} pts</span></div></div>
-      <div class="stat-card"><div class="stat-card-label">🥈 Silver 1위</div><div class="stat-card-value">${st?.name||'-'}<br><span style="color:var(--silver)">${st?.pts.toFixed(1)||'-'} pts</span></div></div>`;
+      <div class="stat-card"><div class="stat-card-label">🥉 Bronze 1위</div><div class="stat-card-value">${bt?.name || '-'}<br><span style="color:var(--bronze-light)">${bt?.pts.toFixed(1) || '-'} pts</span></div></div>
+      <div class="stat-card"><div class="stat-card-label">🥈 Silver 1위</div><div class="stat-card-value">${st?.name || '-'}<br><span style="color:var(--silver)">${st?.pts.toFixed(1) || '-'} pts</span></div></div>`;
   }
 }
 
 // ── 최근 경기 ──────────────────────────────────────────────
 function renderRecent() {
   const list = document.getElementById('match-list');
-  list.innerHTML='';
+  list.innerHTML = '';
   recentData.forEach(m => {
-    const isG = m.league==='G+';
+    const isG = m.league === 'G+';
     const div = document.createElement('div');
-    div.className = `match-card ${isG?'gold-match':'bs-match'}`;
+    div.className = `match-card ${isG ? 'gold-match' : 'bs-match'}`;
     div.innerHTML = `
       <div class="match-top">
-        <span class="match-badge ${isG?'gold-badge':'bs-badge'}">${isG?'GOLD+':'B&S'}</span>
+        <span class="match-badge ${isG ? 'gold-badge' : 'bs-badge'}">${isG ? 'GOLD+' : 'B&S'}</span>
         <span class="match-num">#${m.match}</span>
         <span class="match-date">${m.date}</span>
       </div>
@@ -902,7 +923,7 @@ function renderRecent() {
           <div class="player-name">${m.t1p2}</div>
         </div>
         <div class="match-score-box">
-          ${m.score.split(' / ').map(s=>`<div class="score-sets">${s}</div>`).join('')}
+          ${m.score.split(' / ').map(s => `<div class="score-sets">${s}</div>`).join('')}
         </div>
         <div class="match-team right">
           <div class="player-name">${m.t2p1}</div>
@@ -915,54 +936,54 @@ function renderRecent() {
 
 // ── 페어 체커 ──────────────────────────────────────────────
 function setPL(lg) {
-  pLeague=lg; sel=[];
-  document.getElementById('plbg').className='pair-league-tab'+(lg==='gold'?' pg-on':'');
-  document.getElementById('plbb').className='pair-league-tab'+(lg==='bs'?' pb-on':'');
+  pLeague = lg; sel = [];
+  document.getElementById('plbg').className = 'pair-league-tab' + (lg === 'gold' ? ' pg-on' : '');
+  document.getElementById('plbb').className = 'pair-league-tab' + (lg === 'bs'   ? ' pb-on' : '');
   renderGrid(); renderCombos();
 }
 
 function toggle(name) {
-  if(sel.includes(name)) sel=sel.filter(p=>p!==name);
-  else { if(sel.length>=4) return; sel.push(name); }
+  if (sel.includes(name)) sel = sel.filter(p => p !== name);
+  else { if (sel.length >= 4) return; sel.push(name); }
   renderGrid(); renderCombos();
 }
 
 function renderGrid() {
   const grid = document.getElementById('player-grid');
-  grid.innerHTML='';
-  PLAYERS[pLeague].forEach(name=>{
-    const isOn=sel.includes(name), isOff=sel.length>=4&&!isOn;
-    const d=document.createElement('div');
-    d.className='player-chip'+(isOn?' on':'')+(isOff?' off':'');
-    d.textContent=name;
-    d.onclick=()=>toggle(name);
+  grid.innerHTML = '';
+  PLAYERS[pLeague].forEach(name => {
+    const isOn = sel.includes(name), isOff = sel.length >= 4 && !isOn;
+    const d = document.createElement('div');
+    d.className = 'player-chip' + (isOn ? ' on' : '') + (isOff ? ' off' : '');
+    d.textContent = name;
+    d.onclick = () => toggle(name);
     grid.appendChild(d);
   });
-  const hint=document.getElementById('sel-hint'), n=sel.length;
-  if(n===0) hint.innerHTML='플레이어를 <em>4명</em> 선택해주세요';
-  else if(n<4) hint.innerHTML=`<em>${n}명 선택됨</em> — ${4-n}명 더 선택해주세요`;
-  else hint.innerHTML=`선택: <em>${sel.join(', ')}</em>`;
+  const hint = document.getElementById('sel-hint'), n = sel.length;
+  if (n === 0) hint.innerHTML = '플레이어를 <em>4명</em> 선택해주세요';
+  else if (n < 4) hint.innerHTML = `<em>${n}명 선택됨</em> — ${4 - n}명 더 선택해주세요`;
+  else hint.innerHTML = `선택: <em>${sel.join(', ')}</em>`;
 }
 
 function renderCombos() {
-  const box=document.getElementById('combo-list');
-  if(sel.length<4){ box.innerHTML='<div class="placeholder-msg">⬆️ 위에서 4명을 선택하면<br>페어 조합이 표시돼요</div>'; return; }
-  const [a,b,c,d]=sel;
-  const combos=[
-    {t1:[a,b],t2:[c,d]},{t1:[a,c],t2:[b,d]},{t1:[a,d],t2:[b,c]}
-  ].map(co=>({...co,used:USED[pLeague].has(ckey(co.t1[0],co.t1[1],co.t2[0],co.t2[1]))}))
-   .sort((x,y)=>x.used-y.used);
-  box.innerHTML='';
-  combos.forEach(co=>{
-    const div=document.createElement('div');
-    div.className='combo-card '+(co.used?'done':'ok');
-    div.innerHTML=`
+  const box = document.getElementById('combo-list');
+  if (sel.length < 4) { box.innerHTML = '<div class="placeholder-msg">⬆️ 위에서 4명을 선택하면<br>페어 조합이 표시돼요</div>'; return; }
+  const [a, b, c, d] = sel;
+  const combos = [
+    { t1: [a,b], t2: [c,d] }, { t1: [a,c], t2: [b,d] }, { t1: [a,d], t2: [b,c] }
+  ].map(co => ({ ...co, used: USED[pLeague].has(ckey(co.t1[0], co.t1[1], co.t2[0], co.t2[1])) }))
+   .sort((x, y) => x.used - y.used);
+  box.innerHTML = '';
+  combos.forEach(co => {
+    const div = document.createElement('div');
+    div.className = 'combo-card ' + (co.used ? 'done' : 'ok');
+    div.innerHTML = `
       <div class="combo-teams">
         <div class="combo-team">${co.t1[0]} / ${co.t1[1]}</div>
         <div class="combo-vs">VS</div>
         <div class="combo-team">${co.t2[0]} / ${co.t2[1]}</div>
       </div>
-      <div class="combo-status ${co.used?'done':'ok'}">${co.used?'✕ 진행함':'✓ 가능'}</div>`;
+      <div class="combo-status ${co.used ? 'done' : 'ok'}">${co.used ? '✕ 진행함' : '✓ 가능'}</div>`;
     box.appendChild(div);
   });
 }
@@ -974,7 +995,7 @@ loadData();
 // ── PWA 서비스 워커 등록 ────────────────────────────────────
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
+    navigator.serviceWorker.register('sw.js').catch(() => {});
   });
 }
 </script>

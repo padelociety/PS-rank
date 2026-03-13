@@ -1,24 +1,23 @@
 {
-  "name": "PS i-League 2026",
+  "name": "Padel Society League",
   "short_name": "PS League",
-  "description": "Padel Society i-League 2026 Live Ranking",
-  "start_url": "/PS-rank/padel_app.html",
-  "scope": "/PS-rank/",
+  "description": "Padel Society i-League 랭킹 & 매치 결과",
+  "start_url": "./padel_app.html",
   "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#000000",
   "orientation": "portrait",
-  "background_color": "#080C10",
-  "theme_color": "#080C10",
   "icons": [
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='40' fill='%23080C10'/><text x='96' y='130' font-size='110' text-anchor='middle'>🎾</text></svg>",
+      "src": "icon-192.png",
       "sizes": "192x192",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='100' fill='%23080C10'/><text x='256' y='340' font-size='300' text-anchor='middle'>🎾</text></svg>",
+      "src": "icon-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]
