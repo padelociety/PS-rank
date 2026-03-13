@@ -870,15 +870,16 @@ async function saveMatch() {
       t2p1: teamB[0], t2p2: teamB[1],
       sets: fullSets,
     };
-    // Apps Script는 no-cors로 전송 (응답 확인 불가지만 저장은 됨)
-    await fetch(APPS_SCRIPT_URL, {
+    const res = await fetch(APPS_SCRIPT_URL, {
       method: 'POST',
-      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload),
     });
+    const json = await res.json();
+    if(!json.success) throw new Error(json.error || '저장 실패');
     showDone(today, scoreStr);
   } catch(e) {
-    showToast('⚠️ 저장 실패 — 네트워크를 확인해주세요');
+    showToast('⚠️ 저장 실패: ' + e.message);
     btn.textContent = '💾 경기 저장';
     btn.disabled = false;
   }
