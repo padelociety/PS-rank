@@ -641,6 +641,27 @@ function shuffle(arr) {
   const a=[...arr]; for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a;
 }
 
+// ── Firebase 동기화 헬퍼 ───────────────────────────────────
+// sets 배열: [{a,b}, {a,b}, ...] — curSet이 현재 진행중인 세트
+// 완료된 세트 = sets[0..curSet-1], 현재 세트 = sets[curSet]
+function pushToFirebase() {
+  if(typeof window.syncToFirebase !== 'function') return;
+  // 완료된 세트 (curSet 이전)
+  const setsA = sets.slice(0, curSet).map(s => s.a);
+  const setsB = sets.slice(0, curSet).map(s => s.b);
+  // 현재 세트 game 점수
+  const gameA = sets[curSet]?.a ?? 0;
+  const gameB = sets[curSet]?.b ?? 0;
+  window.syncToFirebase({
+    nameA: teamA.join(' / ') || 'Team A',
+    nameB: teamB.join(' / ') || 'Team B',
+    setsA,
+    setsB,
+    gameA,
+    gameB,
+  });
+}
+
 // ── 화면 렌더 ────────────────────────────────────────────────
 function renderStep() {
   for(let i=1;i<=4;i++){
@@ -743,10 +764,7 @@ function renderTeamDisplay() {
     </div>`;
 
   // 팀 이름 Firebase에 반영
-  setTimeout(() => {
-    if(typeof window.syncToFirebase === 'function')
-      window.syncToFirebase(0, 0, teamA.join(' / '), teamB.join(' / '));
-  }, 800);
+  setTimeout(() => pushToFirebase(), 800);
 }
 
 function reshuffleTeams() {
@@ -798,16 +816,14 @@ function renderScoreBoard() {
 function switchSet(i) {
   curSet = i;
   renderScoreBoard();
-  if(typeof window.syncToFirebase === 'function')
-    window.syncToFirebase(sets[i].a, sets[i].b);
+  pushToFirebase();
 }
 
 function adjustScore(i, team, delta) {
   sets[i][team] = Math.max(0, sets[i][team] + delta);
   const el = document.getElementById(`score-${team}`);
   if(el) el.textContent = sets[i][team];
-  if(typeof window.syncToFirebase === 'function')
-    window.syncToFirebase(sets[i].a, sets[i].b);
+  pushToFirebase();
 }
 
 function addSet() {
@@ -815,6 +831,7 @@ function addSet() {
   sets.push({a:0,b:0});
   curSet = sets.length - 1;
   renderScoreBoard();
+  pushToFirebase();
 }
 
 // ── 경기 저장 ───────────────────────────────────────────────
@@ -888,10 +905,7 @@ async function goNext() {
     curStep=4;
     renderStep();
     renderScoreSection();
-    setTimeout(() => {
-      if(typeof window.syncToFirebase === 'function')
-        window.syncToFirebase(0, 0, teamA.join(' / '), teamB.join(' / '));
-    }, 1000);
+    setTimeout(() => pushToFirebase(), 1000);
   }
 }
 
@@ -921,7 +935,7 @@ renderStep();
 <!-- Firebase SDK -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBkrib1qzN8IE9NcW8tXTfKb4Z6JsOjcvE",
@@ -945,21 +959,36 @@ onValue(connRef, snap => {
   if(el) { el.textContent = ok ? '🟢 연결됨' : '🔴 연결 중...'; el.style.color = ok ? 'var(--green)' : 'var(--text-dim)'; }
 });
 
-// 점수/이름 업데이트 함수 — game만 직접 set
-window.syncToFirebase = function(gameA, gameB, nameA, nameB) {
+// 스코어보드와 동일한 S 객체 구조로 Firebase에 push
+// sets[]: 완료된 세트 배열 (스코어보드의 S.a.sets / S.b.sets)
+// game: 현재 세트 점수 (스코어보드의 S.a.game / S.b.game)
+window.syncToFirebase = function({ nameA, nameB, setsA, setsB, gameA, gameB }) {
   const el = document.getElementById('fb-status');
-  const updates = {};
-  if(nameA !== undefined) updates['scoreboard/a/name'] = nameA;
-  if(nameB !== undefined) updates['scoreboard/b/name'] = nameB;
-  if(gameA !== undefined) updates['scoreboard/a/game'] = gameA;
-  if(gameB !== undefined) updates['scoreboard/b/game'] = gameB;
 
-  import('https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js').then(({update}) => {
-    update(ref(db, '/'), updates).then(() => {
-      if(el) el.textContent = `🟢 동기화됨 (${gameA ?? '?'}–${gameB ?? '?'})`;
-    }).catch(err => {
-      if(el) el.textContent = '🔴 오류: ' + err.message;
-    });
+  // 스코어보드와 완전히 동일한 구조
+  const S = {
+    title: 'PS i-League 26S1',
+    a: {
+      name: nameA ?? 'Team A',
+      game: gameA ?? 0,
+      point: 0,
+      sets: setsA ?? [],
+      serving: false,
+    },
+    b: {
+      name: nameB ?? 'Team B',
+      game: gameB ?? 0,
+      point: 0,
+      sets: setsB ?? [],
+      serving: false,
+    },
+    superTB: false,
+  };
+
+  set(sbRef, S).then(() => {
+    if(el) el.textContent = `🟢 동기화됨 (${gameA ?? 0}–${gameB ?? 0})`;
+  }).catch(err => {
+    if(el) el.textContent = '🔴 오류: ' + err.message;
   });
 };
 </script>
