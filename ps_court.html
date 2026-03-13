@@ -862,18 +862,18 @@ async function saveMatch() {
   ];
 
   try {
-    // GET 방식으로 전송 (CORS 우회)
-    const params = new URLSearchParams({
+    const payload = {
       league,
       date: today,
       t1p1: teamA[0], t1p2: teamA[1],
       t2p1: teamB[0], t2p2: teamB[1],
-      s1a: fullSets[0].a, s1b: fullSets[0].b,
-      s2a: fullSets[1].a, s2b: fullSets[1].b,
-      s3a: fullSets[2].a, s3b: fullSets[2].b,
-    });
-    const res = await fetch(`${APPS_SCRIPT_URL}?${params}`, {
-      method: 'GET',
+      sets: fullSets,
+    };
+    // text/plain → preflight 없이 CORS 통과
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
       redirect: 'follow',
     });
     const json = await res.json();
