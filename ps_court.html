@@ -742,13 +742,10 @@ function renderTeamDisplay() {
       </div>
     </div>`;
 
-  // 팀 이름 Firebase에 미리 반영
-  window._teamA = teamA;
-  window._teamB = teamB;
-  window._sets = sets;
-  window._curSet = 0;
+  // 팀 이름 Firebase에 반영
   setTimeout(() => {
-    if(typeof window.syncToFirebase === 'function') window.syncToFirebase();
+    if(typeof window.syncToFirebase === 'function')
+      window.syncToFirebase(0, 0, teamA.join(' / '), teamB.join(' / '));
   }, 800);
 }
 
@@ -801,18 +798,16 @@ function renderScoreBoard() {
 function switchSet(i) {
   curSet = i;
   renderScoreBoard();
+  if(typeof window.syncToFirebase === 'function')
+    window.syncToFirebase(sets[i].a, sets[i].b);
 }
 
 function adjustScore(i, team, delta) {
   sets[i][team] = Math.max(0, sets[i][team] + delta);
   const el = document.getElementById(`score-${team}`);
   if(el) el.textContent = sets[i][team];
-  // Firebase 동기화
-  window._sets = sets;
-  window._curSet = i;
-  window._teamA = teamA;
-  window._teamB = teamB;
-  if(typeof window.syncToFirebase === 'function') window.syncToFirebase();
+  if(typeof window.syncToFirebase === 'function')
+    window.syncToFirebase(sets[i].a, sets[i].b);
 }
 
 function addSet() {
@@ -891,15 +886,11 @@ async function goNext() {
     sets=[{a:0,b:0}];
     curSet=0;
     curStep=4;
-    window._sets = sets;
-    window._curSet = curSet;
-    window._teamA = teamA;
-    window._teamB = teamB;
     renderStep();
     renderScoreSection();
-    // 팀 이름 Firebase에 반영
     setTimeout(() => {
-      if(typeof window.syncToFirebase === 'function') window.syncToFirebase();
+      if(typeof window.syncToFirebase === 'function')
+        window.syncToFirebase(0, 0, teamA.join(' / '), teamB.join(' / '));
     }, 1000);
   }
 }
@@ -946,49 +937,29 @@ const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const sbRef = ref(db, 'scoreboard');
 
-let fbState = null;
-
+// Firebase 연결 상태
 const connRef = ref(db, '.info/connected');
 onValue(connRef, snap => {
   const ok = snap.val() === true;
   const el = document.getElementById('fb-status');
-  if(el) el.textContent = ok ? '🟢 Firebase 연결됨' : '🔴 Firebase 연결 중...';
-  if(el) el.style.color = ok ? 'var(--green)' : 'var(--text-dim)';
+  if(el) { el.textContent = ok ? '🟢 연결됨' : '🔴 연결 중...'; el.style.color = ok ? 'var(--green)' : 'var(--text-dim)'; }
 });
 
-onValue(sbRef, snap => {
-  fbState = snap.val();
+// 점수/이름 업데이트 함수 — game만 직접 set
+window.syncToFirebase = function(gameA, gameB, nameA, nameB) {
   const el = document.getElementById('fb-status');
-  if(el && fbState) el.textContent = '🟢 Firebase 연결됨';
-});
+  const updates = {};
+  if(nameA !== undefined) updates['scoreboard/a/name'] = nameA;
+  if(nameB !== undefined) updates['scoreboard/b/name'] = nameB;
+  if(gameA !== undefined) updates['scoreboard/a/game'] = gameA;
+  if(gameB !== undefined) updates['scoreboard/b/game'] = gameB;
 
-window.syncToFirebase = function() {
-  const el = document.getElementById('fb-status');
-  if (!fbState) {
-    if(el) el.textContent = '⚠️ fbState 없음';
-    return;
-  }
-  const s = window._sets || [];
-  const cs = window._curSet || 0;
-  const tA = window._teamA || [];
-  const tB = window._teamB || [];
-  const updated = {
-    ...fbState,
-    a: {
-      ...fbState.a,
-      name: tA.join(' / ') || fbState.a.name,
-      game: s[cs]?.a ?? fbState.a.game,
-    },
-    b: {
-      ...fbState.b,
-      name: tB.join(' / ') || fbState.b.name,
-      game: s[cs]?.b ?? fbState.b.game,
-    },
-  };
-  set(sbRef, updated).then(() => {
-    if(el) el.textContent = `🟢 동기화됨 (${s[cs]?.a ?? 0}-${s[cs]?.b ?? 0})`;
-  }).catch(err => {
-    if(el) el.textContent = '🔴 오류: ' + err.message;
+  import('https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js').then(({update}) => {
+    update(ref(db, '/'), updates).then(() => {
+      if(el) el.textContent = `🟢 동기화됨 (${gameA ?? '?'}–${gameB ?? '?'})`;
+    }).catch(err => {
+      if(el) el.textContent = '🔴 오류: ' + err.message;
+    });
   });
 };
 </script>
