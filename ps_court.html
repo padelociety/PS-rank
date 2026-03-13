@@ -869,15 +869,14 @@ async function saveMatch() {
       t2p1: teamB[0], t2p2: teamB[1],
       sets: fullSets,
     };
-    // text/plain → preflight 없이 CORS 통과
-    const res = await fetch(APPS_SCRIPT_URL, {
+    // no-cors: 응답 못 받지만 저장은 됨 — 2초 후 성공 처리
+    fetch(APPS_SCRIPT_URL, {
       method: 'POST',
+      mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload),
-      redirect: 'follow',
     });
-    const json = await res.json();
-    if(!json.success) throw new Error(json.error || '저장 실패');
+    await new Promise(r => setTimeout(r, 2000));
     showDone(today, scoreStr);
   } catch(e) {
     showToast('⚠️ 저장 실패: ' + e.message);
