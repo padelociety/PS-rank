@@ -960,7 +960,7 @@ renderStep();
 // ── PWA 서비스워커 등록 ──────────────────────────────
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ps_court_sw.js').catch(() => {});
+    navigator.serviceWorker.register('ps_court_sw.js', {scope: '/PS-rank/ps_court.html'}).catch(() => {});
   });
 }
 </script>
