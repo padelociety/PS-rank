@@ -90,16 +90,13 @@ tbody td:nth-child(2) { text-align:left;color:var(--white);font-weight:500; }
 .match-card { background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap; }
 .match-card.mg { border-left:3px solid var(--green-light); }
 .match-card.mbs-b { border-left:3px solid var(--bronze); }
-.match-card.mbs-s { border-left:3px solid var(--silver-light); }
 .match-date { font-size:11px;color:var(--gray);min-width:80px; }
 .match-league { font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;flex-shrink:0; }
 .ml-g { background:var(--green-dark);color:var(--gold);border:1px solid var(--green-light); }
 .ml-b { background:var(--bronze-dark);color:var(--bronze-light);border:1px solid var(--bronze); }
-.ml-s { background:var(--silver-dark);color:var(--silver-light);border:1px solid var(--silver); }
 .match-teams { display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap; }
 .match-team { font-size:13px;font-weight:600;color:var(--white); }
 .match-score { font-size:15px;font-weight:900;color:var(--gold);min-width:60px;text-align:center; }
-.match-vs { font-size:11px;color:var(--gray);font-weight:700; }
 .pair-league-sw { display:flex;gap:8px;margin-bottom:20px; }
 .plb { padding:7px 18px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--gray);font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s; }
 .plb:hover { color:var(--white); }
@@ -188,13 +185,11 @@ tbody td:nth-child(2) { text-align:left;color:var(--white);font-weight:500; }
 <script>
 // ── 설정 ──────────────────────────────────────────
 const SHEET = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT7pdjtoZw-fvXldKyu3SuCZULh0NsiP6xVURsLXwrH2volDhMPUqs7cnrvBEL_E5Ib5EWEH07EO38G/pub';
-const GID_G  = '2119811539';
-const GID_BS = '1357015090';
 const GID_MATCH_G  = '52541838';
 const GID_MATCH_BS = '896797118';
-const MIN_M  = 10, BM = 1.3;
+const MIN_M = 10;
 
-// ── 페어 체커 동적 데이터 (구글 시트에서 자동 로드) ─────────────────────
+// ── 페어 체커 데이터 ──────────────────────────────
 const PLAYERS = { gold: [], bs: [] };
 const USED    = { gold: new Set(), bs: new Set() };
 
@@ -202,9 +197,10 @@ const USED    = { gold: new Set(), bs: new Set() };
 let curTab = 'gold', curF = 'all';
 let gData = [], bsData = [];
 let pLeague = 'gold', sel = [];
+let recentData = [];
 
 // ── 유틸 ──────────────────────────────────────────
-const ckey = (a,b,c,d) => [  [a,b].sort().join('|'), [c,d].sort().join('|')  ].sort().join('||');
+const ckey = (a,b,c,d) => [[a,b].sort().join('|'),[c,d].sort().join('|')].sort().join('||');
 
 async function fetchCSV(gid, attempt=0) {
   const sheetUrl = `${SHEET}?gid=${gid}&single=true&output=csv`;
@@ -238,10 +234,43 @@ async function fetchCSV(gid, attempt=0) {
   }
 }
 
-function score(m,w,s,cat) {
-  if(!m) return 0;
-  const b=((w/m)*3+(s/m)*1)*Math.sqrt(m)*2;
-  return cat==='Bronze'?b*BM:b;
+// ── Match 시트에서 직접 랭킹 계산 ────────────────
+// 컬럼: [0]=matchNum [1]=date [2]=t1p1 [3]=t1p2 [4]=t2p1 [5]=t2p2
+//       [6]=s1a [7]=s1b [8]=s2a [9]=s2b [10]=s3a [11]=s3b
+function calcRanking(rows) {
+  const stats = {};
+  function getOrAdd(name) {
+    if (!name) return null;
+    if (!stats[name]) stats[name] = { m:0, w:0, l:0, s:0 };
+    return stats[name];
+  }
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    const p1=r[2]?.trim(), p2=r[3]?.trim(), p3=r[4]?.trim(), p4=r[5]?.trim();
+    if (!p1||!p2||!p3||!p4) continue;
+    let setsA=0, setsB=0;
+    for (let s=0; s<3; s++) {
+      const a=parseInt(r[6+s*2]), b=parseInt(r[7+s*2]);
+      if (isNaN(a)||isNaN(b)||(a===0&&b===0)) continue;
+      if (a>b) setsA++; else if (b>a) setsB++;
+    }
+    if (setsA===0 && setsB===0) continue;
+    const t1win = setsA > setsB, t2win = setsB > setsA;
+    [p1,p2].forEach(p => {
+      const st = getOrAdd(p);
+      st.m++; st.s += setsA;
+      if (t1win) st.w++; else if (t2win) st.l++;
+    });
+    [p3,p4].forEach(p => {
+      const st = getOrAdd(p);
+      st.m++; st.s += setsB;
+      if (t2win) st.w++; else if (t1win) st.l++;
+    });
+  }
+  return Object.entries(stats).map(([name, st]) => {
+    const pts = st.m > 0 ? ((st.w/st.m)*3 + (st.s/st.m)*1) * Math.sqrt(st.m) * 2 : 0;
+    return { name, ...st, pts };
+  }).sort((a,b) => b.pts - a.pts);
 }
 
 // ── 탭 전환 ───────────────────────────────────────
@@ -252,26 +281,9 @@ function showTab(t) {
   document.getElementById('panel-rank').style.display = (t==='pair'||t==='recent')?'none':'block';
   document.getElementById('panel-pair').style.display = t==='pair'?'block':'none';
   document.getElementById('panel-recent').style.display = t==='recent'?'block':'none';
-  document.getElementById('frow').style.display = (!['pair','recent'].includes(t)&&t==='bs')?'flex':'none';
+  document.getElementById('frow').style.display = (t==='bs')?'flex':'none';
   if(t==='recent') renderRecent();
   else if(t!=='pair') renderRank();
-}
-
-// ── Match 탭에서 페어 데이터 파싱 ─────────────────
-function parseMatchData(rows, league) {
-  const players = new Set();
-  const used = new Set();
-  // 헤더: Match, Date, T1_P1, T1_P2, T2_P1, T2_P2, ...
-  // 행 인덱스: 0=헤더, 1~=데이터
-  for(let i=1; i<rows.length; i++) {
-    const r = rows[i];
-    const p1=r[2]?.trim(), p2=r[3]?.trim(), p3=r[4]?.trim(), p4=r[5]?.trim();
-    if(!p1||!p2||!p3||!p4) continue;
-    players.add(p1); players.add(p2); players.add(p3); players.add(p4);
-    used.add(ckey(p1,p2,p3,p4));
-  }
-  PLAYERS[league] = [...players].sort();
-  USED[league] = used;
 }
 
 // ── 랭킹 로드 ─────────────────────────────────────
@@ -280,51 +292,46 @@ async function loadRank() {
   document.getElementById('status').innerHTML='<div class="spinner"></div>데이터 불러오는 중...';
   document.getElementById('rank-wrap').style.display='none';
   try {
-    const [gr, br, mgr, mbsr] = await Promise.all([
-      fetchCSV(GID_G),
-      fetchCSV(GID_BS),
+    const [mgr, mbsr] = await Promise.all([
       fetchCSV(GID_MATCH_G),
       fetchCSV(GID_MATCH_BS)
     ]);
 
-    gData=[];
-    for(let i=3;i<gr.length;i++){
-      const r=gr[i]; if(!r[1])continue;
-      const m=+r[2],w=+r[3],l=+r[4],s=+r[5]; if(isNaN(m))continue;
-      gData.push({name:r[1],m,w,l,s,pts:score(m,w,s,null)});
-    }
-    gData.sort((a,b)=>b.pts-a.pts);
+    // Match 시트에서 직접 랭킹 계산
+    gData  = calcRanking(mgr);
+    bsData = calcRanking(mbsr);
 
-    bsData=[];
-    for(let i=3;i<br.length;i++){
-      const r=br[i]; if(!r[1])continue;
-      const cat=r[2],m=+r[3],w=+r[4],l=+r[5],s=+r[6],cpts=+r[17]||0; if(isNaN(m))continue;
-      bsData.push({name:r[1],cat,m,w,l,s,cpts,pts:score(m,w,s,cat)});
+    // 페어 체커 데이터
+    for (const [rows, lg] of [[mgr,'gold'],[mbsr,'bs']]) {
+      const ps=new Set(), us=new Set();
+      for (let i=1; i<rows.length; i++) {
+        const r=rows[i];
+        const p1=r[2]?.trim(),p2=r[3]?.trim(),p3=r[4]?.trim(),p4=r[5]?.trim();
+        if (!p1||!p2||!p3||!p4) continue;
+        ps.add(p1);ps.add(p2);ps.add(p3);ps.add(p4);
+        us.add(ckey(p1,p2,p3,p4));
+      }
+      PLAYERS[lg]=[...ps].sort(); USED[lg]=us;
     }
-    bsData.sort((a,b)=>b.pts-a.pts);
-
-    // 페어 체커 데이터 동적 로드
-    parseMatchData(mgr, 'gold');
-    parseMatchData(mbsr, 'bs');
     renderGrid();
 
-    // 최근 경기 데이터 생성
+    // 최근 경기
     function parseMatches(rows, league) {
-      const out = [];
-      for(let i=1; i<rows.length; i++) {
-        const r=rows[i]; if(!r[1]||!r[2]||!r[3]||!r[4]||!r[5])continue;
+      const out=[];
+      for (let i=1; i<rows.length; i++) {
+        const r=rows[i]; if(!r[1]||!r[2]||!r[3]||!r[4]||!r[5]) continue;
         const sets=[];
-        for(let s=0;s<3;s++){
+        for (let s=0;s<3;s++) {
           const a=r[6+s*2]?.trim(), b=r[7+s*2]?.trim();
-          if(a&&b&&(+a>0||+b>0)) sets.push(`${a}-${b}`);
+          if (a&&b&&(+a>0||+b>0)) sets.push(`${a}-${b}`);
         }
-        if(sets.length===0) continue;
+        if (!sets.length) continue;
         out.push({date:r[1],league,match:r[0],t1p1:r[2],t1p2:r[3],t2p1:r[4],t2p2:r[5],score:sets.join(' / ')});
       }
       return out;
     }
     recentData = [...parseMatches(mgr,'G+'), ...parseMatches(mbsr,'BS')];
-    recentData.sort((a,b)=> b.date.localeCompare(a.date) || +b.match - +a.match);
+    recentData.sort((a,b) => b.date.localeCompare(a.date) || +b.match - +a.match);
     recentData = recentData.slice(0,10);
 
     document.getElementById('updated').textContent='마지막 업데이트: '+new Date().toLocaleTimeString('ko-KR');
@@ -350,7 +357,8 @@ function renderRank() {
     tb.innerHTML=''; let rk=0;
     gData.forEach(p=>{
       const ok=p.m>=MIN_M; if(ok)rk++;
-      const rc=ok&&rk<=3?`r${rk}`:''; const wr=Math.round(p.w/p.m*100)+'%';
+      const rc=ok&&rk<=3?`r${rk}`:'';
+      const wr=p.m>0?Math.round(p.w/p.m*100)+'%':'0%';
       const tr=document.createElement('tr'); if(!ok)tr.classList.add('excluded');
       tr.innerHTML=`<td><span class="rn ${rc}">${ok?rk:'—'}</span></td><td>${p.name}</td><td>${p.m}</td><td>${p.w}</td><td>${p.l}</td><td>${p.s}</td><td class="wr">${wr}</td><td class="${ok?'pg':''}">${ok?p.pts.toFixed(2):'<span class="ex">10경기 미만</span>'}</td>`;
       tb.appendChild(tr);
@@ -358,40 +366,34 @@ function renderRank() {
     const q=gData.filter(p=>p.m>=MIN_M);
     ib.innerHTML=`<div class="info-card"><strong>🥇 Gold+ 공식</strong>( W/M×3 + S/M×1 ) × √M × 2<br>최소 ${MIN_M}경기 이상 랭킹 등재</div><div class="info-card"><strong>📊 현황</strong>랭킹 등재: ${q.length}명 / 전체 ${gData.length}명<br>1위: ${q[0]?.name||'-'} (${q[0]?.pts.toFixed(2)||'-'}pts)</div>`;
   } else {
-    th.innerHTML=`<tr class="bh"><th>Rank</th><th>Player</th><th>Cat</th><th>M</th><th>W</th><th>L</th><th>S</th><th>승률</th><th>C Pts</th><th>Points</th></tr>`;
+    th.innerHTML=`<tr class="bh"><th>Rank</th><th>Player</th><th>M</th><th>W</th><th>L</th><th>S</th><th>승률</th><th>Points</th></tr>`;
     tb.innerHTML='';
     const fd=curF==='all'?bsData:bsData.filter(p=>p.cat?.toLowerCase()===curF);
     let rk=0;
     fd.forEach(p=>{
       const ok=p.m>=MIN_M; if(ok)rk++;
-      const rc=ok&&rk<=3?`r${rk}`:''; const wr=Math.round(p.w/p.m*100)+'%';
-      const ib2=p.cat==='Bronze';
-      const tr=document.createElement('tr'); tr.className=ib2?'bronze-row':'silver-row'; if(!ok)tr.classList.add('excluded');
-      tr.innerHTML=`<td><span class="rn ${rc}">${ok?rk:'—'}</span></td><td>${p.name}</td><td><span class="badge ${ib2?'bc':'sc'}">${p.cat}</span></td><td>${p.m}</td><td>${p.w}</td><td>${p.l}</td><td>${p.s}</td><td class="wr">${wr}</td><td style="color:var(--gold);font-size:12px">${p.cpts||0}</td><td class="${ok?(ib2?'pb':'ps'):''}">${ok?p.pts.toFixed(2):'<span class="ex">10경기 미만</span>'}</td>`;
+      const rc=ok&&rk<=3?`r${rk}`:'';
+      const wr=p.m>0?Math.round(p.w/p.m*100)+'%':'0%';
+      const tr=document.createElement('tr'); if(!ok)tr.classList.add('excluded');
+      tr.innerHTML=`<td><span class="rn ${rc}">${ok?rk:'—'}</span></td><td>${p.name}</td><td>${p.m}</td><td>${p.w}</td><td>${p.l}</td><td>${p.s}</td><td class="wr">${wr}</td><td class="${ok?'pg':''}">${ok?p.pts.toFixed(2):'<span class="ex">10경기 미만</span>'}</td>`;
       tb.appendChild(tr);
     });
     const q=bsData.filter(p=>p.m>=MIN_M);
-    const bt=q.find(p=>p.cat==='Bronze'), st=q.find(p=>p.cat==='Silver');
-    ib.innerHTML=`<div class="info-card"><strong>🥉 Bronze &amp; 🥈 Silver 공식</strong>Bronze: ( W/M×3 + S/M×1 ) × √M × 2 × <span style="color:var(--gold)">1.3</span><br>Silver: ( W/M×3 + S/M×1 ) × √M × 2<br>최소 ${MIN_M}경기 이상 랭킹 등재</div><div class="info-card"><strong>📊 현황</strong>🥉 Bronze 1위: ${bt?.name||'-'} (${bt?.pts.toFixed(2)||'-'}pts)<br>🥈 Silver 1위: ${st?.name||'-'} (${st?.pts.toFixed(2)||'-'}pts)</div>`;
+    ib.innerHTML=`<div class="info-card"><strong>🥉 B&S 공식</strong>( W/M×3 + S/M×1 ) × √M × 2<br>최소 ${MIN_M}경기 이상 랭킹 등재</div><div class="info-card"><strong>📊 현황</strong>랭킹 등재: ${q.length}명 / 전체 ${bsData.length}명<br>1위: ${q[0]?.name||'-'} (${q[0]?.pts.toFixed(2)||'-'}pts)</div>`;
   }
 }
 
 // ── 최근 경기 ──────────────────────────────────────
-let recentData = [];
-
 function renderRecent() {
-  if(recentData.length===0) return;
-  const list = document.getElementById('match-list');
+  if(!recentData.length) return;
+  const list=document.getElementById('match-list');
   list.innerHTML='';
-  recentData.forEach(m => {
-    const div = document.createElement('div');
-    const borderCls = m.league==='G+' ? 'mg' : 'mbs-b';
-    const badgeCls  = m.league==='G+' ? 'ml-g' : 'ml-b';
-    const badgeTxt  = m.league==='G+' ? 'GOLD+' : 'B&S';
-    div.className = `match-card ${borderCls}`;
-    div.innerHTML = `
+  recentData.forEach(m=>{
+    const div=document.createElement('div');
+    div.className=`match-card ${m.league==='G+'?'mg':'mbs-b'}`;
+    div.innerHTML=`
       <span class="match-date">${m.date}</span>
-      <span class="match-league ${badgeCls}">${badgeTxt}</span>
+      <span class="match-league ${m.league==='G+'?'ml-g':'ml-b'}">${m.league==='G+'?'GOLD+':'B&S'}</span>
       <span style="font-size:11px;color:var(--gray);flex-shrink:0">#${m.match}</span>
       <div class="match-teams">
         <span class="match-team">${m.t1p1} / ${m.t1p2}</span>
@@ -414,7 +416,7 @@ function setPL(league) {
 }
 
 function toggle(name) {
-  if(sel.includes(name)) { sel=sel.filter(p=>p!==name); }
+  if(sel.includes(name)) sel=sel.filter(p=>p!==name);
   else { if(sel.length>=4) return; sel.push(name); }
   renderGrid(); renderCombos();
 }
@@ -423,8 +425,7 @@ function renderGrid() {
   const grid=document.getElementById('pgrid');
   grid.innerHTML='';
   [...PLAYERS[pLeague]].sort().forEach(name=>{
-    const isOn=sel.includes(name);
-    const isOff=sel.length>=4&&!isOn;
+    const isOn=sel.includes(name), isOff=sel.length>=4&&!isOn;
     const d=document.createElement('div');
     d.className='chip'+(isOn?' on':'')+(isOff?' off':'');
     d.textContent=name;
@@ -439,15 +440,11 @@ function renderGrid() {
 
 function renderCombos() {
   const box=document.getElementById('combos');
-  if(sel.length<4){ box.innerHTML='<div class="ph">⬆️ Select 4 players above to check pair combinations</div>'; return; }
+  if(sel.length<4){box.innerHTML='<div class="ph">⬆️ Select 4 players above to check pair combinations</div>';return;}
   const [a,b,c,d]=sel;
-  const combos=[
-    {t1:[a,b],t2:[c,d]},
-    {t1:[a,c],t2:[b,d]},
-    {t1:[a,d],t2:[b,c]},
-  ].map(co=>({...co, used:USED[pLeague].has(ckey(co.t1[0],co.t1[1],co.t2[0],co.t2[1]))}))
-   .sort((x,y)=>x.used-y.used);
-
+  const combos=[{t1:[a,b],t2:[c,d]},{t1:[a,c],t2:[b,d]},{t1:[a,d],t2:[b,c]}]
+    .map(co=>({...co,used:USED[pLeague].has(ckey(co.t1[0],co.t1[1],co.t2[0],co.t2[1]))}))
+    .sort((x,y)=>x.used-y.used);
   box.innerHTML='';
   combos.forEach(co=>{
     const div=document.createElement('div');
