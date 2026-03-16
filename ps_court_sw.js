@@ -1,12 +1,11 @@
-const CACHE = 'ps-court-v1';
-const ASSETS = [
-  '/PS-rank/ps_court.html',
-  '/PS-rank/ps_court_manifest.json',
-];
+const CACHE = 'ps-court-v2';
 
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(ASSETS))
+    caches.open(CACHE).then(c => c.addAll([
+      '/PS-rank/ps_court.html',
+      '/PS-rank/ps_court_manifest.json',
+    ]))
   );
   self.skipWaiting();
 });
