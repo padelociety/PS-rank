@@ -950,6 +950,13 @@ function showToast(msg) {
 
 // ── 초기화 ──────────────────────────────────────────────────
 renderStep();
+
+// ── PWA 서비스워커 등록 ──────────────────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('ps_court_sw.js').catch(() => {});
+  });
+}
 </script>
 
 <!-- Firebase SDK -->
