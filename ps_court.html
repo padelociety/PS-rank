@@ -965,10 +965,12 @@ function goBack() {
     renderStep();
     renderPlayerGrid();
   } else if(curStep===4) {
-    // 스코어 초기화하고 팀 배정으로
     sets=[{a:0,b:0}];
     curSet=0;
     curStep=3;
+    // 스코어 섹션 완전히 비우기
+    const sec = document.getElementById('score-section');
+    if(sec) sec.innerHTML = '';
     renderStep();
     renderTeamDisplay();
   }
