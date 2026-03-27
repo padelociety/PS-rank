@@ -712,8 +712,7 @@ function renderStep() {
   } else if(curStep===4){
     const canNextSet = sets.length < 3 && curSet === sets.length - 1;
     const nextSetBtn = canNextSet ? `<button class="btn btn-shuffle" onclick="nextSet()">➡️ 세트 완료</button>` : '';
-    // 저장 버튼: 작고 눈에 덜 띄게
-    footer.innerHTML=`<button class="btn btn-back" onclick="goBack()">← 뒤로</button>${nextSetBtn}<button class="btn btn-save" onclick="saveMatch()">💾 저장</button>`;
+    footer.innerHTML=`<button class="btn btn-back" onclick="goBack()">← 뒤로</button>${nextSetBtn}<button onclick="saveMatch()" style="flex:0 0 auto;padding:10px 16px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#7A8FA0;font-family:'Pretendard',sans-serif;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.3px;">💾 저장</button>`;
   } else if(curStep===5){
     footer.innerHTML=`<button class="btn btn-primary" style="background:var(--gold);color:#000;flex:1" onclick="resetAll()">🎾 새 경기 시작</button>`;
   }
