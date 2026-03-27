@@ -249,7 +249,6 @@ body {
 }
 
 /* ── STEP 4: 스코어 ── */
-/* ── 스코어 입력 (앱 스타일) ── */
 .score-wrap {
   display: flex;
   flex-direction: column;
@@ -359,6 +358,7 @@ body {
   gap: clamp(8px,1.5vw,16px);
   flex-shrink: 0;
   background: rgba(8,12,16,0.95);
+  align-items: center;
 }
 .btn {
   flex: 1;
@@ -397,10 +397,22 @@ body {
   color: var(--text);
   border: 1px solid var(--border);
 }
+
+/* ── 저장 버튼: 작고 눈에 덜 띄게 ── */
 .btn-save {
-  background: var(--green);
-  color: #000;
+  flex: 0 0 auto;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  font-size: clamp(12px,1.8vw,15px);
+  font-weight: 700;
+  padding: clamp(10px,1.2vh,16px) clamp(14px,2vw,24px);
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.3px;
 }
+.btn-save:hover { color: var(--green); border-color: rgba(46,204,113,0.4); }
+.btn-save:active { background: rgba(46,204,113,0.08); transform: scale(0.96); }
+
 .btn-danger {
   background: rgba(248,113,113,0.15);
   color: var(--red);
@@ -556,18 +568,22 @@ body {
 const SHEET = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT7pdjtoZw-fvXldKyu3SuCZULh0NsiP6xVURsLXwrH2volDhMPUqs7cnrvBEL_E5Ib5EWEH07EO38G/pub';
 const GID_MATCH_G  = '52541838';
 const GID_MATCH_BS = '896797118';
-
-// !! Apps Script URL — 나중에 설정 후 여기에 입력
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbypETUGCD1AmSDoOCHWJv2N3myAHomeDqPpvnii8gYMkh-JRt5AvIpejFMqYi5PuZF_Rw/exec';
 
 // ── 상태 ───────────────────────────────────────────────────
 let curStep = 1;
-let league = null;       // 'gold' | 'bs'
-let players = [];        // 전체 선수 목록
-let selPlayers = [];     // 오늘 선택된 선수
+let league = null;
+let players = [];
+let selPlayers = [];
 let usedCombos = new Set();
 let teamA = [], teamB = [];
-let sets = [{a:0, b:0}]; // 세트 스코어
+let sets = [{a:0, b:0}];
+let curSet = 0;
+
+// ── 선수 목록 캐시: 같은 리그 재방문 시 재로딩 방지 ──────────
+let cachedLeague = null;
+let cachedPlayers = [];
+let cachedUsedCombos = new Set();
 
 // ── CSV 패치 ────────────────────────────────────────────────
 async function fetchCSV(gid, attempt=0) {
@@ -601,6 +617,12 @@ async function fetchCSV(gid, attempt=0) {
 
 // ── 선수 & 사용된 조합 로드 ────────────────────────────────
 async function loadPlayers(lg) {
+  // 같은 리그 → 캐시 재사용
+  if (cachedLeague === lg && cachedPlayers.length > 0) {
+    players = cachedPlayers;
+    usedCombos = cachedUsedCombos;
+    return;
+  }
   const gid = lg === 'gold' ? GID_MATCH_G : GID_MATCH_BS;
   const rows = await fetchCSV(gid);
   const ps = new Set(), us = new Set();
@@ -614,6 +636,9 @@ async function loadPlayers(lg) {
   }
   players = [...ps].sort();
   usedCombos = us;
+  cachedLeague = lg;
+  cachedPlayers = players;
+  cachedUsedCombos = us;
 }
 
 // ── 조합 키 ─────────────────────────────────────────────────
@@ -624,23 +649,19 @@ function comboKey(a1,a2,b1,b2) {
 // ── 랜덤 팀 배정 ────────────────────────────────────────────
 function assignTeams() {
   const sp = [...selPlayers];
-  // 4명 선택
   if(sp.length < 4) { showToast('최소 4명을 선택해야 해요'); return false; }
 
-  // 4명이면 그냥, 4명 초과면 랜덤 4명 선택
   let pool = sp.length === 4 ? sp : shuffle(sp).slice(0, 4);
-  
-  // 가능한 조합 3가지
+
   const combos = [
     {a:[pool[0],pool[1]], b:[pool[2],pool[3]]},
     {a:[pool[0],pool[2]], b:[pool[1],pool[3]]},
     {a:[pool[0],pool[3]], b:[pool[1],pool[2]]},
   ];
-  
-  // 안 한 조합 필터
+
   const fresh = combos.filter(c => !usedCombos.has(comboKey(c.a[0],c.a[1],c.b[0],c.b[1])));
   const pick = fresh.length > 0 ? fresh[Math.floor(Math.random()*fresh.length)] : combos[Math.floor(Math.random()*3)];
-  
+
   teamA = pick.a;
   teamB = pick.b;
   const isUsed = usedCombos.has(comboKey(teamA[0],teamA[1],teamB[0],teamB[1]));
@@ -652,14 +673,10 @@ function shuffle(arr) {
 }
 
 // ── Firebase 동기화 헬퍼 ───────────────────────────────────
-// sets 배열: [{a,b}, {a,b}, ...] — curSet이 현재 진행중인 세트
-// 완료된 세트 = sets[0..curSet-1], 현재 세트 = sets[curSet]
 function pushToFirebase() {
   if(typeof window.syncToFirebase !== 'function') return;
-  // 완료된 세트 (curSet 이전)
   const setsA = sets.slice(0, curSet).map(s => s.a);
   const setsB = sets.slice(0, curSet).map(s => s.b);
-  // 현재 세트 game 점수
   const gameA = sets[curSet]?.a ?? 0;
   const gameB = sets[curSet]?.b ?? 0;
   window.syncToFirebase({
@@ -695,7 +712,8 @@ function renderStep() {
   } else if(curStep===4){
     const canNextSet = sets.length < 3 && curSet === sets.length - 1;
     const nextSetBtn = canNextSet ? `<button class="btn btn-shuffle" onclick="nextSet()">➡️ 세트 완료</button>` : '';
-    footer.innerHTML=`<button class="btn btn-back" onclick="goBack()">← 뒤로</button>${nextSetBtn}<button class="btn btn-save" onclick="saveMatch()">💾 경기 저장</button>`;
+    // 저장 버튼: 작고 눈에 덜 띄게
+    footer.innerHTML=`<button class="btn btn-back" onclick="goBack()">← 뒤로</button>${nextSetBtn}<button class="btn btn-save" onclick="saveMatch()">💾 저장</button>`;
   } else if(curStep===5){
     footer.innerHTML=`<button class="btn btn-primary" style="background:var(--gold);color:#000;flex:1" onclick="resetAll()">🎾 새 경기 시작</button>`;
   }
@@ -706,28 +724,41 @@ function selectLeague(lg) {
   league = lg;
   document.querySelectorAll('.league-btn').forEach(b=>b.classList.remove('on'));
   document.querySelector(lg==='gold'?'.gold-btn':'.bs-btn').classList.add('on');
-  document.getElementById('btn-next').disabled = false;
+  const btn = document.getElementById('btn-next');
+  if(btn) btn.disabled = false;
 }
 
 // ── STEP 2: 선수 그리드 렌더 ───────────────────────────────
 async function renderPlayerGrid() {
   const wrap = document.getElementById('player-grid-wrap');
+
+  // 선수 목록이 이미 있으면 (같은 리그) → 그리드만 다시 그리고 선택 상태 복원
+  if (cachedLeague === league && cachedPlayers.length > 0) {
+    players = cachedPlayers;
+    usedCombos = cachedUsedCombos;
+    buildPlayerGrid(wrap);
+    return;
+  }
+
   wrap.innerHTML = '<div class="loading-msg"><div class="spinner"></div>선수 목록 불러오는 중...</div>';
-  selPlayers = [];
   try {
     await loadPlayers(league);
-    wrap.innerHTML = '';
-    players.forEach(name => {
-      const d = document.createElement('div');
-      d.className = 'p-chip';
-      d.textContent = name;
-      d.onclick = () => togglePlayer(name, d);
-      wrap.appendChild(d);
-    });
-    updateSelCount();
+    buildPlayerGrid(wrap);
   } catch(e) {
     wrap.innerHTML = `<div class="loading-msg" style="color:var(--red)">⚠️ 선수 목록 불러오기 실패<br><br><button onclick="renderPlayerGrid()" style="padding:14px 28px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:12px;font-size:16px;cursor:pointer;font-family:Pretendard,sans-serif;">다시 시도</button></div>`;
   }
+}
+
+function buildPlayerGrid(wrap) {
+  wrap.innerHTML = '';
+  players.forEach(name => {
+    const d = document.createElement('div');
+    d.className = 'p-chip' + (selPlayers.includes(name) ? ' on' : '');
+    d.textContent = name;
+    d.onclick = () => togglePlayer(name, d);
+    wrap.appendChild(d);
+  });
+  updateSelCount();
 }
 
 function togglePlayer(name, el) {
@@ -739,13 +770,13 @@ function togglePlayer(name, el) {
     el.classList.add('on');
   }
   updateSelCount();
-  document.getElementById('btn-next').disabled = selPlayers.length < 4;
+  const btn = document.getElementById('btn-next');
+  if(btn) btn.disabled = selPlayers.length < 4;
 }
 
 function updateSelCount() {
   const n = selPlayers.length;
   document.getElementById('sel-count').innerHTML = `선택된 선수: <em>${n}명</em>${n>=4?' ✓':''}`;
-  // 버튼 활성화 동기화
   const btn = document.getElementById('btn-next');
   if(btn) btn.disabled = n < 4;
 }
@@ -755,7 +786,10 @@ function renderTeamDisplay() {
   const isUsed = assignTeams();
   const wrap = document.getElementById('team-display');
 
-  if(!teamA.length) { wrap.innerHTML = '<div class="no-combo-msg">😅 선택한 선수들의 모든 조합이 이미 완료됐어요.<br>선수를 추가하거나 변경해주세요.</div>'; return; }
+  if(!teamA.length) {
+    wrap.innerHTML = '<div class="no-combo-msg">😅 선택한 선수들의 모든 조합이 이미 완료됐어요.<br>선수를 추가하거나 변경해주세요.</div>';
+    return;
+  }
 
   const badge = isUsed
     ? '<div class="used-badge">⚠️ 이미 진행한 조합이에요</div>'
@@ -775,18 +809,16 @@ function renderTeamDisplay() {
       </div>
     </div>`;
 
-  // 팀 이름 Firebase에 반영
   setTimeout(() => pushToFirebase(), 800);
 }
 
 function reshuffleTeams() {
   sets = [{a:0,b:0}];
+  curSet = 0;
   renderTeamDisplay();
 }
 
-// ── STEP 4: 스코어 렌더 (앱 스타일) ──────────────────────
-let curSet = 0;
-
+// ── STEP 4: 스코어 렌더 ──────────────────────────────────
 function renderScoreSection() {
   const sec = document.getElementById('score-section');
   sec.innerHTML = `<div class="score-wrap" id="score-wrap"></div>`;
@@ -801,7 +833,6 @@ function renderScoreBoard() {
     <button class="set-tab ${i===curSet?'active':''}" onclick="switchSet(${i})">${i+1}세트</button>
   `).join('');
 
-  // curSet을 숫자로 고정해서 inline onclick에 넣음
   const cs = curSet;
   wrap.innerHTML = `
     <div class="set-tabs">${tabsHtml}</div>
@@ -838,21 +869,12 @@ function adjustScore(i, team, delta) {
   pushToFirebase();
 }
 
-function addSet() {
-  if(sets.length >= 3) return;
-  sets.push({a:0,b:0});
-  curSet = sets.length - 1;
-  renderScoreBoard();
-  pushToFirebase();
-}
-
 function nextSet() {
   if(sets.length >= 3) return;
-  // 현재 세트 점수를 완료된 세트로 확정하고 새 세트 추가
   sets.push({a:0, b:0});
   curSet = sets.length - 1;
   renderScoreBoard();
-  renderStep(); // 푸터 버튼 업데이트
+  renderStep();
   pushToFirebase();
 }
 
@@ -891,7 +913,7 @@ async function saveMatch() {
     showDone(today, scoreStr);
   } catch(e) {
     showToast('⚠️ 저장 실패: ' + e.message);
-    btn.textContent = '💾 경기 저장';
+    btn.textContent = '💾 저장';
     btn.disabled = false;
   }
 }
@@ -934,14 +956,38 @@ async function goNext() {
 }
 
 function goBack() {
-  if(curStep===2){ curStep=1; league=null; renderStep(); }
-  else if(curStep===3){ curStep=2; renderStep(); }
-  else if(curStep===4){ curStep=3; renderStep(); renderTeamDisplay(); }
+  if(curStep===2) {
+    // 선수 선택 → 리그 선택
+    // selPlayers는 유지 (같은 리그로 돌아올 때 복원)
+    curStep=1;
+    // 리그 버튼 on 상태 복원
+    renderStep();
+    // 리그 선택 버튼 on 상태 다시 표시
+    if(league) {
+      document.querySelector(league==='gold'?'.gold-btn':'.bs-btn')?.classList.add('on');
+      const btn = document.getElementById('btn-next');
+      if(btn) btn.disabled = false;
+    }
+  } else if(curStep===3) {
+    // 팀 배정 → 선수 선택
+    curStep=2;
+    renderStep();
+    // 선수 그리드: 캐시 재사용 + 선택 상태 복원
+    renderPlayerGrid();
+  } else if(curStep===4) {
+    // 스코어 → 팀 배정 (현재 스코어 초기화 후 팀 재표시)
+    sets=[{a:0,b:0}];
+    curSet=0;
+    curStep=3;
+    renderStep();
+    renderTeamDisplay();
+  }
 }
 
 function resetAll() {
-  curStep=1; league=null; players=[]; selPlayers=[]; teamA=[]; teamB=[]; sets=[{a:0,b:0}]; curSet=0;
-  window._sets=[{a:0,b:0}]; window._curSet=0; window._teamA=[]; window._teamB=[];
+  curStep=1; league=null; players=[]; selPlayers=[]; teamA=[]; teamB=[];
+  sets=[{a:0,b:0}]; curSet=0;
+  cachedLeague=null; cachedPlayers=[]; cachedUsedCombos=new Set();
   const sec = document.getElementById('score-section');
   if(sec) sec.innerHTML = '';
   renderStep();
@@ -984,7 +1030,6 @@ const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const sbRef = ref(db, 'scoreboard');
 
-// Firebase 연결 상태
 const connRef = ref(db, '.info/connected');
 onValue(connRef, snap => {
   const ok = snap.val() === true;
@@ -992,13 +1037,9 @@ onValue(connRef, snap => {
   if(el) { el.textContent = ok ? '🟢 연결됨' : '🔴 연결 중...'; el.style.color = ok ? 'var(--green)' : 'var(--text-dim)'; }
 });
 
-// 스코어보드와 동일한 S 객체 구조로 Firebase에 push
-// sets[]: 완료된 세트 배열 (스코어보드의 S.a.sets / S.b.sets)
-// game: 현재 세트 점수 (스코어보드의 S.a.game / S.b.game)
 window.syncToFirebase = function({ nameA, nameB, setsA, setsB, gameA, gameB }) {
   const el = document.getElementById('fb-status');
 
-  // 스코어보드와 완전히 동일한 구조
   const S = {
     title: 'PS i-League 26S1',
     a: {
