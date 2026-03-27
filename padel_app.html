@@ -73,21 +73,10 @@ body {
 .nav-item.active .nav-icon { transform: translateY(-2px); }
 .nav-dot { position: absolute; top: 6px; width: 4px; height: 4px; border-radius: 50%; background: var(--gold); opacity: 0; transition: opacity 0.2s; }
 .nav-item.active .nav-dot { opacity: 1; }
-.rank-section-header { padding: 20px 20px 12px; display: flex; align-items: center; justify-content: space-between; }
-.section-title { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 2px; line-height: 1; }
-.section-title.gold { color: var(--gold); }
-.section-title.bs { background: linear-gradient(90deg, var(--bronze-light), var(--silver)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-.section-subtitle { font-size: 11px; color: var(--text-dim); font-weight: 500; margin-top: 2px; }
-.rank-tabs { display: flex; margin: 0 20px 16px; background: var(--surface2); border-radius: var(--radius-sm); padding: 4px; gap: 4px; }
+.rank-tabs { display: flex; margin: 16px 20px; background: var(--surface2); border-radius: var(--radius-sm); padding: 4px; gap: 4px; }
 .rank-tab { flex: 1; padding: 9px; border-radius: 7px; border: none; background: transparent; color: var(--text-dim); font-family: 'Pretendard', sans-serif; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.2s; letter-spacing: 0.5px; }
 .rank-tab.active-gold { background: var(--green-dark); color: var(--gold); border: 1px solid rgba(245,200,66,0.2); }
 .rank-tab.active-bs { background: var(--bronze-dark); color: var(--bronze-light); border: 1px solid rgba(205,127,50,0.2); }
-.bs-filter { display: none; flex-direction: row; gap: 8px; padding: 0 20px 14px; }
-.bs-filter.show { display: flex; }
-.filter-chip { padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border); background: transparent; color: var(--text-dim); font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'Pretendard', sans-serif; transition: all 0.2s; }
-.filter-chip.all-on { background: var(--surface3); border-color: rgba(255,255,255,0.2); color: var(--text); }
-.filter-chip.bronze-on { background: var(--bronze-dark); border-color: var(--bronze); color: var(--bronze-light); }
-.filter-chip.silver-on { background: var(--silver-dark); border-color: var(--silver); color: var(--silver); }
 .rank-list { padding: 0 16px; display: flex; flex-direction: column; gap: 8px; }
 .rank-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; display: flex; align-items: center; gap: 14px; position: relative; overflow: hidden; transition: transform 0.15s; }
 .rank-card:active { transform: scale(0.98); }
@@ -95,8 +84,6 @@ body {
 .rank-card.rank-1 { border-color: rgba(245,200,66,0.35); background: linear-gradient(135deg, rgba(245,200,66,0.08), var(--surface)); }
 .rank-card.rank-2 { border-color: rgba(192,192,192,0.25); background: linear-gradient(135deg, rgba(192,192,192,0.05), var(--surface)); }
 .rank-card.rank-3 { border-color: rgba(205,127,50,0.3); background: linear-gradient(135deg, rgba(205,127,50,0.07), var(--surface)); }
-.rank-card.bronze-card { border-left: 3px solid var(--bronze); }
-.rank-card.silver-card { border-left: 3px solid var(--silver); }
 .rank-num { font-family: 'Bebas Neue', sans-serif; font-size: 28px; line-height: 1; min-width: 32px; text-align: center; color: var(--text-dim); }
 .rank-num.r1 { color: var(--gold); font-size: 32px; }
 .rank-num.r2 { color: #C0C0C0; }
@@ -107,13 +94,9 @@ body {
 .rank-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .rank-stat { font-size: 11px; color: var(--text-dim); font-weight: 500; }
 .rank-stat span { color: var(--text); font-weight: 600; }
-.cat-badge { font-size: 9px; font-weight: 800; padding: 2px 7px; border-radius: 20px; letter-spacing: 0.5px; }
-.cat-bronze { background: var(--bronze-dark); color: var(--bronze-light); border: 1px solid var(--bronze); }
-.cat-silver { background: var(--silver-dark); color: var(--silver); border: 1px solid rgba(168,192,214,0.4); }
 .rank-pts { text-align: right; flex-shrink: 0; }
 .pts-value { font-family: 'Bebas Neue', sans-serif; font-size: 22px; line-height: 1; color: var(--green); }
-.pts-value.bronze-pts { color: var(--bronze-light); }
-.pts-value.silver-pts { color: var(--silver); }
+.pts-value.bs-pts { color: var(--bronze-light); }
 .pts-label { font-size: 9px; color: var(--text-dim); font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
 .pts-min { font-size: 10px; color: var(--text-dim); background: var(--surface2); padding: 3px 8px; border-radius: 10px; }
 .stat-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 16px 0; }
@@ -121,6 +104,9 @@ body {
 .stat-card-label { font-size: 10px; color: var(--text-dim); font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
 .stat-card-value { font-size: 14px; font-weight: 700; color: var(--text); line-height: 1.4; }
 .recent-header { padding: 20px 20px 16px; display: flex; align-items: center; justify-content: space-between; }
+.section-title { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 2px; line-height: 1; }
+.section-title.gold { color: var(--gold); }
+.section-subtitle { font-size: 11px; color: var(--text-dim); font-weight: 500; margin-top: 2px; }
 .match-list { padding: 0 16px; display: flex; flex-direction: column; gap: 10px; }
 .match-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; position: relative; overflow: hidden; }
 .match-card.gold-match { border-left: 3px solid var(--gold); }
@@ -165,8 +151,8 @@ body {
 .updated-tag { font-size: 10px; color: var(--text-dim); font-weight: 500; }
 @media (min-width: 480px) {
   .rank-list, .match-list, .combo-list { max-width: 480px; margin: 0 auto; }
-  .rank-tabs, .bs-filter, .pair-league-tabs, .player-grid, .stat-summary { max-width: 480px; margin-left: auto; margin-right: auto; }
-  .rank-section-header, .recent-header, .pair-header { max-width: 480px; margin: 0 auto; }
+  .rank-tabs, .pair-league-tabs, .player-grid, .stat-summary { max-width: 480px; margin-left: auto; margin-right: auto; }
+  .recent-header, .pair-header { max-width: 480px; margin: 0 auto; }
 }
 </style>
 </head>
@@ -177,20 +163,15 @@ body {
     <span class="league">PS i-League 2026</span>
     <span class="season">Season 1</span>
   </div>
-  <button class="header-refresh" id="refreshBtn" onclick="loadData()" title="새로고침">&#x21BB;</button>
+  <button class="header-refresh" id="refreshBtn" onclick="loadData()" title="새로고침">↻</button>
 </header>
 
 <div class="page active" id="page-rank">
-  <div class="rank-tabs" style="margin-top:16px">
-    <button class="rank-tab active-gold" id="tab-gold" onclick="switchRank('gold')">&#127945; GOLD+</button>
-    <button class="rank-tab" id="tab-bs" onclick="switchRank('bs')">&#127947; BRONZE &amp; &#127946; SILVER</button>
+  <div class="rank-tabs">
+    <button class="rank-tab active-gold" id="tab-gold" onclick="switchRank('gold')">🥇 GOLD+</button>
+    <button class="rank-tab" id="tab-bs" onclick="switchRank('bs')">🥉 B&amp;S</button>
   </div>
-  <div class="bs-filter" id="bs-filter">
-    <button class="filter-chip all-on" onclick="setFilter('all',this)">&#xC804;&#xCCB4;</button>
-    <button class="filter-chip" onclick="setFilter('bronze',this)">Bronze</button>
-    <button class="filter-chip" onclick="setFilter('silver',this)">Silver</button>
-  </div>
-  <div id="rank-status" class="status-center"><div class="spinner"></div>&#xB370;&#xC774;&#xD130; &#xBD88;&#xB7EC;&#xC624;&#xB294; &#xC911;...</div>
+  <div id="rank-status" class="status-center"><div class="spinner"></div>데이터 불러오는 중...</div>
   <div id="rank-content" style="display:none">
     <div class="rank-list" id="rank-list"></div>
     <div class="stat-summary" id="stat-summary"></div>
@@ -200,8 +181,8 @@ body {
 <div class="page" id="page-recent">
   <div class="recent-header">
     <div>
-      <div class="section-title gold" style="font-size:24px">&#xCD5C;&#xADFC; &#xACBD;&#xAE30;</div>
-      <div class="section-subtitle">Gold+ &middot; B&amp;S &#xD569;&#xC0B0; &#xCD5C;&#xADFC; 20&#xACBD;&#xAE30;</div>
+      <div class="section-title gold" style="font-size:24px">최근 경기</div>
+      <div class="section-subtitle">Gold+ · B&S 합산 최근 20경기</div>
     </div>
     <span class="updated-tag" id="updated-recent"></span>
   </div>
@@ -212,33 +193,33 @@ body {
 <div class="page" id="page-pair">
   <div class="pair-header">
     <div class="section-title" style="color:var(--text);font-size:24px">Pair Checker</div>
-    <div class="section-subtitle" style="margin-top:2px">4&#xBA85; &#xC120;&#xD0DD; &rarr; &#xAC00;&#xB2A5;&#xD55C; &#xD398;&#xC5B4; &#xC870;&#xD569; &#xD655;&#xC778;</div>
+    <div class="section-subtitle" style="margin-top:2px">4명 선택 → 가능한 페어 조합 확인</div>
   </div>
   <div class="pair-league-tabs">
-    <button class="pair-league-tab pg-on" id="plbg" onclick="setPL('gold')">&#127945; Gold+</button>
-    <button class="pair-league-tab" id="plbb" onclick="setPL('bs')">&#127947; B&amp;S</button>
+    <button class="pair-league-tab pg-on" id="plbg" onclick="setPL('gold')">🥇 Gold+</button>
+    <button class="pair-league-tab" id="plbb" onclick="setPL('bs')">🥉 B&amp;S</button>
   </div>
-  <div class="sel-hint" id="sel-hint">&#xD50C;&#xB808;&#xC774;&#xC5B4;&#xB97C; <em>4&#xBA85;</em> &#xC120;&#xD0DD;&#xD574;&#xC8FC;&#xC138;&#xC694;</div>
+  <div class="sel-hint" id="sel-hint">플레이어를 <em>4명</em> 선택해주세요</div>
   <div class="player-grid" id="player-grid"></div>
   <div class="combo-list" id="combo-list">
-    <div class="placeholder-msg">&#x2B06;&#xFE0F; &#xC704;&#xC5D0;&#xC11C; 4&#xBA85;&#xC744; &#xC120;&#xD0DD;&#xD558;&#xBA74;<br>&#xD398;&#xC5B4; &#xC870;&#xD569;&#xC774; &#xD45C;&#xC2DC;&#xB3FC;&#xC694;</div>
+    <div class="placeholder-msg">⬆️ 위에서 4명을 선택하면<br>페어 조합이 표시돼요</div>
   </div>
 </div>
 
 <nav class="bottom-nav">
   <div class="nav-item active" id="nav-rank" onclick="showPage('rank')">
     <div class="nav-dot"></div>
-    <span class="nav-icon">&#127942;</span>
-    <span class="nav-label">&#xB791;&#xD0B9;</span>
+    <span class="nav-icon">🏆</span>
+    <span class="nav-label">랭킹</span>
   </div>
   <div class="nav-item" id="nav-recent" onclick="showPage('recent')">
     <div class="nav-dot"></div>
-    <span class="nav-icon">&#128203;</span>
-    <span class="nav-label">&#xCD5C;&#xADFC; &#xACBD;&#xAE30;</span>
+    <span class="nav-icon">📋</span>
+    <span class="nav-label">최근 경기</span>
   </div>
   <div class="nav-item" id="nav-pair" onclick="showPage('pair')">
     <div class="nav-dot"></div>
-    <span class="nav-icon">&#127934;</span>
+    <span class="nav-icon">🎾</span>
     <span class="nav-label">Pair Checker</span>
   </div>
 </nav>
@@ -249,7 +230,7 @@ const GID_MATCH_G  = '52541838';
 const GID_MATCH_BS = '896797118';
 const MIN_M = 10;
 
-let curPage = 'rank', rankTab = 'gold', bsFilter = 'all';
+let curPage = 'rank', rankTab = 'gold';
 let gData = [], bsData = [], recentData = [];
 const PLAYERS = { gold: [], bs: [] };
 const USED    = { gold: new Set(), bs: new Set() };
@@ -289,9 +270,6 @@ async function fetchCSV(gid, attempt=0) {
   }
 }
 
-// Match 시트에서 직접 랭킹 계산
-// 컬럼: [0]=matchNum [1]=date [2]=t1p1 [3]=t1p2 [4]=t2p1 [5]=t2p2
-//       [6]=s1a [7]=s1b [8]=s2a [9]=s2b [10]=s3a [11]=s3b
 function calcRanking(rows) {
   const stats = {};
   function getOrAdd(name) {
@@ -390,14 +368,6 @@ function switchRank(t) {
   rankTab=t;
   document.getElementById('tab-gold').className='rank-tab'+(t==='gold'?' active-gold':'');
   document.getElementById('tab-bs').className='rank-tab'+(t==='bs'?' active-bs':'');
-  document.getElementById('bs-filter').className='bs-filter'+(t==='bs'?' show':'');
-  renderRank();
-}
-
-function setFilter(f,btn) {
-  bsFilter=f;
-  document.querySelectorAll('.filter-chip').forEach(b=>b.className='filter-chip');
-  btn.classList.add(f==='all'?'all-on':f==='bronze'?'bronze-on':'silver-on');
   renderRank();
 }
 
@@ -406,6 +376,7 @@ function renderRank() {
   const summary=document.getElementById('stat-summary');
   list.innerHTML='';
   const data=rankTab==='gold'?gData:bsData;
+  const isBs=rankTab==='bs';
   let rk=0;
   data.forEach(p=>{
     const ok=p.m>=MIN_M; if(ok) rk++;
@@ -425,7 +396,7 @@ function renderRank() {
         </div>
       </div>
       <div class="rank-pts">
-        ${ok?`<div class="pts-value">${p.pts.toFixed(1)}</div><div class="pts-label">PTS</div>`:`<div class="pts-min">${MIN_M}경기 미만</div>`}
+        ${ok?`<div class="pts-value${isBs?' bs-pts':''}">${p.pts.toFixed(1)}</div><div class="pts-label">PTS</div>`:`<div class="pts-min">${MIN_M}경기 미만</div>`}
       </div>`;
     list.appendChild(div);
   });
