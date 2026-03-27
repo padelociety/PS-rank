@@ -524,7 +524,7 @@ body {
   <!-- STEP 2: 선수 선택 -->
   <div class="screen" id="screen-2">
     <div class="screen-title">선수 선택</div>
-    <div class="screen-sub">오늘 참여할 선수를 선택해주세요 (최소 4명)</div>
+    <div class="screen-sub">오늘 참여할 선수 4명을 선택해주세요</div>
     <div class="sel-count" id="sel-count">선택된 선수: <em>0명</em></div>
     <div id="player-grid-wrap" class="player-grid-wrap">
       <div class="loading-msg"><div class="spinner"></div>선수 목록 불러오는 중...</div>
@@ -648,10 +648,8 @@ function comboKey(a1,a2,b1,b2) {
 
 // ── 랜덤 팀 배정 ────────────────────────────────────────────
 function assignTeams() {
-  const sp = [...selPlayers];
-  if(sp.length < 4) { showToast('최소 4명을 선택해야 해요'); return false; }
-
-  let pool = sp.length === 4 ? sp : shuffle(sp).slice(0, 4);
+  if(selPlayers.length !== 4) { showToast('4명을 선택해야 해요'); return false; }
+  const pool = shuffle([...selPlayers]);
 
   const combos = [
     {a:[pool[0],pool[1]], b:[pool[2],pool[3]]},
@@ -664,8 +662,7 @@ function assignTeams() {
 
   teamA = pick.a;
   teamB = pick.b;
-  const isUsed = usedCombos.has(comboKey(teamA[0],teamA[1],teamB[0],teamB[1]));
-  return isUsed;
+  return usedCombos.has(comboKey(teamA[0],teamA[1],teamB[0],teamB[1]));
 }
 
 function shuffle(arr) {
@@ -712,7 +709,7 @@ function renderStep() {
   } else if(curStep===4){
     const canNextSet = sets.length < 3 && curSet === sets.length - 1;
     const nextSetBtn = canNextSet ? `<button class="btn btn-shuffle" onclick="nextSet()">➡️ 세트 완료</button>` : '';
-    footer.innerHTML=`<button class="btn btn-back" onclick="goBack()">← 뒤로</button>${nextSetBtn}<button onclick="saveMatch()" style="flex:0 0 auto;padding:10px 16px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#7A8FA0;font-family:'Pretendard',sans-serif;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.3px;">💾 저장</button>`;
+    footer.innerHTML=`<button class="btn btn-back" onclick="goBack()">← 뒤로</button>${nextSetBtn}<button id="save-btn" onclick="saveMatch()" style="flex:0 0 auto;padding:10px 16px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#7A8FA0;font-family:'Pretendard',sans-serif;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.3px;">💾 저장</button><button onclick="confirmReset()" style="flex:0 0 auto;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.08);background:transparent;color:#4A5A6A;font-family:'Pretendard',sans-serif;font-size:12px;font-weight:700;cursor:pointer;">↺ 처음</button>`;
   } else if(curStep===5){
     footer.innerHTML=`<button class="btn btn-primary" style="background:var(--gold);color:#000;flex:1" onclick="resetAll()">🎾 새 경기 시작</button>`;
   }
@@ -765,19 +762,21 @@ function togglePlayer(name, el) {
     selPlayers = selPlayers.filter(p=>p!==name);
     el.classList.remove('on');
   } else {
+    if(selPlayers.length >= 4) {
+      showToast('4명만 선택할 수 있어요');
+      return;
+    }
     selPlayers.push(name);
     el.classList.add('on');
   }
   updateSelCount();
-  const btn = document.getElementById('btn-next');
-  if(btn) btn.disabled = selPlayers.length < 4;
 }
 
 function updateSelCount() {
   const n = selPlayers.length;
-  document.getElementById('sel-count').innerHTML = `선택된 선수: <em>${n}명</em>${n>=4?' ✓':''}`;
+  document.getElementById('sel-count').innerHTML = `선택된 선수: <em>${n} / 4명</em>${n===4?' ✓':''}`;
   const btn = document.getElementById('btn-next');
-  if(btn) btn.disabled = n < 4;
+  if(btn) btn.disabled = n !== 4;
 }
 
 // ── STEP 3: 팀 배정 렌더 ───────────────────────────────────
@@ -879,9 +878,8 @@ function nextSet() {
 
 // ── 경기 저장 ───────────────────────────────────────────────
 async function saveMatch() {
-  const btn = document.querySelector('.btn-save');
-  btn.textContent = '저장 중...';
-  btn.disabled = true;
+  const btn = document.getElementById('save-btn');
+  if(btn) { btn.textContent = '저장 중...'; btn.disabled = true; }
 
   const today = new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\. /g,'-').replace('.','');
   const scoreStr = sets.map(s=>`${s.a}-${s.b}`).join(', ');
@@ -912,8 +910,7 @@ async function saveMatch() {
     showDone(today, scoreStr);
   } catch(e) {
     showToast('⚠️ 저장 실패: ' + e.message);
-    btn.textContent = '💾 저장';
-    btn.disabled = false;
+    if(btn) { btn.textContent = '💾 저장'; btn.disabled = false; }
   }
 }
 
@@ -940,7 +937,7 @@ async function goNext() {
     renderStep();
     await renderPlayerGrid();
   } else if(curStep===2) {
-    if(selPlayers.length<4) return;
+    if(selPlayers.length!==4) return;
     curStep=3;
     renderStep();
     renderTeamDisplay();
@@ -956,31 +953,29 @@ async function goNext() {
 
 function goBack() {
   if(curStep===2) {
-    // 선수 선택 → 리그 선택
-    // selPlayers는 유지 (같은 리그로 돌아올 때 복원)
     curStep=1;
-    // 리그 버튼 on 상태 복원
     renderStep();
-    // 리그 선택 버튼 on 상태 다시 표시
     if(league) {
       document.querySelector(league==='gold'?'.gold-btn':'.bs-btn')?.classList.add('on');
       const btn = document.getElementById('btn-next');
       if(btn) btn.disabled = false;
     }
   } else if(curStep===3) {
-    // 팀 배정 → 선수 선택
     curStep=2;
     renderStep();
-    // 선수 그리드: 캐시 재사용 + 선택 상태 복원
     renderPlayerGrid();
   } else if(curStep===4) {
-    // 스코어 → 팀 배정 (현재 스코어 초기화 후 팀 재표시)
+    // 스코어 초기화하고 팀 배정으로
     sets=[{a:0,b:0}];
     curSet=0;
     curStep=3;
     renderStep();
     renderTeamDisplay();
   }
+}
+
+function confirmReset() {
+  if(confirm('처음부터 다시 시작할까요?\n입력한 스코어는 저장되지 않아요.')) resetAll();
 }
 
 function resetAll() {
