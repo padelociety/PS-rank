@@ -584,6 +584,8 @@ let curSet = 0;
 let cachedLeague = null;
 let cachedPlayers = [];
 let cachedUsedCombos = new Set();
+let matchNum = 1;
+let cachedMatchNum = 1;
 
 // ── CSV 패치 ────────────────────────────────────────────────
 async function fetchCSV(gid, attempt=0) {
@@ -626,19 +628,23 @@ async function loadPlayers(lg) {
   const gid = lg === 'gold' ? GID_MATCH_G : GID_MATCH_BS;
   const rows = await fetchCSV(gid);
   const ps = new Set(), us = new Set();
+  let validMatchCount = 0;
   for(let i=1;i<rows.length;i++){
     const r=rows[i];
     const p1=r[2]?.trim(),p2=r[3]?.trim(),p3=r[4]?.trim(),p4=r[5]?.trim();
     if(!p1||!p2||!p3||!p4) continue;
+    validMatchCount++;
     ps.add(p1);ps.add(p2);ps.add(p3);ps.add(p4);
     const key=[[p1,p2].sort().join('|'),[p3,p4].sort().join('|')].sort().join('||');
     us.add(key);
   }
   players = [...ps].sort();
   usedCombos = us;
+  matchNum = validMatchCount + 1;
   cachedLeague = lg;
   cachedPlayers = players;
   cachedUsedCombos = us;
+  cachedMatchNum = matchNum;
 }
 
 // ── 조합 키 ─────────────────────────────────────────────────
@@ -683,6 +689,8 @@ function pushToFirebase() {
     setsB,
     gameA,
     gameB,
+    league,
+    matchNum,
   });
 }
 
@@ -915,6 +923,7 @@ async function saveMatch() {
 }
 
 function showDone(date, scoreStr) {
+  stopStream(); // ⏹️ 경기 저장 완료 → 스트리밍 종료
   const winsA = sets.filter(s=>s.a>s.b).length;
   const winsB = sets.filter(s=>s.b>s.a).length;
   const winner = winsA > winsB ? `🏆 ${teamA.join(' / ')} 승리!` : winsB > winsA ? `🏆 ${teamB.join(' / ')} 승리!` : '🤝 무승부';
@@ -948,6 +957,7 @@ async function goNext() {
     renderStep();
     renderScoreSection();
     setTimeout(() => pushToFirebase(), 1000);
+    startStream(); // 🔴 YouTube 라이브 자동 시작
   }
 }
 
@@ -981,9 +991,11 @@ function confirmReset() {
 }
 
 function resetAll() {
+  stopStream(); // ⏹️ 처음으로 돌아갈 때 스트리밍 종료
   curStep=1; league=null; players=[]; selPlayers=[]; teamA=[]; teamB=[];
   sets=[{a:0,b:0}]; curSet=0;
   cachedLeague=null; cachedPlayers=[]; cachedUsedCombos=new Set();
+  matchNum=1; cachedMatchNum=1;
   const sec = document.getElementById('score-section');
   if(sec) sec.innerHTML = '';
   renderStep();
@@ -995,6 +1007,99 @@ function showToast(msg) {
   t.textContent=msg; t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'),2500);
 }
+
+// ════════════════════════════════════════════════════════════
+// ── 자동 스트리밍 연동 ─────────────────────────────────────
+// stream_server.py 가 실행 중일 때만 작동합니다
+// ════════════════════════════════════════════════════════════
+const STREAM_SERVER = 'http://localhost:5000';
+let _streamActive = false;
+let _watchUrl = null;
+
+// 서버 상태 확인 (앱 로드 시)
+async function checkStreamServer() {
+  try {
+    const res = await fetch(`${STREAM_SERVER}/health`, {signal: AbortSignal.timeout(1500)});
+    const data = await res.json();
+    if (data.ok) {
+      console.log('🎬 스트리밍 서버 연결됨');
+      _streamActive = data.streaming;
+      _watchUrl = data.watch_url;
+    }
+  } catch(e) {
+    // 서버 없음 — 조용히 무시 (스트리밍 없이 정상 작동)
+  }
+}
+
+async function startStream() {
+  try {
+    const res = await fetch(`${STREAM_SERVER}/start-stream`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ teamA, teamB, league }),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await res.json();
+    if (data.success) {
+      _streamActive = true;
+      _watchUrl = data.watch_url;
+      showToast('▶️ YouTube 라이브 시작됨!');
+      // 시청 링크 버튼 표시 (1초 후)
+      setTimeout(() => _showWatchBtn(data.watch_url), 1000);
+    } else {
+      showToast('⚠️ 스트리밍 오류: ' + (data.error || '알 수 없는 오류'));
+    }
+  } catch(e) {
+    // 서버 없음 or 타임아웃 — 조용히 무시
+    console.log('스트리밍 서버 없음:', e.message);
+  }
+}
+
+async function stopStream() {
+  if (!_streamActive) return;
+  try {
+    await fetch(`${STREAM_SERVER}/stop-stream`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(10000),
+    });
+    _streamActive = false;
+    _watchUrl = null;
+    _hideWatchBtn();
+    showToast('⏹️ 스트리밍 종료됨');
+  } catch(e) {
+    console.log('스트리밍 종료 오류:', e.message);
+  }
+}
+
+function _showWatchBtn(url) {
+  if (!url) return;
+  const existing = document.getElementById('watch-btn');
+  if (existing) return;
+  const btn = document.createElement('a');
+  btn.id = 'watch-btn';
+  btn.href = url;
+  btn.target = '_blank';
+  btn.textContent = '📺 YouTube 시청';
+  btn.style.cssText = `
+    position:fixed; top:14px; right:16px;
+    background:#FF0000; color:#fff;
+    padding:8px 16px; border-radius:20px;
+    font-family:'Pretendard',sans-serif;
+    font-size:13px; font-weight:700;
+    text-decoration:none; z-index:1000;
+    box-shadow:0 2px 12px rgba(255,0,0,0.4);
+    animation:fadeUp 0.3s ease;
+  `;
+  document.body.appendChild(btn);
+}
+
+function _hideWatchBtn() {
+  const btn = document.getElementById('watch-btn');
+  if (btn) btn.remove();
+}
+
+// 앱 로드 시 서버 감지
+checkStreamServer();
 
 // ── 초기화 ──────────────────────────────────────────────────
 renderStep();
@@ -1033,11 +1138,16 @@ onValue(connRef, snap => {
   if(el) { el.textContent = ok ? '🟢 연결됨' : '🔴 연결 중...'; el.style.color = ok ? 'var(--green)' : 'var(--text-dim)'; }
 });
 
-window.syncToFirebase = function({ nameA, nameB, setsA, setsB, gameA, gameB }) {
+window.syncToFirebase = function({ nameA, nameB, setsA, setsB, gameA, gameB, league, matchNum }) {
   const el = document.getElementById('fb-status');
 
+  const leagueLabel = league === 'gold' ? 'Gold+' : 'B&S';
+  const titleStr = matchNum
+    ? `PS i-League 26S1: ${leagueLabel} Match ${matchNum}`
+    : 'PS i-League 26S1';
+
   const S = {
-    title: 'PS i-League 26S1',
+    title: titleStr,
     a: {
       name: nameA ?? 'Team A',
       game: gameA ?? 0,
