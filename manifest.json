@@ -3,6 +3,7 @@
   "short_name": "PS League",
   "description": "Padel Society i-League 랭킹 & 매치 결과",
   "start_url": "./padel_app.html",
+  "id": "/PS-rank/padel_app",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#000000",
