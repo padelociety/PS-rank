@@ -1,0 +1,19 @@
+{
+  "_설명": "PS Court 자동 스트리밍 설정 파일 — 이 파일을 config.json으로 복사 후 수정하세요",
+
+  "cors_origins": ["https://padelociety.github.io", "http://localhost:3000"],
+
+  "obs": {
+    "_설명": "OBS Studio → 도구 → WebSocket 서버 설정에서 확인",
+    "host": "localhost",
+    "port": 4455,
+    "password": "여기에_OBS_비밀번호"
+  },
+
+  "youtube": {
+    "_설명": "방송 공개 설정: public(공개) / unlisted(링크 공유) / private(비공개)",
+    "privacy": "public",
+    "_latency_설명": "ultraLow(초저지연) / low(저지연) / normal(일반) — ultraLow은 해상도 제한 있음",
+    "latency": "ultraLow"
+  }
+}

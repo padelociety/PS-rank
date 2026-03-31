@@ -1,0 +1,13 @@
+# 민감 정보
+streaming/config.json
+streaming/client_secrets.json
+streaming/youtube_token.pickle
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/

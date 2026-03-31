@@ -492,6 +492,7 @@ body {
     <div class="header-sub">MATCH SETUP</div>
   </div>
   <div class="header-right">
+    <div id="stream-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:2px">📡 스트리밍 서버 확인 중...</div>
     <div id="fb-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:4px">🔴 Firebase 연결 중...</div>
     <div class="step-indicator" id="step-label">STEP 1 / 4</div>
     <div class="step-dots">
@@ -1014,24 +1015,50 @@ function showToast(msg) {
 // ════════════════════════════════════════════════════════════
 const STREAM_SERVER = 'http://localhost:5000';
 let _streamActive = false;
+let _streamServerOnline = false;
 let _watchUrl = null;
 
-// 서버 상태 확인 (앱 로드 시)
+function _updateStreamStatus(state) {
+  // state: 'offline' | 'online' | 'live' | 'starting' | 'error'
+  const el = document.getElementById('stream-status');
+  if (!el) return;
+  const map = {
+    offline:  { text: '📡 스트리밍 서버 꺼짐', color: 'var(--text-dim)' },
+    online:   { text: '📡 스트리밍 대기 중', color: 'var(--silver)' },
+    live:     { text: '🔴 LIVE', color: '#FF0000' },
+    starting: { text: '⏳ 라이브 시작 중...', color: 'var(--gold)' },
+    error:    { text: '⚠️ 스트리밍 오류', color: 'var(--red)' },
+  };
+  const info = map[state] || map.offline;
+  el.textContent = info.text;
+  el.style.color = info.color;
+}
+
+// 서버 상태 확인 (앱 로드 시 + 주기적)
 async function checkStreamServer() {
   try {
     const res = await fetch(`${STREAM_SERVER}/health`, {signal: AbortSignal.timeout(1500)});
     const data = await res.json();
     if (data.ok) {
-      console.log('🎬 스트리밍 서버 연결됨');
+      _streamServerOnline = true;
       _streamActive = data.streaming;
       _watchUrl = data.watch_url;
+      _updateStreamStatus(data.streaming ? 'live' : 'online');
+      if (data.streaming && data.watch_url) _showWatchBtn(data.watch_url);
     }
   } catch(e) {
-    // 서버 없음 — 조용히 무시 (스트리밍 없이 정상 작동)
+    _streamServerOnline = false;
+    _updateStreamStatus('offline');
   }
 }
 
 async function startStream() {
+  if (!_streamServerOnline) {
+    // 서버가 꺼져있으면 조용히 스킵 (스트리밍 없이 정상 작동)
+    console.log('스트리밍 서버 꺼짐 — 스트리밍 없이 진행');
+    return;
+  }
+  _updateStreamStatus('starting');
   try {
     const res = await fetch(`${STREAM_SERVER}/start-stream`, {
       method: 'POST',
@@ -1043,15 +1070,19 @@ async function startStream() {
     if (data.success) {
       _streamActive = true;
       _watchUrl = data.watch_url;
+      _updateStreamStatus('live');
       showToast('▶️ YouTube 라이브 시작됨!');
-      // 시청 링크 버튼 표시 (1초 후)
       setTimeout(() => _showWatchBtn(data.watch_url), 1000);
     } else {
+      _updateStreamStatus('error');
       showToast('⚠️ 스트리밍 오류: ' + (data.error || '알 수 없는 오류'));
     }
   } catch(e) {
-    // 서버 없음 or 타임아웃 — 조용히 무시
-    console.log('스트리밍 서버 없음:', e.message);
+    _updateStreamStatus('error');
+    showToast('⚠️ 스트리밍 서버 응답 없음');
+    console.log('스트리밍 시작 실패:', e.message);
+    // 3초 후 상태 재확인
+    setTimeout(() => checkStreamServer(), 3000);
   }
 }
 
@@ -1065,9 +1096,16 @@ async function stopStream() {
     _streamActive = false;
     _watchUrl = null;
     _hideWatchBtn();
+    _updateStreamStatus(_streamServerOnline ? 'online' : 'offline');
     showToast('⏹️ 스트리밍 종료됨');
   } catch(e) {
     console.log('스트리밍 종료 오류:', e.message);
+    // 실패해도 로컬 상태는 초기화
+    _streamActive = false;
+    _watchUrl = null;
+    _hideWatchBtn();
+    _updateStreamStatus('offline');
+    showToast('⚠️ 스트리밍 종료 중 오류 (서버 확인 필요)');
   }
 }
 
@@ -1098,8 +1136,9 @@ function _hideWatchBtn() {
   if (btn) btn.remove();
 }
 
-// 앱 로드 시 서버 감지
+// 앱 로드 시 서버 감지 + 30초마다 상태 체크
 checkStreamServer();
+setInterval(checkStreamServer, 30000);
 
 // ── 초기화 ──────────────────────────────────────────────────
 renderStep();
