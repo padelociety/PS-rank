@@ -14,6 +14,7 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+    if (e.request.url.includes('ps_court')) return; // ← 이 줄 추가
   // 구글 시트 fetch는 캐시 안 함 (항상 최신 데이터)
   if (e.request.url.includes('googleapis') || e.request.url.includes('corsproxy') || e.request.url.includes('allorigins')) {
     return;
