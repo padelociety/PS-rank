@@ -1,4 +1,7 @@
-const CACHE = 'ps-court-v3';
+const CACHE = 'ps-court-v4';
+// ASSETS 안
+'/PS-rank/ps_court/ps_court.html',
+'/PS-rank/ps_court/ps_court_manifest.json',
 
 self.addEventListener('install', e => {
   e.waitUntil(

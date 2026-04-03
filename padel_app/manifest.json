@@ -1,0 +1,15 @@
+{
+  "name": "Padel Society League",
+  "short_name": "PS League",
+  "start_url": "/PS-rank/padel_app/padel_app.html",
+  "scope": "/PS-rank/padel_app/",
+  "id": "/PS-rank/padel_app",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#000000",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/PS-rank/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/PS-rank/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
