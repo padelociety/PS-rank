@@ -1,4 +1,4 @@
-const CACHE = 'ps-league-v1';
+const CACHE = 'ps-league-v2';  // v1 → v2
 const ASSETS = ['/PS-rank/padel_app.html', '/PS-rank/manifest.json'];
 
 self.addEventListener('install', e => {
