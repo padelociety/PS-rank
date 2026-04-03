@@ -476,7 +476,7 @@ function renderCombos() {
 
 renderGrid();
 loadData();
-if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js', {scope: '/PS-rank/padel_app.html'}).catch(()=>{});});}
+if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js', { scope: '/PS-rank/' }).catch(()=>{});});}
 </script>
 </body>
 </html>
