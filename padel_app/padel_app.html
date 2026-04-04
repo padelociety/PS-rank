@@ -449,9 +449,11 @@ function calcPlayerStats(name, rows) {
     const p1=r[2]?.trim(), p2=r[3]?.trim(), p3=r[4]?.trim(), p4=r[5]?.trim();
     if (!p1||!p2||!p3||!p4) continue;
     let setsA=0, setsB=0;
+    const setScores = [];
     for (let s=0; s<3; s++) {
       const a=parseInt(r[6+s*2]), b=parseInt(r[7+s*2]);
       if (isNaN(a)||isNaN(b)||(a===0&&b===0)) continue;
+      setScores.push({a, b});
       if (a>b) setsA++; else if (b>a) setsB++;
     }
     if (setsA===0 && setsB===0) continue;
@@ -460,28 +462,29 @@ function calcPlayerStats(name, rows) {
 
     let myTeam = null, partner = null, opp1 = null, opp2 = null, myWin = false;
     let mySetsWon = 0, mySetsLost = 0;
+    let mySetScores = [];
 
     if (p1===name || p2===name) {
       myTeam = 'A';
       partner = p1===name ? p2 : p1;
       opp1 = p3; opp2 = p4;
       myWin = t1win; mySetsWon = setsA; mySetsLost = setsB;
+      mySetScores = setScores.map(s => ({myG: s.a, oppG: s.b}));
     } else if (p3===name || p4===name) {
       myTeam = 'B';
       partner = p3===name ? p4 : p3;
       opp1 = p1; opp2 = p2;
       myWin = t2win; mySetsWon = setsB; mySetsLost = setsA;
+      mySetScores = setScores.map(s => ({myG: s.b, oppG: s.a}));
     }
     if (!myTeam) continue;
 
-    // 파트너 통계
     if (!partners[partner]) partners[partner] = { m:0, w:0, setsW:0, setsL:0 };
     partners[partner].m++;
     if (myWin) partners[partner].w++;
     partners[partner].setsW += mySetsWon;
     partners[partner].setsL += mySetsLost;
 
-    // 상대 통계 (opp1, opp2 각각)
     [opp1, opp2].forEach(opp => {
       if (!opp) return;
       if (!opponents[opp]) opponents[opp] = { m:0, w:0 };
@@ -489,13 +492,11 @@ function calcPlayerStats(name, rows) {
       if (myWin) opponents[opp].w++;
     });
 
-    matchHistory.push({ win: myWin, date, partner, opp1, opp2, setsWon: mySetsWon, setsLost: mySetsLost });
+    matchHistory.push({ win: myWin, date, partner, opp1, opp2, setsWon: mySetsWon, setsLost: mySetsLost, setScores: mySetScores });
   }
 
-  // 최근 폼 (최근 5경기)
   const recentForm = matchHistory.slice(-5).reverse().map(m => m.win ? 'W' : 'L');
 
-  // 연속 승/패 (최근부터)
   let streak = 0, streakType = null;
   for (let i = matchHistory.length - 1; i >= 0; i--) {
     const w = matchHistory[i].win;
@@ -504,28 +505,63 @@ function calcPlayerStats(name, rows) {
     else break;
   }
 
-  // 파트너 정렬: 경기수 → 승률
   const partnerList = Object.entries(partners)
     .map(([n, s]) => ({ name: n, ...s, wr: s.m > 0 ? s.w/s.m : 0 }))
     .sort((a,b) => b.m - a.m || b.wr - a.wr);
 
-  // 상대 정렬: 경기수 많은 순
   const opponentList = Object.entries(opponents)
     .map(([n, s]) => ({ name: n, ...s, wr: s.m > 0 ? s.w/s.m : 0 }))
     .sort((a,b) => b.m - a.m);
 
-  // 베스트 파트너 (최소 3경기, 승률 최고)
   const bestPartner = [...partnerList].filter(p => p.m >= 3).sort((a,b) => b.wr - a.wr)[0];
-  // 천적 (최소 2경기, 내 승률 최저)
   const nemesis = [...opponentList].filter(p => p.m >= 2).sort((a,b) => a.wr - b.wr)[0];
-  // 호구 (최소 2경기, 내 승률 최고)
   const victim = [...opponentList].filter(p => p.m >= 2).sort((a,b) => b.wr - a.wr)[0];
 
-  // 세트 득실
   const totalSetsWon = matchHistory.reduce((s,m) => s + m.setsWon, 0);
   const totalSetsLost = matchHistory.reduce((s,m) => s + m.setsLost, 0);
 
-  return { partnerList, opponentList, recentForm, streak, streakType, bestPartner, nemesis, victim, totalSetsWon, totalSetsLost };
+  // ── 게임 포인트 통계 ──
+  let totalGamesWon = 0, totalGamesLost = 0;
+  let closeWins = 0, closeLosses = 0;
+  let bagels = 0, bagelLosses = 0;
+  matchHistory.forEach(m => {
+    m.setScores.forEach(s => {
+      totalGamesWon += s.myG;
+      totalGamesLost += s.oppG;
+      const diff = Math.abs(s.myG - s.oppG);
+      if (diff <= 1 && (s.myG >= 6 || s.oppG >= 6)) {
+        if (s.myG > s.oppG) closeWins++; else closeLosses++;
+      }
+      if (s.myG === 6 && s.oppG === 0) bagels++;
+      if (s.myG === 0 && s.oppG === 6) bagelLosses++;
+    });
+  });
+  const gameDiff = totalGamesWon - totalGamesLost;
+
+  // ── 주별 추이 ──
+  const weekMap = {};
+  matchHistory.forEach(m => {
+    if (!m.date) return;
+    const d = new Date(m.date.replace(/\./g, '-'));
+    if (isNaN(d)) return;
+    const tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const dayNum = tmp.getUTCDay() || 7;
+    tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil((((tmp - yearStart) / 86400000) + 1) / 7);
+    const key = `${tmp.getUTCFullYear()}-W${String(weekNo).padStart(2,'0')}`;
+    if (!weekMap[key]) weekMap[key] = { m:0, w:0, label: key };
+    weekMap[key].m++;
+    if (m.win) weekMap[key].w++;
+  });
+  const weeklyData = Object.values(weekMap)
+    .sort((a,b) => a.label.localeCompare(b.label))
+    .slice(-10);
+
+  return { partnerList, opponentList, recentForm, streak, streakType, bestPartner, nemesis, victim,
+    totalSetsWon, totalSetsLost,
+    totalGamesWon, totalGamesLost, gameDiff, closeWins, closeLosses, bagels, bagelLosses,
+    weeklyData };
 }
 
 async function loadData() {
@@ -610,6 +646,7 @@ function renderRank() {
   data.forEach(p=>{
     const ok=p.m>=MIN_M;
     if(ok) rk++;
+    const myRank = ok ? rk : null; // 클로저 캡처용 상수
     const rc=ok&&rk<=3?`rank-${rk}`:'';
     const nc=ok&&rk<=3?`r${rk}`:'dash';
     const wr=p.m>0?Math.round(p.w/p.m*100)+'%':'0%';
@@ -629,7 +666,7 @@ function renderRank() {
         ${ok?`<div class="pts-value${isBs?' bs-pts':''}">${p.pts.toFixed(1)}</div><div class="pts-label">PTS</div>`:`<div class="pts-min">${MIN_M}경기 미만</div>`}
       </div>
       <div class="rank-arrow">›</div>`;
-    div.onclick = () => openProfile(p.name, rankTab, ok ? rk : null);
+    div.onclick = () => openProfile(p.name, rankTab, myRank);
     list.appendChild(div);
   });
   const q=data.filter(p=>p.m>=MIN_M);
@@ -860,6 +897,80 @@ function openProfile(name, league, rank) {
       </div>`;
     }).join('');
     body.innerHTML += `<div><div class="section-label">상대별 성적 (많이 만난 순)</div>${oppRows}</div>`;
+  }
+
+  // 7. 게임 포인트 통계
+  const gameDiffColor = stats.gameDiff > 0 ? 'var(--green)' : stats.gameDiff < 0 ? 'var(--red)' : 'var(--text-dim)';
+  const totalGames = stats.totalGamesWon + stats.totalGamesLost;
+  const gameWrPct = totalGames > 0 ? Math.round(stats.totalGamesWon / totalGames * 100) : 0;
+  body.innerHTML += `
+    <div>
+      <div class="section-label">게임 포인트 통계</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+        <div class="core-stat">
+          <div class="core-stat-val" style="font-size:20px">
+            <span style="color:var(--green)">${stats.totalGamesWon}</span>
+            <span style="color:var(--text-dim);font-size:14px"> : </span>
+            <span style="color:var(--red)">${stats.totalGamesLost}</span>
+          </div>
+          <div class="core-stat-label">게임 득실</div>
+        </div>
+        <div class="core-stat">
+          <div class="core-stat-val gold">${gameWrPct}%</div>
+          <div class="core-stat-label">게임 승률</div>
+        </div>
+        <div class="core-stat">
+          <div class="core-stat-val" style="color:${gameDiffColor}">${stats.gameDiff > 0 ? '+' : ''}${stats.gameDiff}</div>
+          <div class="core-stat-label">득실차</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="profile-row" style="margin-bottom:0;flex-direction:column;align-items:flex-start;gap:2px">
+          <div style="font-size:10px;color:var(--text-dim);font-weight:700;letter-spacing:0.5px">🔥 타이브레이크 세트</div>
+          <div style="display:flex;gap:12px;margin-top:4px">
+            <span style="font-size:13px;font-weight:700;color:var(--green)">${stats.closeWins}승</span>
+            <span style="font-size:13px;font-weight:700;color:var(--red)">${stats.closeLosses}패</span>
+            ${stats.closeWins + stats.closeLosses > 0 ? '<span style=\"font-size:11px;color:var(--text-dim)\">' + Math.round(stats.closeWins/(stats.closeWins+stats.closeLosses)*100) + '% 승률</span>' : ''}
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);margin-top:2px">1게임차 접전 세트</div>
+        </div>
+        <div class="profile-row" style="margin-bottom:0;flex-direction:column;align-items:flex-start;gap:2px">
+          <div style="font-size:10px;color:var(--text-dim);font-weight:700;letter-spacing:0.5px">💀 베이글 기록</div>
+          <div style="display:flex;gap:12px;margin-top:4px">
+            <span style="font-size:13px;font-weight:700;color:var(--green)">${stats.bagels}회</span>
+            <span style="font-size:13px;font-weight:700;color:var(--red)">${stats.bagelLosses}회</span>
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);margin-top:2px">6-0 획득 / 0-6 당함</div>
+        </div>
+      </div>
+    </div>`;
+
+  // 8. 주별 성적 추이 (SVG 바 차트)
+  if (stats.weeklyData.length >= 2) {
+    const maxM = Math.max(...stats.weeklyData.map(w => w.m), 1);
+    const chartW = 300, chartH = 80, barW = Math.floor((chartW - 10) / stats.weeklyData.length) - 3;
+
+    const bars = stats.weeklyData.map((wk, i) => {
+      const wr = wk.m > 0 ? wk.w / wk.m : 0;
+      const barH = Math.max(4, Math.round((wk.m / maxM) * (chartH - 20)));
+      const x = 5 + i * (barW + 3);
+      const y = chartH - barH - 16;
+      const fillColor = wr >= 0.6 ? '#2ECC71' : wr >= 0.4 ? '#F5C842' : '#f87171';
+      const shortLabel = wk.label.replace(/^\d{4}-/, '');
+      return '<rect x="' + x + '" y="' + y + '" width="' + barW + '" height="' + barH + '" rx="3" fill="' + fillColor + '" opacity="0.85"/>'
+        + '<text x="' + (x + barW/2) + '" y="' + (chartH - 4) + '" text-anchor="middle" font-size="7" fill="#7A8FA0" font-family="Pretendard,sans-serif">' + shortLabel + '</text>'
+        + '<text x="' + (x + barW/2) + '" y="' + (y - 3) + '" text-anchor="middle" font-size="8" fill="' + fillColor + '" font-weight="700" font-family="Pretendard,sans-serif">' + wk.w + '/' + wk.m + '</text>';
+    }).join('');
+
+    body.innerHTML += '<div><div class="section-label">주별 성적 추이 (최근 ' + stats.weeklyData.length + '주)</div>'
+      + '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 8px 4px;overflow:hidden">'
+      + '<svg viewBox="0 0 ' + chartW + ' ' + chartH + '" width="100%" style="display:block">' + bars + '</svg>'
+      + '<div style="display:flex;gap:12px;margin-top:6px;padding:0 4px">'
+      + '<span style="font-size:10px;color:var(--green);font-weight:700">■ 60%+</span>'
+      + '<span style="font-size:10px;color:#F5C842;font-weight:700">■ 40~60%</span>'
+      + '<span style="font-size:10px;color:var(--red);font-weight:700">■ 40%미만</span>'
+      + '<span style="font-size:10px;color:var(--text-dim)">높이=경기수</span>'
+      + '</div></div></div>';
   }
 
   // 패널 열기
