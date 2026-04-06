@@ -623,12 +623,74 @@ function openPlayerPanel(name) {
     </div>
     <div class="pov-card"><div class="pov-val" style="font-size:22px;color:${ptsColor}">${st?st.pts.toFixed(1):'—'}</div><div class="pov-label">PTS</div></div>`;
 
-  // ── extra stat mini-cards ──
+  // ── fun stats ──
   const streakTxt = streak > 0 ? `${streak}연${streakType==='W'?'승':'패'}` : '—';
   const streakColor = streakType==='W' ? 'var(--green)' : '#f87171';
+
+  // 최장 연승
+  let maxStreak=0, cur=0;
+  for (const m of [...matches].reverse()) { if(m.won) { cur++; maxStreak=Math.max(maxStreak,cur); } else cur=0; }
+
+  // 3세트 접전 승률
+  const close = matches.filter(m=>m.sets.length===3);
+  const closeW = close.filter(m=>m.won).length;
+  const closeTxt = close.length ? `${closeW}승 ${close.length-closeW}패` : '—';
+  const closePct = close.length ? Math.round(closeW/close.length*100) : null;
+  const closeColor = closePct===null?'var(--text-dim)':closePct>=50?'var(--green)':'#f87171';
+
+  // 최강 파트너 (승률 기준, 2전 이상)
+  const qualPartners = Object.entries(partners).filter(([,r])=>r.w+r.l>=2);
+  const bestPartner = qualPartners.sort((a,b)=>(b[1].w/(b[1].w+b[1].l))-(a[1].w/(a[1].w+a[1].l)))[0];
+  const bestPartnerTxt = bestPartner ? `${bestPartner[0]} (${Math.round(bestPartner[1].w/(bestPartner[1].w+bestPartner[1].l)*100)}%)` : '—';
+
+  // 천적 (가장 많이 지고, 2전 이상)
+  const qualOpps = Object.entries(opponents).filter(([,r])=>r.w+r.l>=2);
+  const nemesis = qualOpps.sort((a,b)=>(a[1].w/(a[1].w+a[1].l))-(b[1].w/(b[1].w+b[1].l)))[0];
+  const nemesisPct = nemesis ? Math.round(nemesis[1].w/(nemesis[1].w+nemesis[1].l)*100) : null;
+  const nemesisTxt = nemesis ? `${nemesis[0]} (${nemesisPct}%)` : '—';
+  const nemesisColor = nemesisPct!==null && nemesisPct<50 ? '#f87171' : 'var(--text-dim)';
+
+  // 역전승 / 역전패 / 퍼펙트 / 완패
+  let comebackW=0, comebackL=0, perfect=0, shutout=0;
+  for (const m of matches) {
+    // 내 기준 세트 스코어
+    const myS = m.inT1
+      ? m.sets.map(s=>{ const[a]=s.split('-'); return parseInt(a); })
+      : m.sets.map(s=>{ const[,b]=s.split('-'); return parseInt(b); });
+    const opS = m.inT1
+      ? m.sets.map(s=>{ const[,b]=s.split('-'); return parseInt(b); })
+      : m.sets.map(s=>{ const[a]=s.split('-'); return parseInt(a); });
+    const mySetW = myS.filter((v,i)=>v>opS[i]).length;
+    const opSetW = opS.filter((v,i)=>v>myS[i]).length;
+    if (mySetW===2 && opSetW===0) perfect++;
+    if (mySetW===0 && opSetW===2) shutout++;
+    if (m.sets.length===3) {
+      // 1세트 진 경우 = 상대가 1세트 땀
+      const lost1st = opS[0] > myS[0];
+      const won1st  = myS[0] > opS[0];
+      if (m.won  && lost1st) comebackW++;
+      if (m.lost && won1st)  comebackL++;
+    }
+  }
+
+  // 첫 경기 제거, 천적/파트너는 유지
+  function miniCard(icon, label, value, valueColor='var(--text)') {
+    return `<div class="stat-card">
+      <div class="stat-card-label">${icon} ${label}</div>
+      <div class="stat-card-value" style="color:${valueColor}">${value}</div>
+    </div>`;
+  }
+
   const extraCards = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 16px 0">
-    <div class="stat-card"><div class="stat-card-label">📊 세트 득실</div><div class="stat-card-value">${mySetsW}득 ${mySetsL}실<br><span style="color:var(--text-dim);font-size:12px">세트승률 ${setWr}%</span></div></div>
-    <div class="stat-card"><div class="stat-card-label">🔥 현재 연속</div><div class="stat-card-value" style="color:${streakColor}">${streakTxt}</div></div>
+    ${miniCard('🔥','현재 연속', streakTxt, streakColor)}
+    ${miniCard('👑','최장 연승', maxStreak>0?`${maxStreak}연승`:'—', maxStreak>=3?'var(--gold)':'var(--text)')}
+    ${miniCard('😤','3세트 접전', closeTxt, closeColor)}
+    ${miniCard('🤝','최강 파트너', bestPartnerTxt)}
+    ${miniCard('😈','나의 천적', nemesisTxt, nemesisColor)}
+    ${miniCard('⚡','역전승', comebackW>0?`${comebackW}회`:'없음', comebackW>0?'var(--green)':'var(--text-dim)')}
+    ${miniCard('💀','역전패', comebackL>0?`${comebackL}회`:'없음', comebackL>0?'#f87171':'var(--text-dim)')}
+    ${miniCard('🏔','퍼펙트 경기', perfect>0?`${perfect}회`:'없음', perfect>0?'var(--gold)':'var(--text-dim)')}
+    ${miniCard('😵','완패', shutout>0?`${shutout}회`:'없음', shutout>0?'#f87171':'var(--text-dim)')}
   </div>`;
 
   // ── partner rows ──
