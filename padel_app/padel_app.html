@@ -365,7 +365,7 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
         <div class="formula-var"><span>log₁₀</span>상용로그 보정</div>
       </div>
       <div class="formula-tier">
-        <div class="formula-tier-item bronze">Bronze × 1.1</div>
+        <div class="formula-tier-item bronze">Bronze × 1.2</div>
         <div class="formula-tier-item silver">Silver × 1.0</div>
         <div class="formula-tier-item gold-tier">Gold+ × 1.0</div>
       </div>
@@ -399,8 +399,8 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
     <div class="changelog-item new">
       <div class="changelog-item-icon">✦</div>
       <div class="changelog-item-text">
-        <div class="changelog-item-title">Bronze ×1.1 정식 반영</div>
-        <div class="changelog-item-desc">Players 시트 연동으로 Bronze 플레이어 10% 보정 적용</div>
+        <div class="changelog-item-title">Bronze ×1.2 상향</div>
+        <div class="changelog-item-desc">Bronze 플레이어 보정 배율 ×1.1 → ×1.2 상향. Silver 평균 승률(70%) 대비 Bronze(40%) 차이 반영</div>
       </div>
     </div>
     <div class="changelog-item">
@@ -490,7 +490,7 @@ const GID_MATCH_G = '52541838';
 const GID_MATCH_BS = '896797118';
 const GID_PLAYERS = '799949095';
 const MIN_M = 10;
-const TIER_MULT = { Bronze: 1.1, Silver: 1.0, Gold: 1.0 }; // Bronze +10% 보정
+const TIER_MULT = { Bronze: 1.2, Silver: 1.0, Gold: 1.0 }; // Bronze +20% 보정
 
 let curPage = 'rank', rankTab = 'gold';
 let gData = [], bsData = [], recentData = [];
@@ -559,7 +559,7 @@ function calcRanking(rows) {
     });
   }
   // 공식: ((W/M × 3) + (S/(M×2) × 1)) × log10(M) × 10 × Tier배율
-  // Bronze: ×1.1, Silver/Gold: ×1.0
+  // Bronze: ×1.2, Silver/Gold: ×1.0
   return Object.entries(stats).map(([name, st]) => {
     const basePts = st.m > 0 ? ((st.w/st.m)*3 + (st.s/(st.m*2))*1) * Math.log10(st.m) * 10 : 0;
     const mult = TIER_MULT[PLAYER_TIER[name]] ?? 1.0;
@@ -1248,16 +1248,21 @@ function toggleFormula() {
 }
 
 // 변경사항 모달
+const CHANGELOG_VERSION = 'v2025.S1.3';
 function closeChangelog() {
   document.getElementById('changelog-overlay').classList.remove('show');
   document.getElementById('changelog-modal').classList.remove('show');
+  localStorage.setItem('changelog_seen', CHANGELOG_VERSION);
 }
 
-// 앱 첫 실행 시 변경사항 표시
-setTimeout(() => {
-  document.getElementById('changelog-overlay').classList.add('show');
-  document.getElementById('changelog-modal').classList.add('show');
-}, 800);
+// 새 버전이면 팝업
+const _seen = localStorage.getItem('changelog_seen');
+if (_seen !== CHANGELOG_VERSION) {
+  setTimeout(() => {
+    document.getElementById('changelog-overlay').classList.add('show');
+    document.getElementById('changelog-modal').classList.add('show');
+  }, 800);
+}
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
