@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ps-league-v3';
+const CACHE_NAME = 'ps-league-v4';
 const ASSETS = [
   '/PS-rank/padel_app/padel_app.html',
   '/PS-rank/padel_app/manifest.json',
@@ -7,7 +7,6 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', e => {
-  self.skipWaiting();
   e.waitUntil(
     caches.open(CACHE_NAME).then(c => c.addAll(ASSETS).catch(() => {}))
   );
@@ -21,12 +20,18 @@ self.addEventListener('activate', e => {
   );
 });
 
+// 페이지에서 SKIP_WAITING 메시지 받으면 즉시 활성화
+self.addEventListener('message', e => {
+  if (e.data?.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
 self.addEventListener('fetch', e => {
   if (e.request.url.includes('googleapis.com') ||
       e.request.url.includes('spreadsheets') ||
       e.request.url.includes('corsproxy') ||
       e.request.url.includes('codetabs') ||
-      e.request.url.includes('allorigins')) {
+      e.request.url.includes('allorigins') ||
+      e.request.url.includes('thingproxy')) {
     return;
   }
   e.respondWith(
