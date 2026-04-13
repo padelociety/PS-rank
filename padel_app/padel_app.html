@@ -83,6 +83,9 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
 .pts-label { font-size:9px; color:var(--text-dim); font-weight:600; letter-spacing:1px; text-transform:uppercase; }
 .pts-min { font-size:10px; color:var(--text-dim); background:var(--surface2); padding:3px 8px; border-radius:10px; }
 .rank-arrow { font-size:12px; color:var(--text-dim); margin-left:4px; flex-shrink:0; }
+.tier-badge { font-size:9px; font-weight:800; padding:2px 6px; border-radius:8px; letter-spacing:0.5px; vertical-align:middle; }
+.tier-badge.bronze { background:rgba(232,160,96,0.15); color:var(--bronze-light); border:1px solid rgba(232,160,96,0.3); }
+.tier-badge.silver { background:rgba(168,192,214,0.1); color:var(--silver); border:1px solid rgba(168,192,214,0.25); }
 
 /* ── 통계 요약 ── */
 .stat-summary { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:16px 16px 0; }
@@ -110,6 +113,32 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
 .changelog-overlay.show { opacity:1;pointer-events:all; }
 .changelog-modal { position:fixed;bottom:0;left:0;right:0;z-index:401;background:var(--surface);border-radius:20px 20px 0 0;border-top:1px solid var(--border);padding:24px 20px 36px;transform:translateY(100%);transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);max-height:80vh;overflow-y:auto; }
 .changelog-modal.show { transform:translateY(0); }
+/* ── 시뮬레이션 패널 ── */
+.sim-overlay { position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:400;opacity:0;pointer-events:none;transition:opacity 0.25s; }
+.sim-overlay.show { opacity:1;pointer-events:all; }
+.sim-panel { position:fixed;bottom:0;left:0;right:0;z-index:401;background:var(--surface);border-radius:20px 20px 0 0;border-top:1px solid var(--border);padding:20px 20px calc(var(--nav-h) + 16px);transform:translateY(100%);transition:transform 0.3s cubic-bezier(0.4,0,0.2,1); }
+.sim-panel.show { transform:translateY(0); }
+.sim-handle { width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px; }
+.sim-title { font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:var(--text);margin-bottom:4px; }
+.sim-sub { font-size:12px;color:var(--text-dim);margin-bottom:20px; }
+.sim-slider-row { display:flex;align-items:center;gap:12px;margin-bottom:20px; }
+.sim-slider-label { font-size:13px;color:var(--text-dim);white-space:nowrap; }
+.sim-slider-val { font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--gold);min-width:40px;text-align:center; }
+.sim-results { display:flex;flex-direction:column;gap:8px; }
+.sim-result-item { display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border-radius:var(--radius-sm);padding:12px 14px;border:1px solid var(--border); }
+.sim-result-item.overtake { border-color:rgba(46,204,113,0.4);background:rgba(46,204,113,0.06); }
+.sim-result-item.current { border-color:rgba(245,200,66,0.3);background:rgba(245,200,66,0.05); }
+.sim-result-left { display:flex;align-items:center;gap:10px; }
+.sim-result-rank { font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--text-dim);min-width:28px; }
+.sim-result-name { font-size:14px;font-weight:700;color:var(--text); }
+.sim-result-pts { font-size:12px;color:var(--text-dim);margin-top:2px; }
+.sim-result-right { text-align:right; }
+.sim-result-new-pts { font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--green); }
+.sim-result-tag { font-size:10px;font-weight:800;padding:3px 8px;border-radius:10px;margin-top:3px;display:inline-block; }
+.sim-result-tag.overtake { background:rgba(46,204,113,0.15);color:#4ade80;border:1px solid rgba(46,204,113,0.3); }
+.sim-result-tag.behind { background:var(--surface3);color:var(--text-dim); }
+.sim-btn { font-size:14px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;color:var(--text-dim);transition:all 0.15s; }
+.sim-btn:active { transform:scale(0.94); }
 .changelog-header { margin-bottom:20px; }
 .changelog-badge { display:inline-block;font-size:10px;font-weight:800;letter-spacing:2px;color:var(--gold);border:1px solid rgba(245,200,66,0.3);padding:3px 10px;border-radius:20px;background:rgba(245,200,66,0.06);margin-bottom:10px; }
 .changelog-title { font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:var(--text);line-height:1; }
@@ -419,6 +448,21 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
     </div>
   </div>
   <button class="changelog-close" onclick="closeChangelog()">확인</button>
+</div>
+
+<!-- 승수 시뮬레이션 패널 -->
+<div class="sim-overlay" id="sim-overlay" onclick="closeSim()"></div>
+<div class="sim-panel" id="sim-panel">
+  <div class="sim-handle"></div>
+  <div class="sim-title" id="sim-player-name">—</div>
+  <div class="sim-sub" id="sim-player-sub"></div>
+  <div class="sim-slider-row">
+    <span class="sim-slider-label">추가 승수</span>
+    <input type="range" id="sim-slider" min="1" max="20" value="3" step="1" style="flex:1" oninput="updateSim()">
+    <span class="sim-slider-val" id="sim-slider-val">3</span>
+    <span class="sim-slider-label">승</span>
+  </div>
+  <div class="sim-results" id="sim-results"></div>
 </div>
 
 <!-- 최근 경기 페이지 -->
@@ -842,10 +886,12 @@ function renderRank() {
     const wr=p.m>0?Math.round(p.w/p.m*100)+'%':'0%';
     const div=document.createElement('div');
     div.className=`rank-card ${rc} ${!ok?'excluded':''}`;
+    const tierTag = isBs && PLAYER_TIER[p.name]
+      ? `<span class="tier-badge ${PLAYER_TIER[p.name].toLowerCase()}">${PLAYER_TIER[p.name]}</span>` : '';
     div.innerHTML=`
       <div class="rank-num ${nc}">${ok?rk:'—'}</div>
       <div class="rank-info">
-        <div class="rank-name">${p.name}</div>
+        <div class="rank-name">${p.name} ${tierTag}</div>
         <div class="rank-meta">
           <span class="rank-stat"><span>${p.m}</span>경기</span>
           <span class="rank-stat"><span>${p.w}</span>승 <span>${p.l}</span>패</span>
@@ -855,6 +901,7 @@ function renderRank() {
       <div class="rank-pts">
         ${ok?`<div class="pts-value${isBs?' bs-pts':''}">${p.pts.toFixed(1)}</div><div class="pts-label">PTS</div>`:`<div class="pts-min">${MIN_M}경기 미만</div>`}
       </div>
+      ${ok?`<button class="sim-btn" onclick="event.stopPropagation();openSim('${p.name}',rankTab)">📈</button>`:''}
       <div class="rank-arrow">›</div>`;
     div.onclick = () => openProfile(p.name, rankTab, myRank);
     list.appendChild(div);
@@ -1238,6 +1285,106 @@ function closeProfile() {
 
 renderGrid();
 loadData();
+
+// 승수 시뮬레이션
+let _simName = '', _simLeague = '';
+
+function calcPts(st, tier) {
+  if (!st || st.m <= 0) return 0;
+  const mult = TIER_MULT[PLAYER_TIER[tier] || tier] ?? 1.0;
+  return ((st.w/st.m)*3 + (st.s/(st.m*2))*1) * Math.log10(st.m) * 10 * mult;
+}
+
+function openSim(name, league) {
+  _simName = name; _simLeague = league;
+  document.getElementById('sim-player-name').textContent = name + ' 시뮬레이션';
+  const data = league === 'gold' ? gData : bsData;
+  const p = data.find(x => x.name === name);
+  const rank = data.filter(x=>x.m>=MIN_M).findIndex(x=>x.name===name)+1;
+  document.getElementById('sim-player-sub').textContent =
+    `현재 ${rank}위 · ${p?.pts.toFixed(1)||0}pts · ${p?.m||0}경기 ${p?.w||0}승`;
+  document.getElementById('sim-slider').value = 3;
+  updateSim();
+  document.getElementById('sim-overlay').classList.add('show');
+  document.getElementById('sim-panel').classList.add('show');
+}
+
+function closeSim() {
+  document.getElementById('sim-overlay').classList.remove('show');
+  document.getElementById('sim-panel').classList.remove('show');
+}
+
+function updateSim() {
+  const addW = +document.getElementById('sim-slider').value;
+  document.getElementById('sim-slider-val').textContent = addW;
+  const data = (_simLeague === 'gold' ? gData : bsData).filter(p=>p.m>=MIN_M);
+  const me = data.find(p=>p.name===_simName);
+  if (!me) return;
+  const myRank = data.findIndex(p=>p.name===_simName)+1;
+  const isBs = _simLeague === 'bs';
+
+  // 내 새 점수 계산 (경기수 +addW, 승수 +addW, 세트 +addW*1.8 근사)
+  const newM = me.m + addW;
+  const newW = me.w + addW;
+  const newS = me.s + Math.round(addW * 1.8);
+  const myTier = PLAYER_TIER[me.name] || (isBs ? 'Silver' : 'Gold');
+  const myMult = TIER_MULT[myTier] ?? 1.0;
+  const newPts = +( ((newW/newM)*3 + (newS/(newM*2))*1) * Math.log10(newM) * 10 * myMult ).toFixed(1);
+
+  // 앞 3명 + 뒤 1명 표시
+  const showFrom = Math.max(0, myRank - 4);
+  const showTo = Math.min(data.length, myRank + 1);
+  const targets = data.slice(showFrom, showTo);
+
+  const html = targets.map(p => {
+    const rank = data.indexOf(p)+1;
+    const isMe = p.name === _simName;
+    const canOvertake = !isMe && rank < myRank && newPts > p.pts;
+    const isCurrent = isMe;
+    const cls = isCurrent ? 'current' : canOvertake ? 'overtake' : '';
+    const displayPts = isMe ? newPts : p.pts.toFixed(1);
+    const tag = isMe
+      ? `<span class="sim-result-tag ${newPts > me.pts ? 'overtake':'behind'}">${addW}승 후 ${newPts}pts</span>`
+      : canOvertake
+        ? `<span class="sim-result-tag overtake">추월 가능</span>`
+        : rank < myRank
+          ? `<span class="sim-result-tag behind">아직 ${(p.pts - newPts).toFixed(1)}pts 차</span>`
+          : '';
+    return `<div class="sim-result-item ${cls}">
+      <div class="sim-result-left">
+        <div class="sim-result-rank">${rank}</div>
+        <div>
+          <div class="sim-result-name">${p.name}${isMe?' 👤':''}</div>
+          <div class="sim-result-pts">${isMe?`현재 ${me.pts.toFixed(1)}pts`:p.pts.toFixed(1)+'pts'}</div>
+        </div>
+      </div>
+      <div class="sim-result-right">
+        <div class="sim-result-new-pts">${displayPts}</div>
+        ${tag}
+      </div>
+    </div>`;
+  }).join('');
+
+  // 1등 추월에 필요한 최소 승수 계산
+  const first = data[0];
+  let neededFor1st = null;
+  if (myRank > 1) {
+    for (let n = 1; n <= 50; n++) {
+      const nm=me.m+n, nw=me.w+n, ns=me.s+Math.round(n*1.8);
+      const myMult2 = TIER_MULT[PLAYER_TIER[me.name]||'Gold']??1.0;
+      const np = ((nw/nm)*3+(ns/(nm*2))*1)*Math.log10(nm)*10*myMult2;
+      if (np > first.pts) { neededFor1st = n; break; }
+    }
+  }
+
+  const hint = myRank === 1
+    ? `<div style="text-align:center;padding:12px;font-size:13px;color:var(--gold);font-weight:700">🏆 현재 1위</div>`
+    : neededFor1st
+      ? `<div style="text-align:center;padding:10px;font-size:12px;color:var(--text-dim)">1위 추월까지 최소 <strong style="color:var(--gold)">${neededFor1st}승</strong> 필요</div>`
+      : `<div style="text-align:center;padding:10px;font-size:12px;color:var(--text-dim)">1위 추월이 쉽지 않아요</div>`;
+
+  document.getElementById('sim-results').innerHTML = html + hint;
+}
 
 // 점수 산정방식 토글
 function toggleFormula() {
