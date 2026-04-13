@@ -456,10 +456,10 @@ function calcRanking(rows) {
       if (t2win) st.w++; else if (t1win) st.l++;
     });
   }
-  // 공식: ((W/M × 3) + (S/M × 1)) × log(M) × 3 × Tier배율
+  // 공식: ((W/M × 3) + (S/(M×2) × 1)) × log10(M) × 10 × Tier배율
   // Bronze: ×1.1, Silver/Gold: ×1.0
   return Object.entries(stats).map(([name, st]) => {
-    const basePts = st.m > 0 ? ((st.w/st.m)*3 + (st.s/st.m)*1) * Math.log(st.m) * 3 : 0;
+    const basePts = st.m > 0 ? ((st.w/st.m)*3 + (st.s/(st.m*2))*1) * Math.log10(st.m) * 10 : 0;
     const mult = TIER_MULT[PLAYER_TIER[name]] ?? 1.0;
     const pts = basePts * mult;
     return { name, ...st, pts: +pts.toFixed(1) };
@@ -1135,17 +1135,23 @@ if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js', { scope: '/PS-rank/padel_app/' })
       .then(reg => {
+        // 주기적으로 업데이트 체크 (30초마다)
+        setInterval(() => reg.update(), 30000);
         reg.addEventListener('updatefound', () => {
           const newSW = reg.installing;
           newSW.addEventListener('statechange', () => {
-            if (newSW.state === 'activated') {
-              window.location.reload();
+            if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+              // 새 버전 설치 완료 → 즉시 skipWaiting 요청 후 리로드
+              newSW.postMessage({ type: 'SKIP_WAITING' });
             }
           });
         });
       }).catch(() => {});
+
+    // 새 SW가 컨트롤러가 되면 즉시 리로드
+    let refreshing = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      window.location.reload();
+      if (!refreshing) { refreshing = true; window.location.reload(); }
     });
   });
 }
