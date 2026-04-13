@@ -730,14 +730,16 @@ async function loadData() {
   document.getElementById('rank-status').innerHTML = '<div class="spinner"></div>데이터 불러오는 중...';
   document.getElementById('rank-content').style.display = 'none';
   try {
-    const [mgr, mbsr] = await Promise.all([fetchCSV(GID_MATCH_G), fetchCSV(GID_MATCH_BS)]);
+    // Players 시트 먼저 로드 → PLAYER_TIER 채운 후 calcRanking 실행
+    const [mgr, mbsr, playerRows] = await Promise.all([
+      fetchCSV(GID_MATCH_G),
+      fetchCSV(GID_MATCH_BS),
+      fetchCSV(GID_PLAYERS).catch(() => null)
+    ]);
     gRows = mgr; bsRows = mbsr;
-    gData = calcRanking(mgr);
-    bsData = calcRanking(mbsr);
 
-    // Players 시트에서 선수 목록 로드 (없으면 경기 데이터에서 폴백)
-    try {
-      const playerRows = await fetchCSV(GID_PLAYERS, 0, 5000); // 5초 타임아웃, 재시도 없음
+    // Players 시트에서 선수 목록 + Tier 로드
+    if (playerRows) {
       for (const r of playerRows.slice(1)) {
         const name = r[0]?.trim(), league = r[1]?.trim(), tier = r[2]?.trim(), active = r[3]?.trim();
         if (!name || active === 'N') continue;
@@ -747,8 +749,8 @@ async function loadData() {
       }
       PLAYERS['gold'].sort();
       PLAYERS['bs'].sort();
-    } catch(e) {
-      // Players 시트 없으면 경기 데이터에서 추출 (폴백)
+    } else {
+      // Players 시트 실패 시 경기 데이터에서 폴백
       for (const [rows, lg] of [[mgr,'gold'],[mbsr,'bs']]) {
         const ps = new Set();
         for (let i=1; i<rows.length; i++) {
@@ -760,6 +762,10 @@ async function loadData() {
         PLAYERS[lg]=[...ps].sort();
       }
     }
+
+    // PLAYER_TIER 채운 후 calcRanking 실행
+    gData = calcRanking(mgr);
+    bsData = calcRanking(mbsr);
 
     // USED (페어 조합) 는 경기 데이터에서 추출
     for (const [rows, lg] of [[mgr,'gold'],[mbsr,'bs']]) {
@@ -1241,23 +1247,17 @@ function toggleFormula() {
   arrow.classList.toggle('open');
 }
 
-// 변경사항 모달 (버전 체크)
-const CHANGELOG_VERSION = 'v2025.S1';
-function checkChangelog() {
-  const seen = localStorage.getItem('changelog_seen');
-  if (seen !== CHANGELOG_VERSION) {
-    setTimeout(() => {
-      document.getElementById('changelog-overlay').classList.add('show');
-      document.getElementById('changelog-modal').classList.add('show');
-    }, 800);
-  }
-}
+// 변경사항 모달
 function closeChangelog() {
   document.getElementById('changelog-overlay').classList.remove('show');
   document.getElementById('changelog-modal').classList.remove('show');
-  localStorage.setItem('changelog_seen', CHANGELOG_VERSION);
 }
-checkChangelog();
+
+// 앱 첫 실행 시 변경사항 표시
+setTimeout(() => {
+  document.getElementById('changelog-overlay').classList.add('show');
+  document.getElementById('changelog-modal').classList.add('show');
+}, 800);
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
