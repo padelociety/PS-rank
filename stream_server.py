@@ -87,8 +87,7 @@ def build_title_and_desc(team_a: list, team_b: list, league: str) -> tuple:
         f"🏅 리그: {league_name}\n"
         f"🟢 Team A: {a_str}\n"
         f"🟡 Team B: {b_str}\n\n"
-        f"실시간 스코어보드 → https://jiwon.github.io/PS-rank\n\n"
-        f"#패들 #PS_Court #Padel #PSiLeague #{league_name.replace('+','Plus')}"
+        f"#빠델 #빠델소사이어티 #빠소 #빠델리그 #빠소리그 #PSL"
     )
     return title, description
 
