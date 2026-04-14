@@ -32,6 +32,7 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
 .app-logo { display:flex; align-items:baseline; gap:6px; }
 .app-logo .league { font-family:'Bebas Neue',sans-serif; font-size:22px; letter-spacing:2px; color:var(--gold); line-height:1; }
 .app-logo .season { font-size:11px; font-weight:600; color:var(--text-dim); letter-spacing:1px; text-transform:uppercase; }
+.app-logo .version { font-size:10px; font-weight:600; color:var(--text-dim); letter-spacing:0.5px; padding:2px 6px; border:1px solid var(--border); border-radius:999px; background:var(--surface2); }
 .header-refresh { width:36px; height:36px; border-radius:50%; border:1px solid var(--border); background:var(--surface2); color:var(--text-dim); font-size:16px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.2s; }
 .header-refresh:active { transform:scale(0.9); background:var(--surface3); }
 .header-refresh.spinning { animation:spin 0.7s linear infinite; }
@@ -368,6 +369,7 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
   <div class="app-logo">
     <span class="league">PS i-League 2026</span>
     <span class="season">Season 1</span>
+    <span class="version" id="appVersion"></span>
   </div>
   <button class="header-refresh" id="refreshBtn" onclick="loadData()" title="새로고침">↻</button>
 </header>
@@ -1395,7 +1397,9 @@ function toggleFormula() {
 }
 
 // 변경사항 모달
-const CHANGELOG_VERSION = 'v2025.S1.3';
+const CHANGELOG_VERSION = 'v2025.S1.4';
+// 헤더에 버전 표시
+document.getElementById('appVersion').textContent = CHANGELOG_VERSION;
 function closeChangelog() {
   document.getElementById('changelog-overlay').classList.remove('show');
   document.getElementById('changelog-modal').classList.remove('show');
@@ -1410,6 +1414,70 @@ if (_seen !== CHANGELOG_VERSION) {
     document.getElementById('changelog-modal').classList.add('show');
   }, 800);
 }
+
+// ===== 뒤로가기 버튼 처리 (앱 종료 방지) =====
+(function(){
+  // 초기 상태: 현재 페이지를 history에 기록
+  history.replaceState({app:true, page: curPage, modal: null}, '');
+
+  // showPage 래핑 - 탭 전환 시 history push
+  const _origShowPage = window.showPage;
+  window.showPage = function(p) {
+    if (curPage === p) return;
+    _origShowPage(p);
+    history.pushState({app:true, page: p, modal: null}, '');
+  };
+
+  // 모달 오픈 시 history push (뒤로가기로 닫히도록)
+  const _origOpenSim = window.openSim;
+  window.openSim = function(name, league) {
+    _origOpenSim(name, league);
+    history.pushState({app:true, page: curPage, modal: 'sim'}, '');
+  };
+
+  const _origOpenProfile = window.openProfile;
+  window.openProfile = function(name, league, rank) {
+    _origOpenProfile(name, league, rank);
+    history.pushState({app:true, page: curPage, modal: 'profile'}, '');
+  };
+
+  // 변경사항(changelog) 팝업 자동 오픈도 감지 → history push
+  const _clObs = new MutationObserver(() => {
+    const m = document.getElementById('changelog-modal');
+    if (m.classList.contains('show') && history.state?.modal !== 'changelog') {
+      history.pushState({app:true, page: curPage, modal: 'changelog'}, '');
+    }
+  });
+  _clObs.observe(document.getElementById('changelog-modal'), {attributes:true, attributeFilter:['class']});
+
+  // popstate: 뒤로가기 눌렀을 때 상태 동기화
+  window.addEventListener('popstate', (e) => {
+    const st = e.state || {app:true, page:'rank', modal:null};
+
+    const simEl = document.getElementById('sim-panel');
+    const profileEl = document.getElementById('profileOverlay');
+    const clEl = document.getElementById('changelog-modal');
+
+    // 현재 열려있는데 목표 상태에서는 닫혀있어야 하는 모달 닫기
+    if (simEl.classList.contains('show') && st.modal !== 'sim') {
+      document.getElementById('sim-overlay').classList.remove('show');
+      simEl.classList.remove('show');
+    }
+    if (profileEl.classList.contains('show') && st.modal !== 'profile') {
+      profileEl.classList.remove('show');
+      document.getElementById('profilePanel').classList.remove('show');
+    }
+    if (clEl.classList.contains('show') && st.modal !== 'changelog') {
+      document.getElementById('changelog-overlay').classList.remove('show');
+      clEl.classList.remove('show');
+    }
+
+    // 페이지 전환
+    if (st.page && st.page !== curPage) {
+      _origShowPage(st.page);
+    }
+  });
+})();
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
