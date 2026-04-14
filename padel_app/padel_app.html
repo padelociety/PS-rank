@@ -416,36 +416,22 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
 <div class="changelog-modal" id="changelog-modal">
   <div class="changelog-header">
     <div class="changelog-badge">UPDATE</div>
-    <div class="changelog-title">랭킹 공식 업데이트</div>
-    <div class="changelog-version">v2025.S1</div>
+    <div class="changelog-title">앱 업데이트</div>
+    <div class="changelog-version">v2026.S1.4</div>
   </div>
   <div class="changelog-body">
     <div class="changelog-item new">
       <div class="changelog-item-icon">✦</div>
       <div class="changelog-item-text">
-        <div class="changelog-item-title">점수 공식 개선</div>
-        <div class="changelog-item-desc">S/M → S/(M×2) 로 세트 스케일 정규화. 자연로그 → 상용로그(log₁₀)로 변경</div>
+        <div class="changelog-item-title">뒤로가기 버튼 지원</div>
+        <div class="changelog-item-desc">뒤로가기 눌렀을 때 앱 종료 대신 이전 화면으로 이동. 선수 프로필/시뮬레이션 열린 상태면 먼저 닫힘</div>
       </div>
     </div>
     <div class="changelog-item new">
       <div class="changelog-item-icon">✦</div>
       <div class="changelog-item-text">
-        <div class="changelog-item-title">Bronze ×1.2 상향</div>
-        <div class="changelog-item-desc">Bronze 플레이어 보정 배율 ×1.1 → ×1.2 상향. Silver 평균 승률(70%) 대비 Bronze(40%) 차이 반영</div>
-      </div>
-    </div>
-    <div class="changelog-item">
-      <div class="changelog-item-icon">◎</div>
-      <div class="changelog-item-text">
-        <div class="changelog-item-title">선수 통계 패널 강화</div>
-        <div class="changelog-item-desc">세트 승률, 역전승/패, 퍼펙트/완패, 경기 기록 전체 추가</div>
-      </div>
-    </div>
-    <div class="changelog-item">
-      <div class="changelog-item-icon">◎</div>
-      <div class="changelog-item-text">
-        <div class="changelog-item-title">자동 업데이트 적용</div>
-        <div class="changelog-item-desc">앱 열면 새 버전 자동 감지 후 즉시 반영</div>
+        <div class="changelog-item-title">앱 버전 표시</div>
+        <div class="changelog-item-desc">상단 헤더에 현재 버전 배지 추가</div>
       </div>
     </div>
   </div>
@@ -1397,7 +1383,7 @@ function toggleFormula() {
 }
 
 // 변경사항 모달
-const CHANGELOG_VERSION = 'v2025.S1.4';
+const CHANGELOG_VERSION = 'v2026.S1.4';
 // 헤더에 버전 표시
 document.getElementById('appVersion').textContent = CHANGELOG_VERSION;
 function closeChangelog() {
