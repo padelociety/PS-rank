@@ -388,7 +388,7 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
       <span class="formula-box-arrow" id="formula-arrow">▾</span>
     </div>
     <div class="formula-box-body" id="formula-body">
-      <div class="formula-main">( W/M × 3 + S/(M×2) × 1 ) × log₁₀(M) × 10 × Tier</div>
+      <div class="formula-main">( W/M × 3 + S/(M×2) × 1 ) × log₁₀(M¹⁰) × Tier</div>
       <div class="formula-vars">
         <div class="formula-var"><span>W</span>승리 수</div>
         <div class="formula-var"><span>M</span>총 경기 수</div>
@@ -590,7 +590,7 @@ function calcRanking(rows) {
       if (t2win) st.w++; else if (t1win) st.l++;
     });
   }
-  // 공식: ((W/M × 3) + (S/(M×2) × 1)) × log10(M) × 10 × Tier배율
+  // 공식: ((W/M × 3) + (S/(M×2) × 1)) × log10(M^10) × Tier배율
   // Bronze: ×1.2, Silver/Gold: ×1.0
   return Object.entries(stats).map(([name, st]) => {
     const basePts = st.m > 0 ? ((st.w/st.m)*3 + (st.s/(st.m*2))*1) * Math.log10(st.m) * 10 : 0;
