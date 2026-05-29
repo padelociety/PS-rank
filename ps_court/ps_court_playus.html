@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PS Court">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#080C10">
+<link rel="manifest" href="ps_court_manifest.json">
+<link rel="apple-touch-icon" href="/PS-rank/icon-court-192.png">
+<title>PS Court</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Pretendard:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --gold: #F5C842;
+  --bronze: #e8a060;
+  --silver: #A8C0D6;
+  --green: #2ECC71;
+  --bg: #080C10;
+  --surface: #0E1318;
+  --surface2: #141A22;
+  --surface3: #1C2430;
+  --border: rgba(255,255,255,0.08);
+  --text: #F0F4F8;
+  --text-dim: #7A8FA0;
+  --red: #f87171;
+  --radius: clamp(12px, 2vw, 20px);
+  --radius-sm: clamp(8px, 1.5vw, 12px);
+}
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html, body { height:100%; overflow:hidden; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Pretendard', sans-serif;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* ── 헤더 ── */
+.header {
+  padding: clamp(12px,2vh,24px) clamp(16px,4vw,48px) clamp(10px,1.5vh,20px);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.header-logo {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(22px,4vw,36px);
+  letter-spacing: 3px;
+  color: var(--gold);
+}
+.header-sub { font-size: clamp(11px,1.5vw,15px); color: var(--text-dim); font-weight: 600; letter-spacing: 1px; }
+.header-right { text-align: right; display:flex; align-items:flex-start; gap:12px; }
+.gear-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.gear-btn:active { transform: scale(0.94); }
+.step-indicator {
+  font-size: clamp(11px,1.5vw,14px);
+  color: var(--text-dim);
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.step-dots { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+.step-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--surface3);
+  transition: all 0.3s;
+}
+.step-dot.active { background: var(--gold); width: 30px; border-radius: 5px; }
+.step-dot.done { background: var(--green); }
+
+/* ── 메인 콘텐츠 ── */
+.main {
+  flex: 1;
+  overflow-y: auto;
+  padding: clamp(16px,2.5vh,32px) clamp(16px,4vw,40px);
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 화면 전환 ── */
+.screen { display: none; }
+.screen.active { display: flex; flex-direction: column; flex: 1; animation: fadeUp 0.2s ease; }
+@keyframes fadeUp {
+  from { opacity:0; transform: translateY(10px); }
+  to   { opacity:1; transform: translateY(0); }
+}
+
+/* ── 타이틀 ── */
+.screen-title {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(32px,6vw,56px);
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+  line-height: 1;
+}
+.screen-sub {
+  font-size: clamp(13px,2vw,18px);
+  color: var(--text-dim);
+  font-weight: 600;
+  margin-bottom: clamp(20px,3vh,40px);
+}
+
+/* ── STEP 1: 매치 카드 리스트 ── */
+.match-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(clamp(260px,40vw,360px), 1fr));
+  gap: clamp(12px,2vw,20px);
+}
+.match-card {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: clamp(16px,2.5vh,24px);
+  cursor: pointer;
+  transition: all 0.18s;
+  text-align: left;
+}
+.match-card:active { transform: scale(0.98); }
+.match-card:hover { border-color: var(--gold); background: rgba(245,200,66,0.04); }
+.match-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.lg-badge {
+  font-size: clamp(11px,1.5vw,13px);
+  font-weight: 800;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: rgba(245,200,66,0.12);
+  color: var(--gold);
+  border: 1px solid rgba(245,200,66,0.3);
+}
+.div-badge {
+  font-size: clamp(11px,1.5vw,13px);
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: var(--surface3);
+  color: var(--text-dim);
+}
+.match-no { margin-left: auto; font-family:'Bebas Neue',sans-serif; font-size: clamp(16px,2.5vw,22px); color: var(--text-dim); letter-spacing:1px; }
+.status-tag { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 12px; }
+.status-tag.scheduled { background: rgba(168,192,214,0.12); color: var(--silver); }
+.status-tag.live { background: rgba(255,0,0,0.15); color: #FF5252; }
+.match-players {
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+.mp-chip {
+  font-size: clamp(13px,2vw,16px);
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+}
+.match-date { margin-top: 12px; font-size: clamp(12px,1.6vw,14px); color: var(--text-dim); font-weight: 600; }
+.par-tag { font-size: 0.82em; font-weight: 800; opacity: 0.95; }
+
+/* ── STEP 2: 팀 배정 ── */
+.team-display {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: clamp(10px,2vw,20px);
+  align-items: center;
+  margin-bottom: clamp(16px,2.5vh,28px);
+  max-width: min(680px, 100%);
+}
+.team-box {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: clamp(16px,2.5vh,28px) clamp(12px,2vw,20px);
+  text-align: center;
+}
+.team-box.team-a { border-color: rgba(46,204,113,0.4); background: rgba(46,204,113,0.05); }
+.team-box.team-b { border-color: rgba(245,200,66,0.3); background: rgba(245,200,66,0.04); }
+.team-label {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(14px,2.5vw,20px);
+  letter-spacing: 2px;
+  margin-bottom: clamp(10px,1.5vh,16px);
+  color: var(--text-dim);
+}
+.team-box.team-a .team-label { color: var(--green); }
+.team-box.team-b .team-label { color: var(--gold); }
+.team-player {
+  font-size: clamp(15px,2.5vw,22px);
+  font-weight: 800;
+  color: var(--text);
+  padding: clamp(4px,0.8vh,8px) 0;
+  line-height: 1.3;
+}
+.vs-box {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(24px,4vw,36px);
+  color: var(--text-dim);
+  letter-spacing: 2px;
+  text-align: center;
+}
+.used-badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: rgba(248,113,113,0.12);
+  color: var(--red);
+  border: 1px solid rgba(248,113,113,0.3);
+  margin-bottom: 12px;
+}
+.ok-badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: rgba(46,204,113,0.12);
+  color: var(--green);
+  border: 1px solid rgba(46,204,113,0.3);
+  margin-bottom: 12px;
+}
+
+.no-combo-msg {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-dim);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 2;
+}
+
+/* ── STEP 3: 스코어 ── */
+.score-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 0;
+  max-width: min(680px, 100%);
+  margin: 0 auto;
+  width: 100%;
+}
+.set-tabs {
+  display: flex;
+  gap: clamp(8px,1.5vw,12px);
+  margin-bottom: clamp(12px,2vh,20px);
+}
+.set-tab {
+  flex: 1;
+  padding: clamp(10px,1.5vh,16px);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text-dim);
+  font-family: 'Pretendard', sans-serif;
+  font-size: clamp(13px,2vw,18px);
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+.set-tab.active { background: var(--surface3); border-color: var(--gold); color: var(--gold); }
+.set-tab-add {
+  flex: 0 0 auto;
+  padding: 16px 20px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 24px;
+  cursor: pointer;
+  font-family: 'Pretendard', sans-serif;
+  transition: all 0.2s;
+}
+.set-tab-add:active { background: var(--surface); }
+
+.score-board {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  flex: 1;
+  min-height: 0;
+}
+.score-side {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(12px,2vh,24px);
+  padding: clamp(16px,2.5vh,32px) clamp(12px,2vw,20px);
+}
+.score-side.side-a { border-color: rgba(46,204,113,0.3); }
+.score-side.side-b { border-color: rgba(245,200,66,0.25); }
+.score-side-name {
+  font-size: clamp(14px,2.5vw,22px);
+  font-weight: 800;
+  text-align: center;
+  line-height: 1.4;
+}
+.score-side.side-a .score-side-name { color: var(--green); }
+.score-side.side-b .score-side-name { color: var(--gold); }
+.score-big {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(72px,15vw,160px);
+  line-height: 1;
+  color: var(--text);
+}
+.score-side.side-a .score-big { color: var(--green); }
+.score-side.side-b .score-big { color: var(--gold); }
+.score-btns {
+  display: flex;
+  gap: 16px;
+}
+.score-btn {
+  width: clamp(80px,16vw,160px); height: clamp(80px,16vw,160px);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: clamp(44px,8vw,80px);
+  font-weight: 700;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.1s;
+  font-family: 'Pretendard', sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.score-btn:active { transform: scale(0.92); background: var(--surface3); }
+.score-btn.plus { background: var(--surface3); font-size: clamp(42px,8vw,80px); }
+
+/* ── 푸터 버튼 ── */
+.footer {
+  padding: clamp(12px,1.5vh,20px) clamp(16px,4vw,48px);
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: clamp(8px,1.5vw,16px);
+  flex-shrink: 0;
+  background: rgba(8,12,16,0.95);
+  align-items: stretch;
+}
+.btn {
+  flex: 1;
+  padding: clamp(14px,1.8vh,24px);
+  border-radius: var(--radius-sm);
+  border: none;
+  font-family: 'Pretendard', sans-serif;
+  font-size: clamp(15px,2.5vw,22px);
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s;
+  letter-spacing: 0.5px;
+}
+.btn:active { transform: scale(0.97); }
+.btn-back {
+  background: var(--surface2);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  flex: 0 0 auto;
+  padding: clamp(14px,1.8vh,24px) clamp(20px,3vw,36px);
+}
+.btn-primary {
+  background: var(--gold);
+  color: #000;
+}
+.btn-primary:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.btn-green {
+  background: var(--green);
+  color: #000;
+}
+.btn-shuffle {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+/* ── 완료 화면 ── */
+.done-screen {
+  text-align: center;
+  padding: 40px 20px;
+}
+.done-icon { font-size: clamp(48px,8vw,72px); margin-bottom: clamp(12px,2vh,20px); }
+.done-title {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(32px,5vw,48px);
+  letter-spacing: 2px;
+  color: var(--green);
+  margin-bottom: 8px;
+}
+.done-sub { font-size: clamp(13px,1.8vw,16px); color: var(--text-dim); font-weight: 600; margin-bottom: clamp(20px,3vh,32px); }
+.done-result {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: clamp(16px,2.5vw,24px);
+  max-width: min(480px,100%);
+  margin: 0 auto clamp(16px,2.5vh,24px);
+  font-size: clamp(14px,2vw,18px);
+  font-weight: 700;
+  line-height: 2;
+}
+
+/* 로딩 */
+.loading-msg {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-dim);
+  font-size: 18px;
+}
+.spinner {
+  width: 40px; height: 40px;
+  border: 3px solid var(--surface3);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 16px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 토스트 */
+.toast {
+  position: fixed;
+  bottom: 100px; left: 50%; transform: translateX(-50%);
+  background: var(--surface3);
+  color: var(--text);
+  padding: 14px 28px;
+  border-radius: 40px;
+  font-size: 15px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  z-index: 999;
+  opacity: 0;
+  transition: opacity 0.3s;
+  white-space: nowrap;
+}
+.toast.show { opacity: 1; }
+
+/* ── 설정/로그인 모달 ── */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: none;
+  align-items: center; justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+.modal-overlay.show { display: flex; }
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: clamp(20px,3vw,32px);
+  width: min(440px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.modal h3 { font-family:'Bebas Neue',sans-serif; font-size: 28px; letter-spacing: 1px; margin-bottom: 16px; }
+.modal label { display:block; font-size: 13px; font-weight: 700; color: var(--text-dim); margin: 14px 0 6px; }
+.modal input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-family: 'Pretendard', sans-serif;
+  font-size: 15px;
+}
+.modal-status { font-size: 13px; font-weight: 700; margin-top: 14px; min-height: 18px; }
+.modal-btns { display:flex; gap: 10px; margin-top: 20px; }
+.modal-btns .btn { padding: 14px; font-size: 15px; }
+</style>
+</head>
+<body>
+
+<!-- 헤더 -->
+<div class="header">
+  <div>
+    <div class="header-logo">PS COURT</div>
+    <div class="header-sub">LEAGUE MATCH</div>
+  </div>
+  <div class="header-right">
+    <div>
+      <div id="stream-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:2px">📡 스트리밍 서버 확인 중...</div>
+      <div id="fb-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:4px">🔴 Firebase 연결 중...</div>
+      <div class="step-indicator" id="step-label">STEP 1 / 3</div>
+      <div class="step-dots">
+        <div class="step-dot active" id="dot-1"></div>
+        <div class="step-dot" id="dot-2"></div>
+        <div class="step-dot" id="dot-3"></div>
+      </div>
+    </div>
+    <button class="gear-btn" onclick="openSettings()" title="설정 / 로그인">⚙</button>
+  </div>
+</div>
+
+<!-- 메인 -->
+<div class="main">
+
+  <!-- STEP 1: 매치 카드 리스트 -->
+  <div class="screen active" id="screen-1">
+    <div class="screen-title">리그 매치</div>
+    <div class="screen-sub">정원이 찬 매치를 선택해 팀을 배정하세요</div>
+    <div id="match-list-wrap">
+      <div class="loading-msg"><div class="spinner"></div>매치 불러오는 중...</div>
+    </div>
+  </div>
+
+  <!-- STEP 2: 팀 배정 -->
+  <div class="screen" id="screen-2">
+    <div class="screen-title">팀 배정</div>
+    <div class="screen-sub" id="team-sub">랜덤 팀이 배정됐어요</div>
+    <div id="team-display"></div>
+  </div>
+
+  <!-- STEP 3: 스코어 입력 -->
+  <div class="screen" id="screen-3" style="display:flex;flex-direction:column;height:100%">
+    <div class="score-section" id="score-section" style="flex:1;display:flex;flex-direction:column;"></div>
+  </div>
+
+  <!-- STEP 4: 완료 -->
+  <div class="screen" id="screen-4">
+    <div class="done-screen">
+      <div class="done-icon">🎾</div>
+      <div class="done-title">경기 저장 완료!</div>
+      <div class="done-sub" id="done-sub"></div>
+      <div class="done-result" id="done-result"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 푸터 -->
+<div class="footer" id="footer">
+  <button class="btn btn-primary" id="btn-refresh" onclick="loadMatches()">↻ 새로고침</button>
+</div>
+
+<!-- 설정/로그인 모달 -->
+<div class="modal-overlay" id="settings-modal">
+  <div class="modal">
+    <h3>설정 / 운영자 로그인</h3>
+    <label>API 서버 (비우면 기본 prod)</label>
+    <input id="set-api" placeholder="https://api.padelsociety.co.kr/api">
+    <label>운영자 이메일</label>
+    <input id="set-email" type="email" autocomplete="username" placeholder="operator@example.com">
+    <label>비밀번호</label>
+    <input id="set-pw" type="password" autocomplete="current-password" placeholder="••••••••">
+    <label>토큰 (자동 채워짐 / 직접 붙여넣기 가능)</label>
+    <input id="set-token" placeholder="로그인하면 자동 입력">
+    <div class="modal-status" id="set-status"></div>
+    <div class="modal-btns">
+      <button class="btn btn-back" style="flex:0 0 auto" onclick="closeSettings()">닫기</button>
+      <button class="btn btn-shuffle" onclick="psLogout()">로그아웃</button>
+      <button class="btn btn-primary" onclick="psLogin()">🔑 로그인</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── 설정 (playus 백엔드 — 구글시트/AppsScript 대체) ──────────
+const DEFAULT_API = 'https://api.padelsociety.co.kr/api';
+let PS_API = localStorage.getItem('ps_api') || DEFAULT_API;
+let psToken = localStorage.getItem('ps_token') || '';
+
+// ── 상태 ───────────────────────────────────────────────────
+let curStep = 1;
+let allMatches = [];        // [{ m, lg }] — 선택 가능한 매치들
+let selectedMatch = null;   // 선택한 매치(populate된 players/teamA/teamB)
+let selectedLeague = null;  // 선택한 매치의 리그
+let teamA = [], teamB = []; // 이름 배열 (점수/Firebase 표시용)
+let teamAIds = [], teamBIds = [];
+let teamAPar = [], teamBPar = []; // 각 선수 PAR 객체 (표시용)
+let sets = [{a:0, b:0}];
+let curSet = 0;
+let matchNum = 1;
+
+// ── playus fetch (토큰 자동 첨부) ──────────────────────────
+async function psFetch(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (psToken) headers['Authorization'] = `Bearer ${psToken}`;
+  const res = await fetch(`${PS_API}${path}`, { ...opts, headers });
+  let body = null;
+  try { body = await res.json(); } catch (_) {}
+  if (!res.ok || (body && body.isSuccess === false)) {
+    throw new Error((body && body.message) || `HTTP ${res.status}`);
+  }
+  return body;
+}
+function psName(u) {
+  if (!u) return '';
+  if (typeof u === 'string') return u;
+  const ko = `${u.lastNameKorean || ''}${u.firstNameKorean || ''}`.trim();
+  return ko || `${u.firstName || ''} ${u.lastName || ''}`.trim() || '선수';
+}
+function psId(u) { return u && u._id ? u._id : (u || ''); }
+// PAR 티어 색상 (백엔드 parHelper TIER_COLOR/GRADIENT 동일)
+const PAR_COLOR = { beginner:'#9CA3AF', bronze:'#C97B3F', silver:'#9AA1AA', gold:'#D4A017', platinum:'#4FB1A8', master:'#6B2BB5', pro:'#FF3D00' };
+const PAR_GRADIENT = {
+  bronze:{low:'#A86430',mid:'#C97B3F',high:'#DD9560'},
+  silver:{low:'#80868F',mid:'#9AA1AA',high:'#B5BBC2'},
+  gold:{low:'#B0840E',mid:'#D4A017',high:'#E8B82E'},
+};
+function parColor(par) {
+  if (!par || !par.tier) return 'var(--text-dim)';
+  if (par.subTier && PAR_GRADIENT[par.tier]) return PAR_GRADIENT[par.tier][par.subTier] || PAR_COLOR[par.tier];
+  return PAR_COLOR[par.tier] || 'var(--text-dim)';
+}
+// 인라인 PAR 배지 — 점수 1자리 + provisional(*)
+function parTag(par) {
+  if (!par || par.score == null) return '';
+  const star = par.provisional ? '*' : '';
+  return ` <span class="par-tag" style="color:${parColor(par)}">${Number(par.score).toFixed(1)}${star}</span>`;
+}
+// MD5 (앱 convertMd5 동일) — Joseph Myers, public domain.
+function psMd5(str){function a(n,b){return(n+b)&0xFFFFFFFF;}function c(q,r,b,x,s,t){r=a(a(r,q),a(x,t));return a((r<<s)|(r>>>(32-s)),b);}function f(r,b,d,e,x,s,t){return c((b&d)|((~b)&e),r,b,x,s,t);}function g(r,b,d,e,x,s,t){return c((b&e)|(d&(~e)),r,b,x,s,t);}function h(r,b,d,e,x,s,t){return c(b^d^e,r,b,x,s,t);}function i(r,b,d,e,x,s,t){return c(d^(b|(~e)),r,b,x,s,t);}function cy(x,k){var A=x[0],B=x[1],C=x[2],D=x[3];A=f(A,B,C,D,k[0],7,-680876936);D=f(D,A,B,C,k[1],12,-389564586);C=f(C,D,A,B,k[2],17,606105819);B=f(B,C,D,A,k[3],22,-1044525330);A=f(A,B,C,D,k[4],7,-176418897);D=f(D,A,B,C,k[5],12,1200080426);C=f(C,D,A,B,k[6],17,-1473231341);B=f(B,C,D,A,k[7],22,-45705983);A=f(A,B,C,D,k[8],7,1770035416);D=f(D,A,B,C,k[9],12,-1958414417);C=f(C,D,A,B,k[10],17,-42063);B=f(B,C,D,A,k[11],22,-1990404162);A=f(A,B,C,D,k[12],7,1804603682);D=f(D,A,B,C,k[13],12,-40341101);C=f(C,D,A,B,k[14],17,-1502002290);B=f(B,C,D,A,k[15],22,1236535329);A=g(A,B,C,D,k[1],5,-165796510);D=g(D,A,B,C,k[6],9,-1069501632);C=g(C,D,A,B,k[11],14,643717713);B=g(B,C,D,A,k[0],20,-373897302);A=g(A,B,C,D,k[5],5,-701558691);D=g(D,A,B,C,k[10],9,38016083);C=g(C,D,A,B,k[15],14,-660478335);B=g(B,C,D,A,k[4],20,-405537848);A=g(A,B,C,D,k[9],5,568446438);D=g(D,A,B,C,k[14],9,-1019803690);C=g(C,D,A,B,k[3],14,-187363961);B=g(B,C,D,A,k[8],20,1163531501);A=g(A,B,C,D,k[13],5,-1444681467);D=g(D,A,B,C,k[2],9,-51403784);C=g(C,D,A,B,k[7],14,1735328473);B=g(B,C,D,A,k[12],20,-1926607734);A=h(A,B,C,D,k[5],4,-378558);D=h(D,A,B,C,k[8],11,-2022574463);C=h(C,D,A,B,k[11],16,1839030562);B=h(B,C,D,A,k[14],23,-35309556);A=h(A,B,C,D,k[1],4,-1530992060);D=h(D,A,B,C,k[4],11,1272893353);C=h(C,D,A,B,k[7],16,-155497632);B=h(B,C,D,A,k[10],23,-1094730640);A=h(A,B,C,D,k[13],4,681279174);D=h(D,A,B,C,k[0],11,-358537222);C=h(C,D,A,B,k[3],16,-722521979);B=h(B,C,D,A,k[6],23,76029189);A=h(A,B,C,D,k[9],4,-640364487);D=h(D,A,B,C,k[12],11,-421815835);C=h(C,D,A,B,k[15],16,530742520);B=h(B,C,D,A,k[2],23,-995338651);A=i(A,B,C,D,k[0],6,-198630844);D=i(D,A,B,C,k[7],10,1126891415);C=i(C,D,A,B,k[14],15,-1416354905);B=i(B,C,D,A,k[5],21,-57434055);A=i(A,B,C,D,k[12],6,1700485571);D=i(D,A,B,C,k[3],10,-1894986606);C=i(C,D,A,B,k[10],15,-1051523);B=i(B,C,D,A,k[1],21,-2054922799);A=i(A,B,C,D,k[8],6,1873313359);D=i(D,A,B,C,k[15],10,-30611744);C=i(C,D,A,B,k[6],15,-1560198380);B=i(B,C,D,A,k[13],21,1309151649);A=i(A,B,C,D,k[4],6,-145523070);D=i(D,A,B,C,k[11],10,-1120210379);C=i(C,D,A,B,k[2],15,718787259);B=i(B,C,D,A,k[9],21,-343485551);x[0]=a(A,x[0]);x[1]=a(B,x[1]);x[2]=a(C,x[2]);x[3]=a(D,x[3]);}function blk(s){var m=[],j;for(j=0;j<64;j+=4)m[j>>2]=s.charCodeAt(j)+(s.charCodeAt(j+1)<<8)+(s.charCodeAt(j+2)<<16)+(s.charCodeAt(j+3)<<24);return m;}function m51(s){var n=s.length,st=[1732584193,-271733879,-1732584194,271733878],j;for(j=64;j<=s.length;j+=64)cy(st,blk(s.substring(j-64,j)));s=s.substring(j-64);var tl=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];for(j=0;j<s.length;j++)tl[j>>2]|=s.charCodeAt(j)<<((j%4)<<3);tl[j>>2]|=0x80<<((j%4)<<3);if(j>55){cy(st,tl);for(j=0;j<16;j++)tl[j]=0;}tl[14]=n*8;cy(st,tl);return st;}var hc='0123456789abcdef'.split('');function rh(n){var s='',j=0;for(;j<4;j++)s+=hc[(n>>(j*8+4))&15]+hc[(n>>(j*8))&15];return s;}function hx(x){for(var j=0;j<x.length;j++)x[j]=rh(x[j]);return x.join('');}return hx(m51(unescape(encodeURIComponent(str))));}
+
+// ── 설정/로그인 모달 ────────────────────────────────────────
+function openSettings() {
+  document.getElementById('set-api').value = PS_API === DEFAULT_API ? '' : PS_API;
+  document.getElementById('set-token').value = psToken;
+  setAuthStatus(psToken ? '✅ 토큰 있음 (팀배정/저장 가능)' : '로그인 필요 (매치 목록은 읽기 가능)');
+  document.getElementById('settings-modal').classList.add('show');
+}
+function closeSettings() {
+  PS_API = (document.getElementById('set-api').value || '').trim() || DEFAULT_API;
+  psToken = (document.getElementById('set-token').value || '').trim();
+  localStorage.setItem('ps_api', PS_API);
+  localStorage.setItem('ps_token', psToken);
+  document.getElementById('settings-modal').classList.remove('show');
+}
+function setAuthStatus(msg, isError) {
+  const el = document.getElementById('set-status');
+  if (el) { el.textContent = msg; el.style.color = isError ? 'var(--red)' : 'var(--green)'; }
+}
+// 운영자 로그인 → /auth/login → data.token 저장
+async function psLogin() {
+  const email = (document.getElementById('set-email').value || '').trim();
+  const pw = document.getElementById('set-pw').value || '';
+  if (!email || !pw) { setAuthStatus('이메일/비밀번호를 입력하세요.', true); return; }
+  PS_API = (document.getElementById('set-api').value || '').trim() || DEFAULT_API;
+  localStorage.setItem('ps_api', PS_API);
+  setAuthStatus('로그인 중...');
+  try {
+    const res = await psFetch('/auth/login', {
+      method: 'POST',
+      // 앱과 동일하게 비번을 md5(utf8) 해시해서 전송 (백엔드 저장값이 md5)
+      body: JSON.stringify({ email, password: psMd5(pw.trim()), deviceType: 'web' }),
+    });
+    const token = res && res.data && res.data.token;
+    if (!token) throw new Error('응답에 토큰 없음');
+    psToken = token;
+    localStorage.setItem('ps_token', token);
+    document.getElementById('set-token').value = token;
+    document.getElementById('set-pw').value = '';
+    setAuthStatus(`✅ 로그인됨: ${email}`);
+    loadMatches();
+  } catch (e) {
+    setAuthStatus('로그인 실패: ' + e.message, true);
+  }
+}
+function psLogout() {
+  psToken = '';
+  localStorage.removeItem('ps_token');
+  document.getElementById('set-token').value = '';
+  setAuthStatus('로그아웃됨 (읽기만 가능)');
+}
+
+// ── STEP 1: 매치 목록 로드 ──────────────────────────────────
+async function loadMatches() {
+  const wrap = document.getElementById('match-list-wrap');
+  wrap.innerHTML = '<div class="loading-msg"><div class="spinner"></div>매치 불러오는 중...</div>';
+  try {
+    const lr = await psFetch('/league/list');
+    const leagues = ((lr.data && lr.data.items) || []).filter(l => l.status !== 'completed');
+    const collected = [];
+    for (const lg of leagues) {
+      let matches = [];
+      try {
+        const mr = await psFetch(`/league/${lg._id}/matches`);
+        matches = mr.data || [];
+      } catch (_) { continue; }
+      for (const m of matches) {
+        if (m.status === 'completed') continue;
+        const playerCount = (m.players || []).length;
+        const teamCount = (m.teamA || []).length + (m.teamB || []).length;
+        // 정원이 찬 모집 매치(4명) 또는 이미 팀 배정된 매치
+        if (playerCount >= 4 || teamCount >= 4) collected.push({ m, lg });
+      }
+    }
+    allMatches = collected;
+    renderMatchList();
+  } catch (e) {
+    wrap.innerHTML = `<div class="loading-msg" style="color:var(--red)">⚠️ 매치 불러오기 실패<br>${e.message}<br><br><button onclick="loadMatches()" style="padding:14px 28px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:12px;font-size:16px;cursor:pointer;font-family:Pretendard,sans-serif;">다시 시도</button></div>`;
+  }
+}
+
+function renderMatchList() {
+  const wrap = document.getElementById('match-list-wrap');
+  if (!allMatches.length) {
+    wrap.innerHTML = `<div class="loading-msg">표시할 매치가 없어요.<br><span style="font-size:14px">앱에서 모집 매치를 만들고 4명이 모이면 여기에 나타나요.</span></div>`;
+    return;
+  }
+  wrap.innerHTML = `<div class="match-list">${allMatches.map((row, idx) => {
+    const { m, lg } = row;
+    const ppl = (m.players && m.players.length ? m.players : [...(m.teamA || []), ...(m.teamB || [])]);
+    const chips = ppl.filter(Boolean).map(u => `<span class="mp-chip">${psName(u)}${parTag(u.par)}</span>`).join('');
+    const div = m.division ? `<span class="div-badge">${m.division}</span>` : '';
+    const statusTag = m.status === 'live'
+      ? '<span class="status-tag live">🔴 LIVE</span>'
+      : m.status === 'scheduled'
+        ? '<span class="status-tag scheduled">팀 배정됨</span>'
+        : '';
+    const dateStr = m.date ? `<div class="match-date">📅 ${m.date}</div>` : '';
+    return `
+      <div class="match-card" onclick="selectMatch(${idx})">
+        <div class="match-card-top">
+          <span class="lg-badge">${lg.name || '리그'}</span>
+          ${div}
+          ${statusTag}
+          <span class="match-no">#${m.matchNumber || '-'}</span>
+        </div>
+        <div class="match-players">${chips}</div>
+        ${dateStr}
+      </div>`;
+  }).join('')}</div>`;
+}
+
+// ── 매치 선택 → 팀 배정 단계 ────────────────────────────────
+async function selectMatch(idx) {
+  const row = allMatches[idx];
+  if (!row) return;
+  selectedMatch = row.m;
+  selectedLeague = row.lg;
+  matchNum = row.m.matchNumber || 1;
+  sets = [{a:0,b:0}];
+  curSet = 0;
+
+  const hasTeams = (selectedMatch.teamA || []).length && (selectedMatch.teamB || []).length;
+  if (hasTeams) {
+    // 이미 팀 배정된 매치 — 기존 팀 그대로 표시
+    applyTeams(selectedMatch.teamA, selectedMatch.teamB);
+    curStep = 2;
+    renderStep();
+    renderTeamDisplay(false);
+  } else {
+    // 모집 매치 — 백엔드에 랜덤 팀 편성 요청
+    curStep = 2;
+    renderStep();
+    document.getElementById('team-display').innerHTML = '<div class="loading-msg"><div class="spinner"></div>팀 배정 중...</div>';
+    await doAssignTeams();
+  }
+}
+
+function applyTeams(aArr, bArr) {
+  teamA = (aArr || []).map(psName);
+  teamB = (bArr || []).map(psName);
+  teamAIds = (aArr || []).map(psId);
+  teamBIds = (bArr || []).map(psId);
+  teamAPar = (aArr || []).map(u => (u && u.par) || null);
+  teamBPar = (bArr || []).map(u => (u && u.par) || null);
+}
+
+// 백엔드 랜덤 팀 편성 (no-repeat) — POST /:id/matches/:matchId/assign-teams
+async function doAssignTeams() {
+  if (!psToken) { showToast('운영자 로그인이 필요해요 (⚙ 설정)'); openSettings(); return; }
+  try {
+    const res = await psFetch(`/league/${selectedLeague._id}/matches/${selectedMatch._id}/assign-teams`, {
+      method: 'POST',
+    });
+    const m = res.data;
+    selectedMatch = m;
+    applyTeams(m.teamA, m.teamB);
+    renderTeamDisplay(true);
+  } catch (e) {
+    document.getElementById('team-display').innerHTML =
+      `<div class="no-combo-msg">😅 ${e.message}<br><span style="font-size:14px">가능한 조합을 모두 사용했거나 4명이 모이지 않았어요.</span></div>`;
+  }
+}
+
+function renderTeamDisplay(fresh) {
+  const wrap = document.getElementById('team-display');
+  if (!teamA.length || !teamB.length) {
+    wrap.innerHTML = '<div class="no-combo-msg">팀 정보를 불러오지 못했어요.</div>';
+    return;
+  }
+  const badge = fresh
+    ? '<div class="ok-badge">✓ 새 팀이 배정됐어요</div>'
+    : '<div class="ok-badge">기존 배정된 팀이에요</div>';
+  wrap.innerHTML = `
+    ${badge}
+    <div class="team-display">
+      <div class="team-box team-a">
+        <div class="team-label">TEAM A</div>
+        ${teamA.map((p,i)=>`<div class="team-player">${p}${parTag(teamAPar[i])}</div>`).join('')}
+      </div>
+      <div class="vs-box">VS</div>
+      <div class="team-box team-b">
+        <div class="team-label">TEAM B</div>
+        ${teamB.map((p,i)=>`<div class="team-player">${p}${parTag(teamBPar[i])}</div>`).join('')}
+      </div>
+    </div>`;
+}
+
+async function reshuffleTeams() {
+  sets = [{a:0,b:0}];
+  curSet = 0;
+  document.getElementById('team-display').innerHTML = '<div class="loading-msg"><div class="spinner"></div>다시 배정 중...</div>';
+  await doAssignTeams();
+}
+
+// ── Firebase 동기화 (TV 점수판) ─────────────────────────────
+function pushToFirebase() {
+  if(typeof window.syncToFirebase !== 'function') return;
+  const setsA = sets.slice(0, curSet).map(s => s.a);
+  const setsB = sets.slice(0, curSet).map(s => s.b);
+  const gameA = sets[curSet]?.a ?? 0;
+  const gameB = sets[curSet]?.b ?? 0;
+  const lgName = (selectedLeague && selectedLeague.name) || '리그';
+  const title = `${lgName} · Match ${matchNum}`;
+  window.syncToFirebase({
+    title,
+    nameA: teamA.join(' / ') || 'Team A',
+    nameB: teamB.join(' / ') || 'Team B',
+    setsA, setsB, gameA, gameB,
+  });
+  broadcastLiveToApp(title, setsA, setsB, gameA, gameB);
+}
+
+// ── 앱 라이브 스코어 중계 (POST /:id/livescore — 소켓 broadcast, 휘발) ──
+async function broadcastLiveToApp(title, setsA, setsB, gameA, gameB) {
+  if (!psToken || !selectedMatch || !selectedLeague) return;
+  try {
+    await psFetch(`/league/${selectedLeague._id}/livescore`, {
+      method: 'POST',
+      body: JSON.stringify({
+        matchId: selectedMatch._id,
+        title,
+        a: { name: teamA.join(' / '), game: gameA, point: 0, sets: setsA, serving: false },
+        b: { name: teamB.join(' / '), game: gameB, point: 0, sets: setsB, serving: false },
+      }),
+    });
+  } catch (_) { /* 휘발성 — 실패 무시 */ }
+}
+
+// ── STEP 3: 스코어 렌더 ──────────────────────────────────
+function renderScoreSection() {
+  const sec = document.getElementById('score-section');
+  sec.innerHTML = `<div class="score-wrap" id="score-wrap"></div>`;
+  renderScoreBoard();
+}
+
+function renderScoreBoard() {
+  const wrap = document.getElementById('score-wrap');
+  if(!wrap) return;
+  const tabsHtml = sets.map((s,i) => `
+    <button class="set-tab ${i===curSet?'active':''}" onclick="switchSet(${i})">${i+1}세트</button>
+  `).join('');
+  const cs = curSet;
+  wrap.innerHTML = `
+    <div class="set-tabs">${tabsHtml}</div>
+    <div class="score-board">
+      <div class="score-side side-a">
+        <div class="score-side-name">${teamA.join('<br>')}</div>
+        <div class="score-big" id="score-a">${sets[cs].a}</div>
+        <div class="score-btns">
+          <button class="score-btn" onclick="adjustScore(${cs},'a',-1)">−</button>
+          <button class="score-btn plus" onclick="adjustScore(${cs},'a',1)">+</button>
+        </div>
+      </div>
+      <div class="score-side side-b">
+        <div class="score-side-name">${teamB.join('<br>')}</div>
+        <div class="score-big" id="score-b">${sets[cs].b}</div>
+        <div class="score-btns">
+          <button class="score-btn" onclick="adjustScore(${cs},'b',-1)">−</button>
+          <button class="score-btn plus" onclick="adjustScore(${cs},'b',1)">+</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function switchSet(i) {
+  curSet = i;
+  renderScoreBoard();
+  pushToFirebase();
+}
+
+function adjustScore(i, team, delta) {
+  sets[i][team] = Math.max(0, sets[i][team] + delta);
+  const el = document.getElementById(`score-${team}`);
+  if(el) el.textContent = sets[i][team];
+  pushToFirebase();
+}
+
+function nextSet() {
+  if(sets.length >= 3) return;
+  sets.push({a:0, b:0});
+  curSet = sets.length - 1;
+  renderScoreBoard();
+  renderStep();
+  pushToFirebase();
+}
+
+// ── 경기 저장 — PATCH /:id/matches/:matchId {sets, status:completed} ──
+async function saveMatch() {
+  if (!psToken) { showToast('운영자 로그인이 필요해요 (⚙ 설정)'); openSettings(); return; }
+  const btn = document.getElementById('save-btn');
+  if(btn) { btn.textContent = '저장 중...'; btn.disabled = true; }
+
+  const today = new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\. /g,'-').replace('.','');
+  // 0-0 빈 세트는 제외하고 전송
+  const playedSets = sets.filter(s => (s.a||0) + (s.b||0) > 0).map(s => ({ a: s.a||0, b: s.b||0 }));
+  const scoreStr = playedSets.map(s=>`${s.a}-${s.b}`).join(', ');
+  if (!playedSets.length) {
+    showToast('입력된 스코어가 없어요');
+    if(btn) { btn.textContent = '💾 저장'; btn.disabled = false; }
+    return;
+  }
+  try {
+    await psFetch(`/league/${selectedLeague._id}/matches/${selectedMatch._id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ sets: playedSets, status: 'completed' }),
+    });
+    showDone(today, scoreStr);
+  } catch(e) {
+    showToast('⚠️ 저장 실패: ' + e.message);
+    if(btn) { btn.textContent = '💾 저장'; btn.disabled = false; }
+  }
+}
+
+function showDone(date, scoreStr) {
+  stopStream(); // ⏹️ 경기 저장 완료 → 스트리밍 종료
+  const winsA = sets.filter(s=>s.a>s.b).length;
+  const winsB = sets.filter(s=>s.b>s.a).length;
+  const winner = winsA > winsB ? `🏆 ${teamA.join(' / ')} 승리!` : winsB > winsA ? `🏆 ${teamB.join(' / ')} 승리!` : '🤝 무승부';
+  const lgName = (selectedLeague && selectedLeague.name) || '리그';
+  const divStr = selectedMatch && selectedMatch.division ? ` · ${selectedMatch.division}` : '';
+
+  document.getElementById('done-sub').textContent = `${date} · ${lgName}${divStr}`;
+  document.getElementById('done-result').innerHTML = `
+    <div style="margin-bottom:12px">${teamA.join(' / ')} <span style="color:var(--text-dim);font-size:14px">vs</span> ${teamB.join(' / ')}</div>
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--gold);letter-spacing:2px;margin-bottom:12px">${scoreStr}</div>
+    <div style="color:var(--green)">${winner}</div>`;
+
+  curStep = 4;
+  renderStep();
+}
+
+// ── 화면 렌더 (3 STEP + 완료) ───────────────────────────────
+function renderStep() {
+  for(let i=1;i<=3;i++){
+    const d=document.getElementById(`dot-${i}`);
+    if(d) d.className='step-dot'+(i===curStep?' active':i<curStep?' done':'');
+  }
+  const sl=document.getElementById('step-label');
+  if(sl) sl.textContent=curStep<=3?`STEP ${curStep} / 3`:'완료';
+
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  const scr=document.getElementById(`screen-${curStep}`);
+  if(scr) scr.classList.add('active');
+
+  const footer=document.getElementById('footer');
+  if(curStep===1){
+    footer.innerHTML=`<button class="btn btn-primary" onclick="loadMatches()">↻ 새로고침</button>`;
+  } else if(curStep===2){
+    const canShuffle = (selectedMatch && (selectedMatch.players||[]).length >= 4);
+    const shuffleBtn = canShuffle ? `<button class="btn btn-shuffle" onclick="reshuffleTeams()">🔀 다시 뽑기</button>` : '';
+    footer.innerHTML=`<button class="btn btn-back" onclick="goBack()">← 뒤로</button>${shuffleBtn}<button class="btn btn-primary" onclick="goToScore()">스코어 입력 →</button>`;
+  } else if(curStep===3){
+    const canNextSet = sets.length < 3 && curSet === sets.length - 1;
+    const nextSetBtn = canNextSet ? `<button class="btn btn-shuffle" onclick="nextSet()" style="flex:1;">➡️ 세트 완료</button>` : '';
+    footer.innerHTML=`<button class="btn btn-back" style="flex:0 0 auto" onclick="goBack()">←</button>${nextSetBtn}<button class="btn btn-primary" id="save-btn" onclick="saveMatch()" style="flex:0 0 auto;padding:0 24px;">💾 저장</button>`;
+  } else if(curStep===4){
+    footer.innerHTML=`<button class="btn btn-primary" style="flex:1" onclick="resetAll()">🎾 매치 목록으로</button>`;
+  }
+}
+
+// ── 네비게이션 ──────────────────────────────────────────────
+function goToScore() {
+  sets=[{a:0,b:0}];
+  curSet=0;
+  curStep=3;
+  renderStep();
+  renderScoreSection();
+  // 매치 상태 live 전환 (best-effort) + 첫 스코어 송출 + 스트리밍 시작
+  if (psToken && selectedMatch && selectedMatch.status !== 'live') {
+    psFetch(`/league/${selectedLeague._id}/matches/${selectedMatch._id}`, {
+      method: 'PATCH', body: JSON.stringify({ status: 'live' }),
+    }).then(() => { selectedMatch.status = 'live'; }).catch(() => {});
+  }
+  setTimeout(() => pushToFirebase(), 600);
+  startStream(); // 🔴 YouTube 라이브 자동 시작 (서버 있을 때만)
+}
+
+function goBack() {
+  if(curStep===2) {
+    curStep=1;
+    selectedMatch=null; selectedLeague=null;
+    renderStep();
+  } else if(curStep===3) {
+    sets=[{a:0,b:0}];
+    curSet=0;
+    curStep=2;
+    const sec = document.getElementById('score-section');
+    if(sec) sec.innerHTML = '';
+    renderStep();
+    renderTeamDisplay(false);
+  }
+}
+
+function resetAll() {
+  stopStream(); // ⏹️ 처음으로 돌아갈 때 스트리밍 종료
+  curStep=1; selectedMatch=null; selectedLeague=null;
+  teamA=[]; teamB=[]; teamAIds=[]; teamBIds=[]; teamAPar=[]; teamBPar=[];
+  sets=[{a:0,b:0}]; curSet=0; matchNum=1;
+  const sec = document.getElementById('score-section');
+  if(sec) sec.innerHTML = '';
+  renderStep();
+  loadMatches();
+}
+
+// ── 토스트 ──────────────────────────────────────────────────
+function showToast(msg) {
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2500);
+}
+
+// ════════════════════════════════════════════════════════════
+// ── 자동 스트리밍 연동 ─────────────────────────────────────
+// stream_server.py 가 실행 중일 때만 작동합니다
+// ════════════════════════════════════════════════════════════
+const STREAM_SERVER = 'http://localhost:5000';
+let _streamActive = false;
+let _streamServerOnline = false;
+let _watchUrl = null;
+
+function _updateStreamStatus(state) {
+  const el = document.getElementById('stream-status');
+  if (!el) return;
+  const map = {
+    offline:  { text: '📡 스트리밍 서버 꺼짐', color: 'var(--text-dim)' },
+    online:   { text: '📡 스트리밍 대기 중', color: 'var(--silver)' },
+    live:     { text: '🔴 LIVE', color: '#FF0000' },
+    starting: { text: '⏳ 라이브 시작 중...', color: 'var(--gold)' },
+    error:    { text: '⚠️ 스트리밍 오류', color: 'var(--red)' },
+  };
+  const info = map[state] || map.offline;
+  el.textContent = info.text;
+  el.style.color = info.color;
+}
+
+async function checkStreamServer() {
+  try {
+    const res = await fetch(`${STREAM_SERVER}/health`, {signal: AbortSignal.timeout(1500)});
+    const data = await res.json();
+    if (data.ok) {
+      _streamServerOnline = true;
+      _streamActive = data.streaming;
+      _watchUrl = data.watch_url;
+      _updateStreamStatus(data.streaming ? 'live' : 'online');
+      if (data.streaming && data.watch_url) _showWatchBtn(data.watch_url);
+    }
+  } catch(e) {
+    _streamServerOnline = false;
+    _updateStreamStatus('offline');
+  }
+}
+
+async function startStream() {
+  if (!_streamServerOnline) {
+    console.log('스트리밍 서버 꺼짐 — 스트리밍 없이 진행');
+    return;
+  }
+  _updateStreamStatus('starting');
+  try {
+    const res = await fetch(`${STREAM_SERVER}/start-stream`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ teamA, teamB, league: (selectedLeague && selectedLeague.name) || '' }),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await res.json();
+    if (data.success) {
+      _streamActive = true;
+      _watchUrl = data.watch_url;
+      _updateStreamStatus('live');
+      showToast('▶️ YouTube 라이브 시작됨!');
+      setTimeout(() => _showWatchBtn(data.watch_url), 1000);
+    } else {
+      _updateStreamStatus('error');
+      showToast('⚠️ 스트리밍 오류: ' + (data.error || '알 수 없는 오류'));
+    }
+  } catch(e) {
+    _updateStreamStatus('error');
+    showToast('⚠️ 스트리밍 서버 응답 없음');
+    console.log('스트리밍 시작 실패:', e.message);
+    setTimeout(() => checkStreamServer(), 3000);
+  }
+}
+
+async function stopStream() {
+  if (!_streamActive) return;
+  try {
+    await fetch(`${STREAM_SERVER}/stop-stream`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(10000),
+    });
+    _streamActive = false;
+    _watchUrl = null;
+    _hideWatchBtn();
+    _updateStreamStatus(_streamServerOnline ? 'online' : 'offline');
+    showToast('⏹️ 스트리밍 종료됨');
+  } catch(e) {
+    console.log('스트리밍 종료 오류:', e.message);
+    _streamActive = false;
+    _watchUrl = null;
+    _hideWatchBtn();
+    _updateStreamStatus('offline');
+    showToast('⚠️ 스트리밍 종료 중 오류 (서버 확인 필요)');
+  }
+}
+
+function _showWatchBtn(url) {
+  if (!url) return;
+  const existing = document.getElementById('watch-btn');
+  if (existing) return;
+  const btn = document.createElement('a');
+  btn.id = 'watch-btn';
+  btn.href = url;
+  btn.target = '_blank';
+  btn.textContent = '📺 YouTube 시청';
+  btn.style.cssText = `
+    position:fixed; top:14px; right:16px;
+    background:#FF0000; color:#fff;
+    padding:8px 16px; border-radius:20px;
+    font-family:'Pretendard',sans-serif;
+    font-size:13px; font-weight:700;
+    text-decoration:none; z-index:1000;
+    box-shadow:0 2px 12px rgba(255,0,0,0.4);
+    animation:fadeUp 0.3s ease;
+  `;
+  document.body.appendChild(btn);
+}
+
+function _hideWatchBtn() {
+  const btn = document.getElementById('watch-btn');
+  if (btn) btn.remove();
+}
+
+checkStreamServer();
+setInterval(checkStreamServer, 30000);
+
+// ── 초기화 ──────────────────────────────────────────────────
+renderStep();
+loadMatches();
+
+// ── PWA 서비스워커 등록 ──────────────────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('ps_court_sw.js', { scope: '/PS-rank/ps_court/' }).catch(() => {});
+  });
+}
+</script>
+
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBkrib1qzN8IE9NcW8tXTfKb4Z6JsOjcvE",
+  authDomain: "ps-score-868bb.firebaseapp.com",
+  databaseURL: "https://ps-score-868bb-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "ps-score-868bb",
+  storageBucket: "ps-score-868bb.firebasestorage.app",
+  messagingSenderId: "48470302084",
+  appId: "1:48470302084:web:b037acc0b58f7e85d191d1"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const sbRef = ref(db, 'scoreboard');
+
+const connRef = ref(db, '.info/connected');
+onValue(connRef, snap => {
+  const ok = snap.val() === true;
+  const el = document.getElementById('fb-status');
+  if(el) { el.textContent = ok ? '🟢 연결됨' : '🔴 연결 중...'; el.style.color = ok ? 'var(--green)' : 'var(--text-dim)'; }
+});
+
+window.syncToFirebase = function({ title, nameA, nameB, setsA, setsB, gameA, gameB }) {
+  const el = document.getElementById('fb-status');
+  const S = {
+    title: title || 'PS i-League',
+    a: { name: nameA ?? 'Team A', game: gameA ?? 0, point: 0, sets: setsA ?? [], serving: false },
+    b: { name: nameB ?? 'Team B', game: gameB ?? 0, point: 0, sets: setsB ?? [], serving: false },
+    superTB: false,
+  };
+  set(sbRef, S).then(() => {
+    if(el) el.textContent = `🟢 동기화됨 (${gameA ?? 0}–${gameB ?? 0})`;
+  }).catch(err => {
+    if(el) el.textContent = '🔴 오류: ' + err.message;
+  });
+};
+</script>
+</body>
+</html>
