@@ -38,6 +38,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh; /* 태블릿/모바일: 주소창 포함 100vh로 푸터가 잘리는 문제 보정 */
 }
 
 /* ── 헤더 ── */
@@ -96,7 +97,8 @@ body {
 
 /* ── 화면 전환 ── */
 .screen { display: none; }
-.screen.active { display: flex; flex-direction: column; flex: 1; animation: fadeUp 0.2s ease; }
+/* min-height:0 + 스크롤 — 콘텐츠가 길어도 푸터(뒤로/다시뽑기/스코어입력)가 항상 보이게 */
+.screen.active { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; animation: fadeUp 0.2s ease; }
 @keyframes fadeUp {
   from { opacity:0; transform: translateY(10px); }
   to   { opacity:1; transform: translateY(0); }
