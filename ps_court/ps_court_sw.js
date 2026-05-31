@@ -1,8 +1,10 @@
-const CACHE = 'ps-court-v4';
+const CACHE = 'ps-court-v5';
 
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE).then(c => c.addAll([
+      '/PS-rank/ps_court/ps_court_playus.html',
+      '/PS-rank/ps_court/ps_court_playus_manifest.json',
       '/PS-rank/ps_court/ps_court.html',
       '/PS-rank/ps_court/ps_court_manifest.json',
     ]))
@@ -20,7 +22,9 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  if (e.request.url.includes('ps_court.html')) {
+  const url = e.request.url;
+  // 운영 도구 HTML은 네트워크 우선 + 캐시 갱신 → 항상 최신, 오프라인엔 캐시 폴백.
+  if (url.includes('ps_court.html') || url.includes('ps_court_playus.html')) {
     e.respondWith(
       fetch(e.request)
         .then(res => {
