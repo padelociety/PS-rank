@@ -97,8 +97,7 @@ body {
 
 /* ── 화면 전환 ── */
 .screen { display: none; }
-/* min-height:0 + 스크롤 — 콘텐츠가 길어도 푸터(뒤로/다시뽑기/스코어입력)가 항상 보이게 */
-.screen.active { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; animation: fadeUp 0.2s ease; }
+.screen.active { display: flex; flex-direction: column; flex: 1; animation: fadeUp 0.2s ease; }
 @keyframes fadeUp {
   from { opacity:0; transform: translateY(10px); }
   to   { opacity:1; transform: translateY(0); }
