@@ -985,6 +985,35 @@ async function cancelScore() {
   showToast('스코어 입력 취소됨');
 }
 
+// ── 같은 4명, 다른 페어로 재경기 ──────────────────────────────
+async function replayDifferentPair() {
+  if (!psToken) { showToast('로그인 필요 (⚙ 설정)'); openSettings(); return; }
+  if (!selectedMatch || !selectedLeague) return;
+  try {
+    showToast('🔀 새 페어 배정 중...');
+    const res = await psFetch(
+      `/league/${selectedLeague._id}/matches/${selectedMatch._id}/assign-teams`,
+      { method: 'POST' }
+    );
+    if (!res || res.statusCode !== 200) throw new Error(res?.message || '배정 실패');
+    // 팀 업데이트 반영
+    selectedMatch = res.data || selectedMatch;
+    teamA = (res.data?.teamA || []).map(u => psName(u));
+    teamB = (res.data?.teamB || []).map(u => psName(u));
+    teamAIds = (res.data?.teamA || []).map(u => String(u._id || u));
+    teamBIds = (res.data?.teamB || []).map(u => String(u._id || u));
+    // 스코어 초기화 후 팀배정 화면(STEP2)으로
+    sets = [{a:0,b:0}]; curSet = 0; curStep = 2;
+    const sec = document.getElementById('score-section');
+    if (sec) sec.innerHTML = '';
+    renderStep();
+    renderTeamDisplay(true);
+    showToast('✅ 새 페어 배정 완료!');
+  } catch(e) {
+    showToast('⚠️ ' + e.message);
+  }
+}
+
 function showDone(date, scoreStr) {
   stopStream(); // ⏹️ 경기 저장 완료 → 스트리밍 종료
   const winsA = sets.filter(s=>s.a>s.b).length;
@@ -1028,7 +1057,11 @@ function renderStep() {
     const nextSetBtn = canNextSet ? `<button class="btn btn-shuffle" onclick="nextSet()" style="flex:1;">➡️ 세트 완료</button>` : '';
     footer.innerHTML=`<button class="btn btn-back" style="flex:0 0 auto" onclick="goBack()">←</button><button class="btn" style="flex:0 0 auto;padding:0 18px;background:rgba(255,80,80,0.15);color:#FF5252;border:1px solid rgba(255,80,80,0.4);border-radius:12px;font-size:15px;" onclick="cancelScore()">✕ 취소</button>${nextSetBtn}<button class="btn btn-primary" id="save-btn" onclick="saveMatch()" style="flex:0 0 auto;padding:0 24px;">💾 저장</button>`;
   } else if(curStep===4){
-    footer.innerHTML=`<button class="btn btn-primary" style="flex:1" onclick="resetAll()">🎾 매치 목록으로</button>`;
+    // 같은 4명, 다른 페어로 재경기 가능 여부 — 조합 3개 중 사용 안 한 것 있으면 가능
+    const canReplay = !!(psToken && selectedMatch && selectedLeague);
+    footer.innerHTML=`
+      ${canReplay ? `<button class="btn btn-primary" style="flex:2;font-size:17px;padding:0 20px;background:var(--green)" onclick="replayDifferentPair()">🔀 다른 페어로 다시하기</button>` : ''}
+      <button class="btn" style="flex:1;background:var(--surface2);color:var(--text);border:1px solid var(--border)" onclick="resetAll()">🎾 목록으로</button>`;
   }
 }
 
