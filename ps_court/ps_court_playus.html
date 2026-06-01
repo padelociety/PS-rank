@@ -778,11 +778,11 @@ async function selectMatch(idx) {
     renderStep();
     renderTeamDisplay(false);
   } else {
-    // 모집 매치 — 백엔드에 랜덤 팀 편성 요청
+    // 모집 매치 — 팀 미배정 상태, 버튼으로 수동 생성
     curStep = 2;
     renderStep();
-    document.getElementById('team-display').innerHTML = '<div class="loading-msg"><div class="spinner"></div>팀 배정 중...</div>';
-    await doAssignTeams();
+    document.getElementById('team-display').innerHTML =
+      '<div class="no-combo-msg" style="color:var(--text-dim)">👥 아래 버튼으로 팀을 랜덤 생성해주세요.</div>';
   }
 }
 
@@ -806,6 +806,7 @@ async function doAssignTeams() {
     selectedMatch = m;
     applyTeams(m.teamA, m.teamB);
     renderTeamDisplay(true);
+    renderStep(); // footer 갱신 — 팀 배정됐으니 '매치 시작하기' 버튼으로
   } catch (e) {
     document.getElementById('team-display').innerHTML =
       `<div class="no-combo-msg">😅 ${e.message}<br><span style="font-size:14px">가능한 조합을 모두 사용했거나 4명이 모이지 않았어요.</span></div>`;
@@ -964,7 +965,7 @@ async function saveMatch() {
 
 // ── 스코어 화면 취소 — live → scheduled 복원 후 팀배정 화면으로 ──
 async function cancelScore() {
-  const confirmed = confirm('스코어 입력을 취소하고 팀배정 화면으로 돌아갈까요?\n(라이브 상태가 scheduled로 복원돼요)');
+  const confirmed = confirm('매치를 취소하고 팀배정 화면으로 돌아갈까요?\n(라이브 상태가 scheduled로 복원돼요)');
   if (!confirmed) return;
   stopStream(); // 스트리밍 중이었으면 종료
   // 매치 상태 live → scheduled 복원 (best-effort)
@@ -982,7 +983,7 @@ async function cancelScore() {
   if (sec) sec.innerHTML = '';
   renderStep();
   renderTeamDisplay(false);
-  showToast('스코어 입력 취소됨');
+  showToast('매치 취소됨');
 }
 
 // ── 같은 4명, 다른 페어로 재경기 ──────────────────────────────
@@ -1049,9 +1050,15 @@ function renderStep() {
   if(curStep===1){
     footer.innerHTML=`<button class="btn btn-primary" onclick="loadMatches()">↻ 새로고침</button>`;
   } else if(curStep===2){
-    const canShuffle = (selectedMatch && (selectedMatch.players||[]).length >= 4);
-    const shuffleBtn = canShuffle ? `<button class="btn btn-shuffle" onclick="reshuffleTeams()">🔀 다시 뽑기</button>` : '';
-    footer.innerHTML=`<button class="btn btn-back" onclick="goBack()">← 뒤로</button>${shuffleBtn}<button class="btn btn-primary" onclick="goToScore()">스코어 입력 →</button>`;
+    // 팀 미배정 매치는 '팀 랜덤생성하기' 버튼 노출 (배정 전에는 매치 시작 불가)
+    const hasTeams = teamA.length && teamB.length;
+    const assignBtn = !hasTeams
+      ? `<button class="btn btn-primary" style="flex:1" onclick="doAssignTeams()">🎲 팀 랜덤생성하기</button>`
+      : '';
+    const startBtn = hasTeams
+      ? `<button class="btn btn-primary" style="flex:1" onclick="goToScore()">▶️ 매치 시작하기</button>`
+      : '';
+    footer.innerHTML=`<button class="btn btn-back" style="flex:0 0 auto" onclick="goBack()">← 뒤로</button>${assignBtn}${startBtn}`;
   } else if(curStep===3){
     const canNextSet = sets.length < 3 && curSet === sets.length - 1;
     const nextSetBtn = canNextSet ? `<button class="btn btn-shuffle" onclick="nextSet()" style="flex:1;">➡️ 세트 완료</button>` : '';
