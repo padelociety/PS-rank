@@ -614,6 +614,20 @@ async function psFetch(path, opts = {}) {
   }
   return body;
 }
+
+// 일시적 네트워크 실패 대비 — GET 류는 1~2회 재시도. (와이파이 블립으로 카드 사라지는 것 방지)
+async function psFetchRetry(path, opts = {}, retries = 2) {
+  let lastErr;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await psFetch(path, opts);
+    } catch (e) {
+      lastErr = e;
+      if (i < retries) await new Promise(r => setTimeout(r, 500 * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
 function psName(u) {
   if (!u) return '';
   if (typeof u === 'string') return u;
@@ -698,15 +712,16 @@ async function loadMatches() {
   const wrap = document.getElementById('match-list-wrap');
   wrap.innerHTML = '<div class="loading-msg"><div class="spinner"></div>매치 불러오는 중...</div>';
   try {
-    const lr = await psFetch('/league/list');
+    const lr = await psFetchRetry('/league/list');
     const leagues = ((lr.data && lr.data.items) || []).filter(l => l.status !== 'completed');
     const collected = [];
+    let anyFail = false;
     for (const lg of leagues) {
       let matches = [];
       try {
-        const mr = await psFetch(`/league/${lg._id}/matches`);
+        const mr = await psFetchRetry(`/league/${lg._id}/matches`);
         matches = mr.data || [];
-      } catch (_) { continue; }
+      } catch (_) { anyFail = true; continue; } // 재시도까지 실패한 리그만 스킵
       for (const m of matches) {
         if (m.status === 'completed') continue;
         const playerCount = (m.players || []).length;
@@ -722,9 +737,19 @@ async function loadMatches() {
       return isNaN(ms) ? Number.MAX_SAFE_INTEGER : ms;
     };
     collected.sort((x, y) => sortKey(x.m) - sortKey(y.m));
+    // 일부 리그 조회 실패로 결과가 비었는데 기존 카드가 있으면 → 기존 유지(빈 화면 깜빡임 방지)
+    if (collected.length === 0 && anyFail && allMatches.length > 0) {
+      showToast('일부 매치를 못 불러왔어요 — 기존 목록 유지');
+      return;
+    }
     allMatches = collected;
     renderMatchList();
   } catch (e) {
+    // 전체 실패 — 기존 카드가 있으면 유지하고 토스트만, 없으면 재시도 버튼
+    if (allMatches.length > 0) {
+      showToast('⚠️ 새로고침 실패 — 기존 목록 유지');
+      return;
+    }
     wrap.innerHTML = `<div class="loading-msg" style="color:var(--red)">⚠️ 매치 불러오기 실패<br>${e.message}<br><br><button onclick="loadMatches()" style="padding:14px 28px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:12px;font-size:16px;cursor:pointer;font-family:Pretendard,sans-serif;">다시 시도</button></div>`;
   }
 }
@@ -986,7 +1011,25 @@ async function cancelScore() {
   if (sec) sec.innerHTML = '';
   renderStep();
   renderTeamDisplay(false);
-  showToast('매치 취소됨');
+  showToast('팀배정 화면으로 돌아감');
+}
+
+// ── 매치 완전 취소(삭제) — 시간 내 종료 못 한 매치 등 ────────────
+async function cancelMatch() {
+  if (!psToken) { showToast('운영자 로그인이 필요해요 (⚙ 설정)'); openSettings(); return; }
+  if (!selectedMatch || !selectedLeague) return;
+  const confirmed = confirm('이 매치를 완전히 취소(삭제)할까요?\n\n시간 내 종료 못 한 매치를 정리할 때 사용해요.\n삭제하면 목록에서 사라지고 되돌릴 수 없어요.');
+  if (!confirmed) return;
+  stopStream(); // 스트리밍 중이었으면 종료
+  try {
+    await psFetch(`/league/${selectedLeague._id}/matches/${selectedMatch._id}`, {
+      method: 'DELETE',
+    });
+    showToast('🗑️ 매치가 취소(삭제)됐어요');
+    resetAll(); // 매치 목록으로 (목록 새로고침 포함)
+  } catch(e) {
+    showToast('⚠️ 취소 실패: ' + e.message);
+  }
 }
 
 // ── 같은 4명, 다른 페어로 재경기 ──────────────────────────────
@@ -1065,7 +1108,7 @@ function renderStep() {
   } else if(curStep===3){
     const canNextSet = sets.length < 3 && curSet === sets.length - 1;
     const nextSetBtn = canNextSet ? `<button class="btn btn-shuffle" onclick="nextSet()" style="flex:1;">➡️ 세트 완료</button>` : '';
-    footer.innerHTML=`<button class="btn btn-back" style="flex:0 0 auto" onclick="goBack()">←</button><button class="btn" style="flex:0 0 auto;padding:0 18px;background:rgba(255,80,80,0.15);color:#FF5252;border:1px solid rgba(255,80,80,0.4);border-radius:12px;font-size:15px;" onclick="cancelScore()">✕ 취소</button>${nextSetBtn}<button class="btn btn-primary" id="save-btn" onclick="saveMatch()" style="flex:0 0 auto;padding:0 24px;">💾 저장</button>`;
+    footer.innerHTML=`<button class="btn btn-back" style="flex:0 0 auto" onclick="cancelScore()">← 뒤로</button><button class="btn" style="flex:0 0 auto;padding:0 14px;background:rgba(255,80,80,0.15);color:#FF5252;border:1px solid rgba(255,80,80,0.4);border-radius:12px;font-size:14px;" onclick="cancelMatch()">🗑️ 매치 취소</button>${nextSetBtn}<button class="btn btn-primary" id="save-btn" onclick="saveMatch()" style="flex:0 0 auto;padding:0 20px;">💾 저장</button>`;
   } else if(curStep===4){
     // 같은 4명, 다른 페어로 재경기 가능 여부 — 조합 3개 중 사용 안 한 것 있으면 가능
     const canReplay = !!(psToken && selectedMatch && selectedLeague);
