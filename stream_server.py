@@ -117,6 +117,28 @@ def _reload_html():
     _load_court_html()
     return jsonify({'ok': True, 'loaded': _court_html_cache is not None})
 
+
+@app.route('/ps_court_playus_manifest.json')
+def _manifest():
+    """홈 화면 추가(웹클립)용 매니페스트. start_url을 stream_server 루트로."""
+    return jsonify({
+        "name": "PS Court — 리그 운영",
+        "short_name": "PS Court",
+        "start_url": "/",
+        "scope": "/",
+        "id": "/ps-court",
+        "display": "standalone",
+        "background_color": "#080C10",
+        "theme_color": "#080C10",
+        "orientation": "any",
+        "icons": [
+            {"src": "https://padelociety.github.io/PS-rank/icon-court-192.png",
+             "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": "https://padelociety.github.io/PS-rank/icon-court-512.png",
+             "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+        ],
+    })
+
 # ── 스트림 상태 ────────────────────────────────────────────────
 stream_state: dict = {
     'active': False,
