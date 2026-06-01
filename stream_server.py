@@ -132,19 +132,37 @@ stream_state: dict = {
 state_lock = threading.Lock()
 
 
+# ── 리그명 축약 ────────────────────────────────────────────────
+def shorten_league(league: str) -> str:
+    """PS iLeague 26S2 → PSiL 26S2, 기타는 그대로."""
+    import re
+    m = re.match(r'PS\s*i[\-\s]?League\s*(.*)', league, re.IGNORECASE)
+    if m:
+        return f"PSiL {m.group(1).strip()}"
+    return league
+
+
 # ── 제목/설명 자동 생성 ────────────────────────────────────────
-def build_title_and_desc(team_a: list, team_b: list, league: str) -> tuple:
-    league_name = 'Gold+' if league == 'gold' else 'B&S'
+def build_title_and_desc(team_a: list, team_b: list, league: str,
+                          category: str = '', match_number: int = 0) -> tuple:
+    # 리그 축약명: PS iLeague 26S2 → PSiL 26S2
+    league_short = shorten_league(league) if league else 'PSiL'
+    # 카테고리: B&S | G&P | Bridge (ps_court에서 넘어옴, 없으면 폴백)
+    cat = category if category else 'Bridge'
+    match_str = f"Match{match_number}" if match_number else 'Match'
+
     a_str = ' / '.join(team_a)
     b_str = ' / '.join(team_b)
     date_str = datetime.now().strftime('%Y.%m.%d')
 
-    title = f"🎾 PS i-League {league_name} | {a_str} vs {b_str} | {date_str}"
+    # 제목: PSiL 26S2 [B&S] Match3
+    title = f"{league_short} [{cat}] {match_str}"
 
     description = (
         f"🏆 PS Padel Society i-League 경기 생중계\n\n"
         f"📅 {date_str}\n"
-        f"🏅 리그: {league_name}\n"
+        f"🎯 카테고리: {cat}\n"
+        f"🔢 {match_str}\n"
         f"🟢 Team A: {a_str}\n"
         f"🟡 Team B: {b_str}\n\n"
         f"#빠델 #빠델소사이어티 #빠소 #빠델리그 #빠소리그 #PSL"
@@ -182,6 +200,8 @@ def start_stream():
     team_a = data.get('teamA', [])
     team_b = data.get('teamB', [])
     league = data.get('league', '')
+    category = data.get('category', '')
+    match_number = int(data.get('matchNumber', 0) or 0)
 
     if not team_a or not team_b:
         with state_lock:
@@ -189,7 +209,7 @@ def start_stream():
         return jsonify({'success': False, 'error': '팀 정보가 없어요'}), 400
 
     try:
-        title, description = build_title_and_desc(team_a, team_b, league)
+        title, description = build_title_and_desc(team_a, team_b, league, category, match_number)
         logger.info(f"🎬 스트리밍 시작: {title}")
 
         # 1. YouTube 방송 생성

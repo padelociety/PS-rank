@@ -1181,10 +1181,29 @@ async function startStream() {
   }
   _updateStreamStatus('starting');
   try {
+    // 카테고리 약칭: Bronze&Silver→B&S, Gold&Platinum→G&P, 복수→Bridge
+    const cats = (selectedMatch && selectedMatch.categories) || [];
+    let catShort = 'Bridge';
+    if (cats.length === 1) {
+      const c = cats[0];
+      catShort = (c.includes('Bronze') || c.includes('Silver')) ? 'B&S'
+               : (c.includes('Gold') || c.includes('Platinum')) ? 'G&P'
+               : c;
+    } else if (cats.length === 0 && selectedMatch && selectedMatch.division) {
+      const d = selectedMatch.division;
+      catShort = (d.includes('Bronze') || d.includes('Silver')) ? 'B&S'
+               : (d.includes('Gold') || d.includes('Platinum')) ? 'G&P'
+               : d;
+    }
     const res = await fetch(`${STREAM_SERVER}/start-stream`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ teamA, teamB, league: (selectedLeague && selectedLeague.name) || '' }),
+      body: JSON.stringify({
+        teamA, teamB,
+        league: (selectedLeague && selectedLeague.name) || '',
+        category: catShort,
+        matchNumber: matchNum,
+      }),
       signal: AbortSignal.timeout(30000),
     });
     const data = await res.json();
