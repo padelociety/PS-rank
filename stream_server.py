@@ -22,9 +22,10 @@ import socket
 import sys
 import threading
 import time
+import urllib.request
 from datetime import datetime, timezone
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 
@@ -70,21 +71,51 @@ youtube = YouTubeAPI(config)
 app = Flask(__name__)
 CORS(app, origins=config.get('cors_origins', ['https://jiwon.github.io']))  # 허용 도메인 제한
 
-# ── ps_court 페이지 직접 서빙 ──────────────────────────────────
-# 테블릿이 http://(PC-IP):5000/ 으로 열면 페이지·API가 같은 출처(HTTP)라
+# ── ps_court_playus.html 서빙 ─────────────────────────────────
+# GitHub에서 최신 파일을 시작 시 다운로드해 메모리에 캐시. OBS PC에 파일 없어도 OK.
+# 테블릿이 http://(PC-IP):5000/ 으로 열면 페이지·API 가 같은 출처(HTTP)라
 # localhost 한계와 HTTPS 혼합콘텐츠 차단이 모두 사라진다.
-PS_COURT_DIR = os.path.join(_DIR, 'ps_court')
+COURT_HTML_URL = 'https://raw.githubusercontent.com/padelociety/PS-rank/main/ps_court/ps_court_playus.html'
+_court_html_cache = None
+
+
+def _load_court_html():
+    global _court_html_cache
+    try:
+        logger.info("📥 ps_court_playus.html 다운로드 중...")
+        with urllib.request.urlopen(COURT_HTML_URL, timeout=15) as resp:
+            _court_html_cache = resp.read().decode('utf-8')
+        logger.info("✅ ps_court_playus.html 로드 완료")
+    except Exception as e:
+        logger.warning(f"⚠️ 다운로드 실패 ({e}) — 로컬 파일 시도")
+        for candidate in [
+            os.path.join(_DIR, 'ps_court_playus.html'),
+            os.path.join(_DIR, 'ps_court', 'ps_court_playus.html'),
+            os.path.join(os.path.dirname(_DIR), 'PS-rank', 'ps_court', 'ps_court_playus.html'),
+        ]:
+            if os.path.exists(candidate):
+                with open(candidate, 'r', encoding='utf-8') as f:
+                    _court_html_cache = f.read()
+                logger.info(f"로컬 파일 사용: {candidate}")
+                return
+        logger.error("❌ ps_court_playus.html 을 찾을 수 없어요")
+
+
+_load_court_html()  # 서버 시작 시 즉시 로드
 
 
 @app.route('/')
 def _index():
-    return send_from_directory(PS_COURT_DIR, 'ps_court_playus.html')
+    if _court_html_cache:
+        return _court_html_cache, 200, {'Content-Type': 'text/html; charset=utf-8'}
+    return '❌ ps_court_playus.html 로드 실패. 서버를 재시작해주세요.', 503
 
 
-@app.route('/<path:filename>')
-def _static_files(filename):
-    # /health, /start-stream 등 API 라우트가 우선 매칭되고, 그 외 정적파일만 여기로.
-    return send_from_directory(PS_COURT_DIR, filename)
+@app.route('/reload-html')
+def _reload_html():
+    """페이지 재다운로드 (최신 버전으로 갱신)."""
+    _load_court_html()
+    return jsonify({'ok': True, 'loaded': _court_html_cache is not None})
 
 # ── 스트림 상태 ────────────────────────────────────────────────
 stream_state: dict = {
