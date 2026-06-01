@@ -1153,7 +1153,13 @@ async function startStream() {
       _watchUrl = data.watch_url;
       _updateStreamStatus('live');
       showToast('▶️ YouTube 라이브 시작됨!');
-      setTimeout(() => _showWatchBtn(data.watch_url), 1000);
+      // 앱에서 유튜브 라이브 배너가 뜨도록 리그 youtubeUrl 업데이트
+      if (psToken && selectedLeague && data.watch_url) {
+        psFetch(`/league/update/${selectedLeague._id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ youtubeUrl: data.watch_url, isLive: true }),
+        }).catch(() => {});
+      }
     } else {
       _updateStreamStatus('error');
       showToast('⚠️ 스트리밍 오류: ' + (data.error || '알 수 없는 오류'));
@@ -1178,6 +1184,13 @@ async function stopStream() {
     _hideWatchBtn();
     _updateStreamStatus(_streamServerOnline ? 'online' : 'offline');
     showToast('⏹️ 스트리밍 종료됨');
+    // 앱 라이브 배너 끄기
+    if (psToken && selectedLeague) {
+      psFetch(`/league/update/${selectedLeague._id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ isLive: false }),
+      }).catch(() => {});
+    }
   } catch(e) {
     console.log('스트리밍 종료 오류:', e.message);
     _streamActive = false;
@@ -1188,32 +1201,9 @@ async function stopStream() {
   }
 }
 
-function _showWatchBtn(url) {
-  if (!url) return;
-  const existing = document.getElementById('watch-btn');
-  if (existing) return;
-  const btn = document.createElement('a');
-  btn.id = 'watch-btn';
-  btn.href = url;
-  btn.target = '_blank';
-  btn.textContent = '📺 YouTube 시청';
-  btn.style.cssText = `
-    position:fixed; top:14px; right:16px;
-    background:#FF0000; color:#fff;
-    padding:8px 16px; border-radius:20px;
-    font-family:'Pretendard',sans-serif;
-    font-size:13px; font-weight:700;
-    text-decoration:none; z-index:1000;
-    box-shadow:0 2px 12px rgba(255,0,0,0.4);
-    animation:fadeUp 0.3s ease;
-  `;
-  document.body.appendChild(btn);
-}
-
-function _hideWatchBtn() {
-  const btn = document.getElementById('watch-btn');
-  if (btn) btn.remove();
-}
+// YouTube 시청 버튼은 앱에서 표시 — ps_court에는 없음.
+function _showWatchBtn(_url) {}
+function _hideWatchBtn() {}
 
 checkStreamServer();
 setInterval(checkStreamServer, 30000);
