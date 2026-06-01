@@ -769,6 +769,8 @@ async function selectMatch(idx) {
   matchNum = idx + 1; // 카드와 동일한 날짜시간순 번호 (스코어보드 'Match N' 표기에 사용)
   sets = [{a:0,b:0}];
   curSet = 0;
+  // 항상 초기화 — 이전 매치 팀이 남아있으면 hasTeams 판단 오류 발생
+  teamA = []; teamB = []; teamAIds = []; teamBIds = []; teamAPar = []; teamBPar = [];
 
   const hasTeams = (selectedMatch.teamA || []).length && (selectedMatch.teamB || []).length;
   if (hasTeams) {
@@ -798,6 +800,7 @@ function applyTeams(aArr, bArr) {
 // 백엔드 랜덤 팀 편성 (no-repeat) — POST /:id/matches/:matchId/assign-teams
 async function doAssignTeams() {
   if (!psToken) { showToast('운영자 로그인이 필요해요 (⚙ 설정)'); openSettings(); return; }
+  document.getElementById('team-display').innerHTML = '<div class="loading-msg"><div class="spinner"></div>팀 배정 중...</div>';
   try {
     const res = await psFetch(`/league/${selectedLeague._id}/matches/${selectedMatch._id}/assign-teams`, {
       method: 'POST',
