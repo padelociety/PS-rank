@@ -1064,7 +1064,17 @@ function showToast(msg) {
 // ── 자동 스트리밍 연동 ─────────────────────────────────────
 // stream_server.py 가 실행 중일 때만 작동합니다
 // ════════════════════════════════════════════════════════════
-const STREAM_SERVER = 'http://localhost:5000';
+// 스트림 서버 주소 결정:
+//  1) 설정에 저장된 값(ps_stream_server) 우선 (예: ngrok 등 터널 https URL)
+//  2) 이 페이지를 스트림 서버가 직접 서빙(http://PC-IP:5000)하면 same-origin → 테블릿도 OK
+//     (localhost 한계·HTTPS 혼합콘텐츠 차단이 모두 사라짐)
+//  3) 그 외(github.io https 등)는 같은 PC localhost
+const STREAM_SERVER = (function () {
+  const saved = (localStorage.getItem('ps_stream_server') || '').trim().replace(/\/+$/, '');
+  if (saved) return saved;
+  if (location.protocol === 'http:' && location.port === '5000') return location.origin;
+  return 'http://localhost:5000';
+})();
 let _streamActive = false;
 let _streamServerOnline = false;
 let _watchUrl = null;

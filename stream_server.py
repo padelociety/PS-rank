@@ -18,13 +18,26 @@ import json
 import logging
 import os
 import signal
+import socket
 import sys
 import threading
 import time
 from datetime import datetime, timezone
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
+
+
+def get_lan_ip():
+    """현재 PC의 LAN IP (테블릿이 같은 와이파이에서 접속할 주소)."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return 'localhost'
 
 from obs_controller import OBSController
 from youtube_api import YouTubeAPI
@@ -56,6 +69,22 @@ youtube = YouTubeAPI(config)
 # ── Flask 앱 ───────────────────────────────────────────────────
 app = Flask(__name__)
 CORS(app, origins=config.get('cors_origins', ['https://jiwon.github.io']))  # 허용 도메인 제한
+
+# ── ps_court 페이지 직접 서빙 ──────────────────────────────────
+# 테블릿이 http://(PC-IP):5000/ 으로 열면 페이지·API가 같은 출처(HTTP)라
+# localhost 한계와 HTTPS 혼합콘텐츠 차단이 모두 사라진다.
+PS_COURT_DIR = os.path.join(_DIR, 'ps_court')
+
+
+@app.route('/')
+def _index():
+    return send_from_directory(PS_COURT_DIR, 'ps_court_playus.html')
+
+
+@app.route('/<path:filename>')
+def _static_files(filename):
+    # /health, /start-stream 등 API 라우트가 우선 매칭되고, 그 외 정적파일만 여기로.
+    return send_from_directory(PS_COURT_DIR, filename)
 
 # ── 스트림 상태 ────────────────────────────────────────────────
 stream_state: dict = {
@@ -255,16 +284,19 @@ signal.signal(signal.SIGTERM, _signal_handler)
 
 
 if __name__ == '__main__':
+    lan_ip = get_lan_ip()
     print("=" * 55)
     print("  🎾 PS Court 자동 스트리밍 서버")
     print("=" * 55)
-    print(f"  주소:  http://localhost:5000")
-    print(f"  상태:  http://localhost:5000/health")
+    print(f"  이 PC에서:   http://localhost:5000")
+    print(f"  테블릿에서:  http://{lan_ip}:5000   ← 이 주소로 열어주세요")
+    print(f"  (테블릿은 같은 와이파이에 연결돼 있어야 해요)")
     print()
-    print("  ps_court.html에서 '스코어 입력' 버튼을 누르면")
-    print("  YouTube 라이브가 자동으로 시작됩니다!")
+    print("  ps_court 페이지를 위 주소로 열면 점수·스트리밍이")
+    print("  모두 이 서버와 자동 연동됩니다 (스코어 입력 시 YouTube 라이브 시작).")
     print()
     print("  종료: Ctrl+C")
     print("=" * 55)
 
-    app.run(host='localhost', port=5000, debug=False, threaded=True)
+    # 0.0.0.0 — 같은 와이파이의 테블릿/폰에서도 접속 가능하게 모든 인터페이스 바인딩.
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
