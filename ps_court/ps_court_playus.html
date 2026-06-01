@@ -715,6 +715,13 @@ async function loadMatches() {
         if (playerCount >= 4 || teamCount >= 4) collected.push({ m, lg });
       }
     }
+    // 날짜·시간순 정렬 (#번호를 생성 순서가 아니라 날짜시간순으로 매기기 위함).
+    const sortKey = (m) => {
+      const t = m.matchTime || (m.date ? `${m.date}T00:00:00` : '');
+      const ms = Date.parse(t);
+      return isNaN(ms) ? Number.MAX_SAFE_INTEGER : ms;
+    };
+    collected.sort((x, y) => sortKey(x.m) - sortKey(y.m));
     allMatches = collected;
     renderMatchList();
   } catch (e) {
@@ -745,7 +752,7 @@ function renderMatchList() {
           <span class="lg-badge">${lg.name || '리그'}</span>
           ${div}
           ${statusTag}
-          <span class="match-no">#${m.matchNumber || '-'}</span>
+          <span class="match-no">#${idx + 1}</span>
         </div>
         <div class="match-players">${chips}</div>
         ${dateStr}
@@ -759,7 +766,7 @@ async function selectMatch(idx) {
   if (!row) return;
   selectedMatch = row.m;
   selectedLeague = row.lg;
-  matchNum = row.m.matchNumber || 1;
+  matchNum = idx + 1; // 카드와 동일한 날짜시간순 번호 (스코어보드 'Match N' 표기에 사용)
   sets = [{a:0,b:0}];
   curSet = 0;
 
