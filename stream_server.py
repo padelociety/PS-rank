@@ -69,7 +69,7 @@ youtube = YouTubeAPI(config)
 
 # ── Flask 앱 ───────────────────────────────────────────────────
 app = Flask(__name__)
-CORS(app, origins=config.get('cors_origins', ['https://jiwon.github.io']))  # 허용 도메인 제한
+CORS(app, origins='*')  # LAN 내부 + 테블릿 접속 허용 (로컬 서버라 외부 노출 없음)
 
 # ── ps_court_playus.html 서빙 ─────────────────────────────────
 # GitHub에서 최신 파일을 시작 시 다운로드해 메모리에 캐시. OBS PC에 파일 없어도 OK.
@@ -358,18 +358,46 @@ signal.signal(signal.SIGTERM, _signal_handler)
 
 if __name__ == '__main__':
     lan_ip = get_lan_ip()
-    print("=" * 55)
+
+    # ── SSL 인증서 자동 감지 (mkcert 생성 파일) ────────────────
+    # ssl/ 폴더에 cert.pem + key.pem 있으면 HTTPS로 자동 전환.
+    # 생성 방법:
+    #   1) mkcert 설치: https://github.com/FiloSottile/mkcert/releases
+    #   2) mkcert -install          (PC에 로컬 CA 등록 — 최초 1회)
+    #   3) mkdir ssl && mkcert -cert-file ssl/cert.pem -key-file ssl/key.pem 192.168.1.2 localhost 127.0.0.1
+    #   4) 태블릿에 rootCA 설치:  mkcert -CAROOT  로 경로 확인 후 rootCA.pem 을 태블릿에 전송 → 설정>인증서 설치
+    SSL_CERT = os.path.join(_DIR, 'ssl', 'cert.pem')
+    SSL_KEY  = os.path.join(_DIR, 'ssl', 'key.pem')
+    ssl_ctx = None
+    if os.path.exists(SSL_CERT) and os.path.exists(SSL_KEY):
+        import ssl as _ssl
+        ssl_ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
+        ssl_ctx.load_cert_chain(SSL_CERT, SSL_KEY)
+
+    scheme = 'https' if ssl_ctx else 'http'
+
+    print("=" * 60)
     print("  🎾 PS Court 자동 스트리밍 서버")
-    print("=" * 55)
-    print(f"  이 PC에서:   http://localhost:5000")
-    print(f"  테블릿에서:  http://{lan_ip}:5000   ← 이 주소로 열어주세요")
-    print(f"  (테블릿은 같은 와이파이에 연결돼 있어야 해요)")
-    print()
-    print("  ps_court 페이지를 위 주소로 열면 점수·스트리밍이")
-    print("  모두 이 서버와 자동 연동됩니다 (스코어 입력 시 YouTube 라이브 시작).")
+    print("=" * 60)
+    if ssl_ctx:
+        print(f"  ✅ HTTPS 모드 (mkcert 인증서 감지)")
+        print(f"  이 PC에서:   {scheme}://localhost:5000")
+        print(f"  테블릿에서:  {scheme}://{lan_ip}:5000   ← 이 주소로 열어주세요")
+        print(f"  PWA 설치:    주소창 옆 설치 아이콘 또는 공유>홈화면 추가")
+    else:
+        print(f"  ⚠️  HTTP 모드 (PWA 미지원 — HTTPS 사용 권장)")
+        print(f"  이 PC에서:   http://localhost:5000")
+        print(f"  테블릿에서:  http://{lan_ip}:5000")
+        print()
+        print("  HTTPS(PWA) 설정 방법:")
+        print("    1) mkcert 설치: https://github.com/FiloSottile/mkcert/releases")
+        print("    2) mkcert -install")
+        print(f"   3) mkdir ssl && mkcert -cert-file ssl/cert.pem -key-file ssl/key.pem {lan_ip} localhost")
+        print("    4) 태블릿에 rootCA 설치 (mkcert -CAROOT 로 경로 확인)")
+        print("    5) 이 서버 재시작 → 자동으로 HTTPS 전환")
     print()
     print("  종료: Ctrl+C")
-    print("=" * 55)
+    print("=" * 60)
 
-    # 0.0.0.0 — 같은 와이파이의 테블릿/폰에서도 접속 가능하게 모든 인터페이스 바인딩.
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True,
+            ssl_context=ssl_ctx if ssl_ctx else None)
