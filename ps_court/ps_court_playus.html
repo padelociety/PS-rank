@@ -1036,26 +1036,41 @@ async function cancelMatch() {
 async function replayDifferentPair() {
   if (!psToken) { showToast('로그인 필요 (⚙ 설정)'); openSettings(); return; }
   if (!selectedMatch || !selectedLeague) return;
+  // 같은 4명 — 직전 매치의 팀에서 추출
+  const playerIds = [...teamAIds, ...teamBIds].filter(Boolean);
+  if (playerIds.length !== 4) { showToast('선수 4명 정보를 못 찾았어요'); return; }
   try {
-    showToast('🔀 새 페어 배정 중...');
+    showToast('🔀 다음 매치 생성 중...');
+    // 새 매치를 생성(from-players) — 직전 결과는 보존되고, 번호가 늘어나며, 미사용 페어로 배정.
     const res = await psFetch(
-      `/league/${selectedLeague._id}/matches/${selectedMatch._id}/assign-teams`,
-      { method: 'POST' }
+      `/league/${selectedLeague._id}/matches/from-players`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          players: playerIds,
+          categories: selectedMatch.categories || [],
+          division: selectedMatch.division || '',
+        }),
+      }
     );
-    if (!res || res.statusCode !== 200) throw new Error(res?.message || '배정 실패');
-    // 팀 업데이트 반영
-    selectedMatch = res.data || selectedMatch;
-    teamA = (res.data?.teamA || []).map(u => psName(u));
-    teamB = (res.data?.teamB || []).map(u => psName(u));
-    teamAIds = (res.data?.teamA || []).map(u => String(u._id || u));
-    teamBIds = (res.data?.teamB || []).map(u => String(u._id || u));
+    const m = res.data;
+    if (!m || !m._id) throw new Error(res?.message || '생성 실패');
+    // 새 매치로 전환 + 매치 번호 1 증가
+    selectedMatch = m;
+    matchNum = (matchNum || 1) + 1;
+    teamA = (m.teamA || []).map(u => psName(u));
+    teamB = (m.teamB || []).map(u => psName(u));
+    teamAIds = (m.teamA || []).map(u => String(u._id || u));
+    teamBIds = (m.teamB || []).map(u => String(u._id || u));
+    teamAPar = (m.teamA || []).map(u => (u && u.par) || null);
+    teamBPar = (m.teamB || []).map(u => (u && u.par) || null);
     // 스코어 초기화 후 팀배정 화면(STEP2)으로
     sets = [{a:0,b:0}]; curSet = 0; curStep = 2;
     const sec = document.getElementById('score-section');
     if (sec) sec.innerHTML = '';
     renderStep();
     renderTeamDisplay(true);
-    showToast('✅ 새 페어 배정 완료!');
+    showToast('✅ 다음 매치 준비 완료! (Match ' + matchNum + ')');
   } catch(e) {
     showToast('⚠️ ' + e.message);
   }
