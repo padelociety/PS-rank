@@ -938,18 +938,18 @@ function nextSet() {
 // ── 경기 저장 — PATCH /:id/matches/:matchId {sets, status:completed} ──
 async function saveMatch() {
   if (!psToken) { showToast('운영자 로그인이 필요해요 (⚙ 설정)'); openSettings(); return; }
+
+  const playedSets = sets.filter(s => (s.a||0) + (s.b||0) > 0).map(s => ({ a: s.a||0, b: s.b||0 }));
+  if (!playedSets.length) { showToast('입력된 스코어가 없어요'); return; }
+
+  // 저장 전 확인 다이얼로그 — 실수 방지 (저장하면 PAR 반영·되돌리기 어려움)
+  const scoreStr = playedSets.map(s=>`${s.a}-${s.b}`).join(', ');
+  const confirmed = confirm(`경기 결과를 저장할까요?\n\n${scoreStr}\n\n저장하면 PAR이 반영되고 되돌리기 어려워요.`);
+  if (!confirmed) return;
+
   const btn = document.getElementById('save-btn');
   if(btn) { btn.textContent = '저장 중...'; btn.disabled = true; }
-
   const today = new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\. /g,'-').replace('.','');
-  // 0-0 빈 세트는 제외하고 전송
-  const playedSets = sets.filter(s => (s.a||0) + (s.b||0) > 0).map(s => ({ a: s.a||0, b: s.b||0 }));
-  const scoreStr = playedSets.map(s=>`${s.a}-${s.b}`).join(', ');
-  if (!playedSets.length) {
-    showToast('입력된 스코어가 없어요');
-    if(btn) { btn.textContent = '💾 저장'; btn.disabled = false; }
-    return;
-  }
   try {
     await psFetch(`/league/${selectedLeague._id}/matches/${selectedMatch._id}`, {
       method: 'PATCH',
@@ -960,6 +960,29 @@ async function saveMatch() {
     showToast('⚠️ 저장 실패: ' + e.message);
     if(btn) { btn.textContent = '💾 저장'; btn.disabled = false; }
   }
+}
+
+// ── 스코어 화면 취소 — live → scheduled 복원 후 팀배정 화면으로 ──
+async function cancelScore() {
+  const confirmed = confirm('스코어 입력을 취소하고 팀배정 화면으로 돌아갈까요?\n(라이브 상태가 scheduled로 복원돼요)');
+  if (!confirmed) return;
+  stopStream(); // 스트리밍 중이었으면 종료
+  // 매치 상태 live → scheduled 복원 (best-effort)
+  if (psToken && selectedMatch && selectedMatch.status === 'live') {
+    try {
+      await psFetch(`/league/${selectedLeague._id}/matches/${selectedMatch._id}`, {
+        method: 'PATCH', body: JSON.stringify({ status: 'scheduled' }),
+      });
+      selectedMatch.status = 'scheduled';
+    } catch(_) {}
+  }
+  // 스코어 초기화 후 팀배정 화면으로
+  sets = [{a:0,b:0}]; curSet = 0; curStep = 2;
+  const sec = document.getElementById('score-section');
+  if (sec) sec.innerHTML = '';
+  renderStep();
+  renderTeamDisplay(false);
+  showToast('스코어 입력 취소됨');
 }
 
 function showDone(date, scoreStr) {
@@ -1003,7 +1026,7 @@ function renderStep() {
   } else if(curStep===3){
     const canNextSet = sets.length < 3 && curSet === sets.length - 1;
     const nextSetBtn = canNextSet ? `<button class="btn btn-shuffle" onclick="nextSet()" style="flex:1;">➡️ 세트 완료</button>` : '';
-    footer.innerHTML=`<button class="btn btn-back" style="flex:0 0 auto" onclick="goBack()">←</button>${nextSetBtn}<button class="btn btn-primary" id="save-btn" onclick="saveMatch()" style="flex:0 0 auto;padding:0 24px;">💾 저장</button>`;
+    footer.innerHTML=`<button class="btn btn-back" style="flex:0 0 auto" onclick="goBack()">←</button><button class="btn" style="flex:0 0 auto;padding:0 18px;background:rgba(255,80,80,0.15);color:#FF5252;border:1px solid rgba(255,80,80,0.4);border-radius:12px;font-size:15px;" onclick="cancelScore()">✕ 취소</button>${nextSetBtn}<button class="btn btn-primary" id="save-btn" onclick="saveMatch()" style="flex:0 0 auto;padding:0 24px;">💾 저장</button>`;
   } else if(curStep===4){
     footer.innerHTML=`<button class="btn btn-primary" style="flex:1" onclick="resetAll()">🎾 매치 목록으로</button>`;
   }
