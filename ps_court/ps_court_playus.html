@@ -988,17 +988,28 @@ async function saveMatch() {
   if (!confirmed) return;
 
   const btn = document.getElementById('save-btn');
-  if(btn) { btn.textContent = '저장 중...'; btn.disabled = true; }
+  if(btn) { btn.textContent = '저장 중...'; btn.disabled = true; btn.style.background = ''; }
   const today = new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\. /g,'-').replace('.','');
   try {
-    await psFetch(`/league/${selectedLeague._id}/matches/${selectedMatch._id}`, {
+    // 저장 PATCH도 재시도(2회) — 네트워크 블립으로 첫 매치 저장이 실패하던 문제 방지.
+    // (sets/status 설정은 idempotent + PAR은 parApplied로 1회만 반영되므로 재시도 안전)
+    await psFetchRetry(`/league/${selectedLeague._id}/matches/${selectedMatch._id}`, {
       method: 'PATCH',
       body: JSON.stringify({ sets: playedSets, status: 'completed' }),
-    });
+    }, 2);
     showDone(today, scoreStr);
   } catch(e) {
-    showToast('⚠️ 저장 실패: ' + e.message);
-    if(btn) { btn.textContent = '💾 저장'; btn.disabled = false; }
+    const msg = e.message || '';
+    // 토큰 만료/권한 문제면 재로그인 유도. 그 외(네트워크 등)는 재시도 안내.
+    // 저장 실패는 운영 중 놓치면 치명적 → toast 대신 alert(모달)로 확실히 인지시킨다.
+    const tokenIssue = /401|403|433|token|expired|authoriz|권한|로그인/i.test(msg);
+    if (tokenIssue) {
+      alert('⚠️ 저장 실패 — 로그인이 만료됐어요.\n\n⚙ 설정에서 다시 로그인한 뒤 "다시 저장"을 눌러주세요.\n(결과는 아직 저장되지 않았습니다)');
+      openSettings();
+    } else {
+      alert('⚠️ 저장 실패: ' + msg + '\n\n네트워크를 확인하고 "다시 저장"을 눌러주세요.\n(결과는 아직 저장되지 않았습니다)');
+    }
+    if(btn) { btn.textContent = '💾 다시 저장'; btn.disabled = false; btn.style.background = 'var(--red)'; }
   }
 }
 
