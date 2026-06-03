@@ -603,10 +603,13 @@ let curSet = 0;
 let matchNum = 1;
 
 // ── playus fetch (토큰 자동 첨부) ──────────────────────────
+// opts.noAuth=true 면 토큰을 안 붙임 — 목록/매치 조회는 게스트로도 되므로,
+// 운영자 토큰이 만료/꼬여도 매치 카드가 항상 뜨게 한다(저장(PATCH)만 토큰 필요).
 async function psFetch(path, opts = {}) {
-  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
-  if (psToken) headers['Authorization'] = `Bearer ${psToken}`;
-  const res = await fetch(`${PS_API}${path}`, { ...opts, headers });
+  const { noAuth, ...fetchOpts } = opts;
+  const headers = { 'Content-Type': 'application/json', ...(fetchOpts.headers || {}) };
+  if (psToken && !noAuth) headers['Authorization'] = `Bearer ${psToken}`;
+  const res = await fetch(`${PS_API}${path}`, { ...fetchOpts, headers });
   let body = null;
   try { body = await res.json(); } catch (_) {}
   if (!res.ok || (body && body.isSuccess === false)) {
@@ -712,14 +715,14 @@ async function loadMatches() {
   const wrap = document.getElementById('match-list-wrap');
   wrap.innerHTML = '<div class="loading-msg"><div class="spinner"></div>매치 불러오는 중...</div>';
   try {
-    const lr = await psFetchRetry('/league/list');
+    const lr = await psFetchRetry('/league/list', { noAuth: true });
     const leagues = ((lr.data && lr.data.items) || []).filter(l => l.status !== 'completed');
     const collected = [];
     let anyFail = false;
     for (const lg of leagues) {
       let matches = [];
       try {
-        const mr = await psFetchRetry(`/league/${lg._id}/matches`);
+        const mr = await psFetchRetry(`/league/${lg._id}/matches`, { noAuth: true });
         matches = mr.data || [];
       } catch (_) { anyFail = true; continue; } // 재시도까지 실패한 리그만 스킵
       for (const m of matches) {
