@@ -600,6 +600,7 @@ let teamAIds = [], teamBIds = [];
 let teamAPar = [], teamBPar = []; // 각 선수 PAR 객체 (표시용)
 let sets = [{a:0, b:0}];
 let curSet = 0;
+let phase = 'playing'; // 'playing'(점수 입력 중) | 'finish'(2:0 종료 대기)
 let matchNum = 1;
 
 // ── playus fetch (토큰 자동 첨부) ──────────────────────────
@@ -966,13 +967,50 @@ function adjustScore(i, team, delta) {
   pushToFirebase();
 }
 
-function nextSet() {
-  if(sets.length >= 3) return;
-  sets.push({a:0, b:0});
-  curSet = sets.length - 1;
-  renderScoreBoard();
-  renderStep();
-  pushToFirebase();
+// 세트 저장 — 현재 세트 확정 후 다음 단계 결정.
+//  1세트 저장 → 2세트
+//  2세트 저장 → 2:0이면 종료 대기(phase=finish), 1:1이면 3세트
+//  3세트 저장 → 바로 종료
+function saveSet() {
+  const s = sets[curSet];
+  if ((s.a||0) === (s.b||0)) { showToast('이 세트 승자가 없어요 (동점은 저장 불가)'); return; }
+  const winsA = sets.slice(0, curSet+1).filter(x => (x.a||0) > (x.b||0)).length;
+  const winsB = sets.slice(0, curSet+1).filter(x => (x.b||0) > (x.a||0)).length;
+  if (curSet === 0) {
+    if (sets.length < 2) sets.push({a:0, b:0});
+    curSet = 1;
+    renderScoreBoard(); renderStep(); pushToFirebase();
+  } else if (curSet === 1) {
+    if (winsA === 2 || winsB === 2) {
+      sets = sets.slice(0, 2); // 3세트 잔재 제거
+      phase = 'finish';        // 종료 버튼 노출
+      renderStep();
+    } else {
+      if (sets.length < 3) sets.push({a:0, b:0});
+      curSet = 2;
+      renderScoreBoard(); renderStep(); pushToFirebase();
+    }
+  } else {
+    finishMatch(); // 3세트 — 바로 종료
+  }
+}
+
+// 매치 종료 — 현재 세트까지만 저장하고 saveMatch(확인 다이얼로그 포함).
+function finishMatch() {
+  sets = sets.slice(0, curSet + 1);
+  phase = 'playing';
+  saveMatch();
+}
+
+// 세트 단위 뒤로가기 — 실수로 스코어 잘못 입력 시 이전 세트로. (3→2, 2→1)
+function goBackSet() {
+  if (phase === 'finish') { phase = 'playing'; renderStep(); return; } // 종료 취소
+  if (curSet > 0) {
+    curSet--;
+    renderScoreBoard(); renderStep(); pushToFirebase();
+  } else {
+    cancelScore(); // 1세트에서 뒤로 = 팀배정 화면으로(확인 다이얼로그 있음)
+  }
 }
 
 // ── 경기 저장 — PATCH /:id/matches/:matchId {sets, status:completed} ──
@@ -1143,9 +1181,22 @@ function renderStep() {
       : '';
     footer.innerHTML=`<button class="btn btn-back" style="flex:0 0 auto" onclick="goBack()">← 뒤로</button>${assignBtn}${startBtn}`;
   } else if(curStep===3){
-    const canNextSet = sets.length < 3 && curSet === sets.length - 1;
-    const nextSetBtn = canNextSet ? `<button class="btn btn-shuffle" onclick="nextSet()" style="flex:1;">➡️ 세트 완료</button>` : '';
-    footer.innerHTML=`<button class="btn btn-back" style="flex:0 0 auto" onclick="cancelScore()">← 뒤로</button><button class="btn" style="flex:0 0 auto;padding:0 14px;background:rgba(255,80,80,0.15);color:#FF5252;border:1px solid rgba(255,80,80,0.4);border-radius:12px;font-size:14px;" onclick="cancelMatch()">🗑️ 매치 취소</button>${nextSetBtn}<button class="btn btn-primary" id="save-btn" onclick="saveMatch()" style="flex:0 0 auto;padding:0 20px;">💾 저장</button>`;
+    // 매치 취소 — 항상 왼쪽 아래 작게 (cancelMatch 내부에 확인 다이얼로그)
+    const cancelBtn = `<button class="btn" style="flex:0 0 auto;padding:0 12px;font-size:13px;background:rgba(255,80,80,0.12);color:#FF5252;border:1px solid rgba(255,80,80,0.35);border-radius:12px;" onclick="cancelMatch()">매치 취소</button>`;
+    // 뒤로 — 세트 단위(3→2→1), 1세트에선 팀배정으로
+    const backBtn = `<button class="btn btn-back" style="flex:0 0 auto" onclick="goBackSet()">← 뒤로</button>`;
+    let mainBtn;
+    if (phase === 'finish') {
+      // 2세트 2:0 → 종료 버튼
+      mainBtn = `<button class="btn btn-green" id="save-btn" onclick="finishMatch()" style="flex:1;">🏆 매치 종료</button>`;
+    } else if (curSet === 2) {
+      // 3세트 → 세트 저장 & 종료
+      mainBtn = `<button class="btn btn-primary" id="save-btn" onclick="saveSet()" style="flex:1;">세트 저장 &amp; 종료</button>`;
+    } else {
+      // 1·2세트 → 세트 저장(전체 저장 버튼 없음)
+      mainBtn = `<button class="btn btn-primary" onclick="saveSet()" style="flex:1;">세트 저장</button>`;
+    }
+    footer.innerHTML = `${cancelBtn}${backBtn}${mainBtn}`;
   } else if(curStep===4){
     // 같은 4명, 다른 페어로 재경기 가능 여부 — 조합 3개 중 사용 안 한 것 있으면 가능
     const canReplay = !!(psToken && selectedMatch && selectedLeague);
@@ -1159,6 +1210,7 @@ function renderStep() {
 function goToScore() {
   sets=[{a:0,b:0}];
   curSet=0;
+  phase='playing';
   curStep=3;
   renderStep();
   renderScoreSection();
