@@ -766,7 +766,9 @@ function renderMatchList() {
     const { m, lg } = row;
     const ppl = (m.players && m.players.length ? m.players : [...(m.teamA || []), ...(m.teamB || [])]);
     const chips = ppl.filter(Boolean).map(u => `<span class="mp-chip">${psName(u)}${parTag(u.par)}</span>`).join('');
-    const div = m.division ? `<span class="div-badge">${m.division}</span>` : '';
+    // 카테고리 배지 — 복수(브릿지)면 각각 표시, 없으면 division 폴백
+    const cats = (m.categories && m.categories.length) ? m.categories : (m.division ? [m.division] : []);
+    const div = cats.map(c => `<span class="div-badge">${c}</span>`).join('');
     const statusTag = m.status === 'live'
       ? '<span class="status-tag live">🔴 LIVE</span>'
       : m.status === 'scheduled'
