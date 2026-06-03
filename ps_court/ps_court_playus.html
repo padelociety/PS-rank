@@ -774,7 +774,9 @@ function renderMatchList() {
       : m.status === 'scheduled'
         ? '<span class="status-tag scheduled">팀 배정됨</span>'
         : '';
-    const dateStr = m.date ? `<div class="match-date">📅 ${m.date}</div>` : '';
+    // 날짜 + 시간 (matchTime: '2026-06-05T18:30:00' → '18:30')
+    const timeStr = (m.matchTime && m.matchTime.length >= 16) ? m.matchTime.slice(11, 16) : '';
+    const dateStr = m.date ? `<div class="match-date">📅 ${m.date}${timeStr ? ' ' + timeStr : ''}</div>` : '';
     const no = (m.matchNumber && m.matchNumber > 0) ? m.matchNumber : (idx + 1);
     return `
       <div class="match-card" onclick="selectMatch(${idx})">
