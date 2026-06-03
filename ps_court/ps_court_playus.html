@@ -730,11 +730,13 @@ async function loadMatches() {
         if (playerCount >= 4 || teamCount >= 4) collected.push({ m, lg });
       }
     }
-    // 날짜·시간순 정렬 (#번호를 생성 순서가 아니라 날짜시간순으로 매기기 위함).
+    // 정렬: 실제 matchNumber 우선(어드민이 지정한 번호), 없으면 날짜시간순.
     const sortKey = (m) => {
+      if (m.matchNumber && m.matchNumber > 0) return m.matchNumber;
       const t = m.matchTime || (m.date ? `${m.date}T00:00:00` : '');
       const ms = Date.parse(t);
-      return isNaN(ms) ? Number.MAX_SAFE_INTEGER : ms;
+      // 번호 없는 매치는 뒤로 (번호 매겨진 것 다음)
+      return isNaN(ms) ? Number.MAX_SAFE_INTEGER : 100000 + ms / 1e7;
     };
     collected.sort((x, y) => sortKey(x.m) - sortKey(y.m));
     // 일부 리그 조회 실패로 결과가 비었는데 기존 카드가 있으면 → 기존 유지(빈 화면 깜빡임 방지)
@@ -771,13 +773,14 @@ function renderMatchList() {
         ? '<span class="status-tag scheduled">팀 배정됨</span>'
         : '';
     const dateStr = m.date ? `<div class="match-date">📅 ${m.date}</div>` : '';
+    const no = (m.matchNumber && m.matchNumber > 0) ? m.matchNumber : (idx + 1);
     return `
       <div class="match-card" onclick="selectMatch(${idx})">
         <div class="match-card-top">
           <span class="lg-badge">${lg.name || '리그'}</span>
           ${div}
           ${statusTag}
-          <span class="match-no">#${idx + 1}</span>
+          <span class="match-no">#${no}</span>
         </div>
         <div class="match-players">${chips}</div>
         ${dateStr}
@@ -791,7 +794,8 @@ async function selectMatch(idx) {
   if (!row) return;
   selectedMatch = row.m;
   selectedLeague = row.lg;
-  matchNum = idx + 1; // 카드와 동일한 날짜시간순 번호 (스코어보드 'Match N' 표기에 사용)
+  // 카드와 동일 번호 — 실제 matchNumber 우선(스코어보드 'Match N' 표기에 사용)
+  matchNum = (row.m.matchNumber && row.m.matchNumber > 0) ? row.m.matchNumber : (idx + 1);
   sets = [{a:0,b:0}];
   curSet = 0;
   // 항상 초기화 — 이전 매치 팀이 남아있으면 hasTeams 판단 오류 발생

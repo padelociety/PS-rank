@@ -364,7 +364,7 @@ if __name__ == '__main__':
     # 생성 방법:
     #   1) mkcert 설치: https://github.com/FiloSottile/mkcert/releases
     #   2) mkcert -install          (PC에 로컬 CA 등록 — 최초 1회)
-    #   3) mkdir ssl && mkcert -cert-file ssl/cert.pem -key-file ssl/key.pem 192.168.1.2 localhost 127.0.0.1
+    #   3) mkdir ssl && mkcert -cert-file ssl/cert.pem -key-file ssl/key.pem 192.168.1.5 localhost 127.0.0.1
     #   4) 태블릿에 rootCA 설치:  mkcert -CAROOT  로 경로 확인 후 rootCA.pem 을 태블릿에 전송 → 설정>인증서 설치
     SSL_CERT = os.path.join(_DIR, 'ssl', 'cert.pem')
     SSL_KEY  = os.path.join(_DIR, 'ssl', 'key.pem')
