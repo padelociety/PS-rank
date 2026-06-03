@@ -1066,9 +1066,9 @@ async function replayDifferentPair() {
     );
     const m = res.data;
     if (!m || !m._id) throw new Error(res?.message || '생성 실패');
-    // 새 매치로 전환 + 매치 번호 1 증가
+    // 새 매치로 전환 — 스코어보드 번호는 백엔드가 부여한 실제 matchNumber 사용
     selectedMatch = m;
-    matchNum = (matchNum || 1) + 1;
+    matchNum = (m.matchNumber && m.matchNumber > 0) ? m.matchNumber : ((matchNum || 1) + 1);
     teamA = (m.teamA || []).map(u => psName(u));
     teamB = (m.teamB || []).map(u => psName(u));
     teamAIds = (m.teamA || []).map(u => String(u._id || u));
