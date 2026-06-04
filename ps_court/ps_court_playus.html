@@ -1110,6 +1110,8 @@ async function replayDifferentPair() {
           players: playerIds,
           categories: selectedMatch.categories || [],
           division: selectedMatch.division || '',
+          // 직전 매치 바로 다음 번호로 삽입(이후 매치는 +1 밀림) — 맨 뒤로 가지 않게.
+          insertAfterNumber: selectedMatch.matchNumber || undefined,
         }),
       }
     );
