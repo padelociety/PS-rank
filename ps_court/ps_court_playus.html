@@ -587,7 +587,11 @@ body {
 <script>
 // ── 설정 (playus 백엔드 — 구글시트/AppsScript 대체) ──────────
 const DEFAULT_API = 'https://api.padelsociety.co.kr/api';
-let PS_API = localStorage.getItem('ps_api') || DEFAULT_API;
+// obs.padelsociety.co.kr 처럼 nginx가 /api를 백엔드로 same-origin 프록시하는 호스트에선
+// 외부 API를 직접 부르지 않고 같은 오리진 /api 를 사용 → CORS 회피 (백엔드 배포 불필요).
+const SAME_ORIGIN_API_HOSTS = ['obs.padelsociety.co.kr'];
+let PS_API = localStorage.getItem('ps_api')
+  || (SAME_ORIGIN_API_HOSTS.includes(location.hostname) ? location.origin + '/api' : DEFAULT_API);
 let psToken = localStorage.getItem('ps_token') || '';
 
 // ── 상태 ───────────────────────────────────────────────────
