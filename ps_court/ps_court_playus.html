@@ -605,7 +605,7 @@ let teamAPar = [], teamBPar = []; // 각 선수 PAR 객체 (표시용)
 let sets = [{a:0, b:0}];
 let curSet = 0;
 let phase = 'playing'; // 'playing'(점수 입력 중) | 'finish'(2:0 종료 대기)
-let matchNum = 1;
+let matchNum = 0; // 0 = 미채번. 라이브 시작(goToScore) 시 백엔드가 시작순 번호 부여.
 
 // ── playus fetch (토큰 자동 첨부) ──────────────────────────
 // opts.noAuth=true 면 토큰을 안 붙임 — 목록/매치 조회는 게스트로도 되므로,
@@ -785,14 +785,14 @@ function renderMatchList() {
     // 날짜 + 시간 (matchTime: '2026-06-05T18:30:00' → '18:30')
     const timeStr = (m.matchTime && m.matchTime.length >= 16) ? m.matchTime.slice(11, 16) : '';
     const dateStr = m.date ? `<div class="match-date">📅 ${m.date}${timeStr ? ' ' + timeStr : ''}</div>` : '';
-    const no = (m.matchNumber && m.matchNumber > 0) ? m.matchNumber : (idx + 1);
+    const no = (m.matchNumber && m.matchNumber > 0) ? m.matchNumber : 0; // 미채번이면 카드에 번호 숨김
     return `
       <div class="match-card" onclick="selectMatch(${idx})">
         <div class="match-card-top">
           <span class="lg-badge">${lg.name || '리그'}</span>
           ${div}
           ${statusTag}
-          <span class="match-no">#${no}</span>
+          ${no ? `<span class="match-no">#${no}</span>` : ''}
         </div>
         <div class="match-players">${chips}</div>
         ${dateStr}
@@ -806,8 +806,8 @@ async function selectMatch(idx) {
   if (!row) return;
   selectedMatch = row.m;
   selectedLeague = row.lg;
-  // 카드와 동일 번호 — 실제 matchNumber 우선(스코어보드 'Match N' 표기에 사용)
-  matchNum = (row.m.matchNumber && row.m.matchNumber > 0) ? row.m.matchNumber : (idx + 1);
+  // 미채번(0)이면 라이브 시작 시 부여. 이미 번호 있으면(재진입) 그대로 사용.
+  matchNum = (row.m.matchNumber && row.m.matchNumber > 0) ? row.m.matchNumber : 0;
   sets = [{a:0,b:0}];
   curSet = 0;
   // 항상 초기화 — 이전 매치 팀이 남아있으면 hasTeams 판단 오류 발생
@@ -896,7 +896,7 @@ function pushToFirebase() {
   const gameA = sets[curSet]?.a ?? 0;
   const gameB = sets[curSet]?.b ?? 0;
   const lgName = (selectedLeague && selectedLeague.name) || '리그';
-  const title = `${lgName} · Match ${matchNum}`;
+  const title = matchNum > 0 ? `${lgName} · Match ${matchNum}` : lgName;
   window.syncToFirebase({
     title,
     nameA: teamA.join(' / ') || 'Team A',
@@ -1114,16 +1114,14 @@ async function replayDifferentPair() {
           players: playerIds,
           categories: selectedMatch.categories || [],
           division: selectedMatch.division || '',
-          // 직전 매치 바로 다음 번호로 삽입(이후 매치는 +1 밀림) — 맨 뒤로 가지 않게.
-          insertAfterNumber: selectedMatch.matchNumber || undefined,
         }),
       }
     );
     const m = res.data;
     if (!m || !m._id) throw new Error(res?.message || '생성 실패');
-    // 새 매치로 전환 — 스코어보드 번호는 백엔드가 부여한 실제 matchNumber 사용
+    // 새 매치로 전환 — 번호는 라이브 시작 시 채번(아직 0)
     selectedMatch = m;
-    matchNum = (m.matchNumber && m.matchNumber > 0) ? m.matchNumber : ((matchNum || 1) + 1);
+    matchNum = (m.matchNumber && m.matchNumber > 0) ? m.matchNumber : 0;
     teamA = (m.teamA || []).map(u => psName(u));
     teamB = (m.teamB || []).map(u => psName(u));
     teamAIds = (m.teamA || []).map(u => String(u._id || u));
@@ -1136,7 +1134,7 @@ async function replayDifferentPair() {
     if (sec) sec.innerHTML = '';
     renderStep();
     renderTeamDisplay(true);
-    showToast('✅ 다음 매치 준비 완료! (Match ' + matchNum + ')');
+    showToast('✅ 다음 매치 준비 완료!');
   } catch(e) {
     showToast('⚠️ ' + e.message);
   }
@@ -1213,13 +1211,30 @@ function renderStep() {
 }
 
 // ── 네비게이션 ──────────────────────────────────────────────
-function goToScore() {
+// 라이브 시작 시 매치번호 채번(시작 순서). 이미 있으면 유지. 백엔드가 리그 max+1 부여.
+async function ensureMatchNumber() {
+  if (matchNum && matchNum > 0) return matchNum;
+  if (selectedMatch && selectedMatch.matchNumber && selectedMatch.matchNumber > 0) {
+    matchNum = selectedMatch.matchNumber; return matchNum;
+  }
+  if (!psToken || !selectedMatch || !selectedLeague) return matchNum;
+  try {
+    const res = await psFetch(`/league/${selectedLeague._id}/matches/${selectedMatch._id}/assign-number`, { method: 'POST' });
+    const n = res && res.data && res.data.matchNumber;
+    if (n && n > 0) { matchNum = n; selectedMatch.matchNumber = n; }
+  } catch(e) { /* best-effort: 번호 없이도 진행 */ }
+  return matchNum;
+}
+
+async function goToScore() {
   sets=[{a:0,b:0}];
   curSet=0;
   phase='playing';
   curStep=3;
   renderStep();
   renderScoreSection();
+  // 라이브 시작 — 시작 순서대로 매치번호 채번 (유튜브/스코어보드/플레이어앱 공통)
+  await ensureMatchNumber();
   // 매치 상태 live 전환 (best-effort) + 첫 스코어 송출 + 스트리밍 시작
   if (psToken && selectedMatch && selectedMatch.status !== 'live') {
     psFetch(`/league/${selectedLeague._id}/matches/${selectedMatch._id}`, {
@@ -1250,7 +1265,7 @@ function resetAll() {
   stopStream(); // ⏹️ 처음으로 돌아갈 때 스트리밍 종료
   curStep=1; selectedMatch=null; selectedLeague=null;
   teamA=[]; teamB=[]; teamAIds=[]; teamBIds=[]; teamAPar=[]; teamBPar=[];
-  sets=[{a:0,b:0}]; curSet=0; matchNum=1;
+  sets=[{a:0,b:0}]; curSet=0; matchNum=0;
   const sec = document.getElementById('score-section');
   if(sec) sec.innerHTML = '';
   renderStep();
