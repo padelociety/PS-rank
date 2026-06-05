@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#080C10">
 <link rel="manifest" href="ps_court_playus_manifest.json">
-<link rel="apple-touch-icon" href="/PS-rank/icon-court-192.png">
+<link rel="apple-touch-icon" href="https://padelociety.github.io/PS-rank/icon-court-192.png">
 <title>PS Court</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Pretendard:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <style>
@@ -1432,7 +1432,12 @@ loadMatches();
 // ── PWA 서비스워커 등록 ──────────────────────────────
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('ps_court_sw.js', { scope: '/PS-rank/ps_court/' }).catch(() => {});
+    if (location.hostname.endsWith('github.io')) {
+      navigator.serviceWorker.register('ps_court_sw.js', { scope: '/PS-rank/ps_court/' }).catch(() => {});
+    } else {
+      // obs.padelsociety.co.kr 등 stream_server 서빙 — 루트 스코프 SW (nginx가 /ps_court_sw.js 직접 서빙)
+      navigator.serviceWorker.register('/ps_court_sw.js', { scope: '/' }).catch(() => {});
+    }
   });
 }
 </script>
