@@ -1177,9 +1177,13 @@ function renderStep() {
   } else if(curStep===2){
     // 팀 미배정 매치는 '팀 랜덤생성하기' 버튼 노출 (배정 전에는 매치 시작 불가)
     const hasTeams = teamA.length && teamB.length;
+    // 브릿지 매치(카테고리 복수)는 팀 배정 후에도 '다시뽑기' 허용 — 부부매치 등 페어 조정용.
+    const isBridge = !!(selectedMatch && selectedMatch.categories && selectedMatch.categories.length > 1);
     const assignBtn = !hasTeams
       ? `<button class="btn btn-primary" style="flex:1" onclick="doAssignTeams()">🎲 팀 랜덤생성하기</button>`
-      : '';
+      : (isBridge
+          ? `<button class="btn" style="flex:0 0 auto;padding:0 14px;background:rgba(46,158,143,0.15);color:var(--green);border:1px solid var(--green)" onclick="doAssignTeams()">🎲 다시뽑기</button>`
+          : '');
     const startBtn = hasTeams
       ? `<button class="btn btn-primary" style="flex:1" onclick="goToScore()">▶️ 매치 시작하기</button>`
       : '';
