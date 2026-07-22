@@ -1,4 +1,4 @@
-const CACHE = 'ps-court-v26';
+const CACHE = 'ps-court-v27';
 
 self.addEventListener('install', e => {
   e.waitUntil(

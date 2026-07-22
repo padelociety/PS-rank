@@ -129,6 +129,60 @@ class OBSController:
         except Exception:
             return False
 
+    # ── 리플레이 버퍼 (하이라이트 클립) ───────────────────────────
+    # ⚠️ OBS 사전 설정 필요: 설정 → 출력 → 리플레이 버퍼 활성화 + 최대 길이 60~90초.
+    #    (길이는 websocket으로 못 바꿈 — OBS에서 미리 설정해야 함.)
+    def start_replay_buffer(self):
+        """리플레이 버퍼 시작 — 최근 N초를 상시 메모리에 유지."""
+        if not self.client:
+            self.connect()
+        try:
+            st = self.client.get_replay_buffer_status()
+            if st.output_active:
+                return
+        except Exception:
+            pass
+        try:
+            self.client.start_replay_buffer()
+            logger.info("🎬 리플레이 버퍼 시작됨 (하이라이트 대기)")
+        except Exception as e:
+            logger.warning(f"리플레이 버퍼 시작 실패 (OBS 설정에서 활성화 필요): {e}")
+
+    def stop_replay_buffer(self):
+        """리플레이 버퍼 종료."""
+        if not self.client:
+            return
+        try:
+            st = self.client.get_replay_buffer_status()
+            if st.output_active:
+                self.client.stop_replay_buffer()
+                logger.info("리플레이 버퍼 종료됨")
+        except Exception as e:
+            logger.warning(f"리플레이 버퍼 종료 중 오류: {e}")
+
+    def save_replay_buffer(self) -> str:
+        """버퍼를 파일로 저장하고 저장된 파일 경로를 반환 (실패 시 빈 문자열)."""
+        if not self.client:
+            self.connect()
+        try:
+            self.client.save_replay_buffer()
+        except Exception as e:
+            logger.error(f"리플레이 저장 실패: {e}")
+            return ""
+        # 저장은 비동기 — 파일 경로가 잡힐 때까지 짧게 폴링 (최대 ~5초)
+        for _ in range(10):
+            time.sleep(0.5)
+            try:
+                resp = self.client.get_last_replay_buffer_replay()
+                path = getattr(resp, "saved_replay_path", "") or ""
+                if path:
+                    logger.info(f"🎬 하이라이트 저장됨: {path}")
+                    return path
+            except Exception:
+                continue
+        logger.error("리플레이 저장 경로를 못 받았어요 (OBS 버전 확인)")
+        return ""
+
     # ── 씬 전환 (선택 사항) ───────────────────────────────────────
     def switch_scene(self, scene_name: str):
         """특정 씬으로 전환합니다."""

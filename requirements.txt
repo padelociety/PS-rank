@@ -6,3 +6,5 @@ flask-cors>=4.0.0
 obsws-python>=1.7.0
 google-api-python-client>=2.100.0
 google-auth-oauthlib>=1.1.0
+requests>=2.31.0
+imageio-ffmpeg>=0.4.9

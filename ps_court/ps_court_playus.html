@@ -520,6 +520,17 @@ body {
   </div>
 </div>
 
+<!-- 🎬 하이라이트 — 라이브 중에만 표시되는 플로팅 버튼(직전 60초/90초 클립).
+     OBS 리플레이 버퍼는 90초로 설정 — 60초 버튼은 뒤쪽 60초만 잘라 업로드. -->
+<div id="hl-wrap" style="display:none; position:fixed; right:16px; bottom:16px; z-index:300; flex-direction:column; gap:10px;">
+  <button class="hl-btn" onclick="saveHighlight(90, this)" style="padding:14px 20px; border:none; border-radius:999px; cursor:pointer;
+    background:linear-gradient(135deg,#E6C36B,#C9A227); color:#1a1408; font-size:15px; font-weight:800;
+    box-shadow:0 8px 24px rgba(0,0,0,0.45); font-family:inherit;">🎬 90초</button>
+  <button class="hl-btn" onclick="saveHighlight(60, this)" style="padding:14px 20px; border:none; border-radius:999px; cursor:pointer;
+    background:linear-gradient(135deg,#E6C36B,#C9A227); color:#1a1408; font-size:15px; font-weight:800;
+    box-shadow:0 8px 24px rgba(0,0,0,0.45); font-family:inherit;">🎬 60초</button>
+</div>
+
 <!-- 메인 -->
 <div class="main">
 
@@ -1317,6 +1328,36 @@ function _updateStreamStatus(state) {
   const info = map[state] || map.offline;
   el.textContent = info.text;
   el.style.color = info.color;
+  // 🎬 하이라이트 버튼 — 라이브 중에만 노출
+  const hw = document.getElementById('hl-wrap');
+  if (hw && !window._hlBusy) hw.style.display = state === 'live' ? 'flex' : 'none';
+}
+
+// ── 하이라이트 저장 — 누른 시점 직전 N초(60/90)를 클립으로 ──
+window._hlBusy = false;
+async function saveHighlight(seconds, btn) {
+  if (window._hlBusy) return;
+  window._hlBusy = true;
+  const original = btn ? btn.textContent : '';
+  if (btn) btn.textContent = '⏳ 저장 중…';
+  try {
+    const res = await fetch(`${STREAM_SERVER}/highlight`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seconds }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '저장 실패');
+    if (btn) btn.textContent = '✅ 저장됐어요!';
+  } catch (e) {
+    if (btn) btn.textContent = '⚠️ ' + (e.message || '저장 실패');
+    console.error('highlight -', e);
+  }
+  setTimeout(() => {
+    if (btn) btn.textContent = original;
+    window._hlBusy = false;
+  }, 2000);
 }
 
 async function checkStreamServer() {

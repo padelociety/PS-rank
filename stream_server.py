@@ -242,6 +242,7 @@ def start_stream():
         obs.connect()
         obs.set_stream_settings(rtmp_url, stream_key)
         obs.start_stream()
+        obs.start_replay_buffer()  # 하이라이트 대기 — OBS 설정에서 리플레이 버퍼 활성화 필요(60~90초)
 
         with state_lock:
             stream_state.update({
@@ -283,6 +284,10 @@ def stop_stream():
 
     # OBS와 YouTube를 독립적으로 종료 (하나 실패해도 다른 쪽은 시도)
     try:
+        obs.stop_replay_buffer()
+    except Exception:
+        pass
+    try:
         obs.stop_stream()
     except Exception as e:
         logger.error(f"❌ OBS 종료 실패: {e}")
@@ -314,6 +319,87 @@ def stop_stream():
 
     logger.info("⏹️  스트리밍 종료됨")
     return jsonify({'success': True})
+
+
+# ── 하이라이트 (리플레이 버퍼 클립) ───────────────────────────
+# 테블릿의 🎬 버튼 → 버튼 누른 시점 직전 N초(OBS 리플레이 버퍼 길이, 권장 60~90초)를
+# 파일로 저장하고 백그라운드로 Playus 백엔드에 업로드 → 회원들이 다운로드(인스타 등).
+HIGHLIGHT_CFG = config.get('highlight', {})
+
+
+def _trim_clip(path, seconds):
+    """클립의 '뒤쪽 seconds초'만 남긴 파일 생성 — ffmpeg 스트림카피(재인코딩 없음, 빠름).
+    키프레임 경계에서 잘려 ±수 초 오차 있음. 실패하면 원본 경로 반환(원본 길이로 업로드)."""
+    try:
+        try:
+            import imageio_ffmpeg
+            ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            ffmpeg = 'ffmpeg'  # imageio-ffmpeg 미설치면 PATH의 ffmpeg 시도
+        import subprocess
+        base, ext = os.path.splitext(path)
+        out = f"{base}_{seconds}s{ext}"
+        r = subprocess.run(
+            [ffmpeg, '-y', '-sseof', f'-{seconds}', '-i', path, '-c', 'copy', out],
+            capture_output=True, timeout=90,
+        )
+        if r.returncode == 0 and os.path.exists(out) and os.path.getsize(out) > 0:
+            logger.info(f"✂️ {seconds}초 클립 생성: {os.path.basename(out)}")
+            return out
+        logger.warning(f"클립 트림 실패(코드 {r.returncode}) — 원본 길이로 업로드")
+    except Exception as e:
+        logger.warning(f"클립 트림 오류({e}) — 원본 길이로 업로드")
+    return path
+
+
+def _upload_highlight(path, meta, seconds=0):
+    try:
+        import requests
+        # 요청 길이가 있으면 뒤쪽 N초만 잘라서 업로드 (버퍼=90초, 60초 버튼 대응)
+        if seconds:
+            path = _trim_clip(path, seconds)
+        api = (HIGHLIGHT_CFG.get('api_base') or 'https://api.padelsociety.co.kr').rstrip('/')
+        key = HIGHLIGHT_CFG.get('upload_key') or ''
+        if not key:
+            logger.warning("하이라이트 업로드 생략 — config.highlight.upload_key 없음 (OBS PC에 파일만 저장됨)")
+            return
+        with open(path, 'rb') as f:
+            r = requests.post(
+                f"{api}/api/highlight/upload",
+                headers={'x-upload-key': key},
+                data=meta,
+                files={'file': (os.path.basename(path), f, 'video/mp4')},
+                timeout=180,
+            )
+        if r.ok:
+            logger.info(f"☁️ 하이라이트 업로드 완료: {os.path.basename(path)}")
+        else:
+            logger.error(f"하이라이트 업로드 실패 {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        logger.error(f"하이라이트 업로드 오류: {e}")
+
+
+@app.route('/highlight', methods=['POST'])
+def save_highlight():
+    """리플레이 버퍼를 클립으로 저장(즉시 응답) + 백엔드 업로드(백그라운드).
+    Body(선택): { "seconds": 60 } — 버퍼(권장 90초)에서 뒤쪽 N초만 잘라 업로드."""
+    data = request.get_json(silent=True) or {}
+    seconds = int(data.get('seconds') or 0)
+    if seconds and not (15 <= seconds <= 300):
+        seconds = 0  # 이상값은 무시 — 버퍼 전체 길이로
+    path = obs.save_replay_buffer()
+    if not path:
+        return jsonify({'success': False, 'error': '리플레이 저장 실패 — OBS 설정에서 리플레이 버퍼가 켜져 있는지 확인하세요'}), 500
+    with state_lock:
+        meta = {
+            'title': stream_state.get('title') or '하이라이트',
+            'league': stream_state.get('league') or '',
+            'teamA': ','.join(stream_state.get('team_a') or []),
+            'teamB': ','.join(stream_state.get('team_b') or []),
+            'watchUrl': stream_state.get('watch_url') or '',
+        }
+    threading.Thread(target=_upload_highlight, args=(path, meta, seconds), daemon=True).start()
+    return jsonify({'success': True, 'file': os.path.basename(path), 'seconds': seconds or None})
 
 
 @app.route('/status', methods=['GET'])
