@@ -522,12 +522,12 @@ body {
 
 <!-- 🎬 하이라이트 — 라이브 중에만 표시되는 플로팅 버튼(직전 60초/90초 클립).
      OBS 리플레이 버퍼는 90초로 설정 — 60초 버튼은 뒤쪽 60초만 잘라 업로드. -->
-<div id="hl-wrap" style="display:none; position:fixed; right:16px; bottom:16px; z-index:300; flex-direction:column; gap:10px;">
-  <button class="hl-btn" onclick="saveHighlight(90, this)" style="padding:14px 20px; border:none; border-radius:999px; cursor:pointer;
-    background:linear-gradient(135deg,#E6C36B,#C9A227); color:#1a1408; font-size:15px; font-weight:800;
+<div id="hl-wrap" style="display:none; position:fixed; right:16px; bottom:96px; z-index:300; flex-direction:column; gap:12px;">
+  <button class="hl-btn" onclick="saveHighlight(90, this)" style="width:120px; height:52px; padding:0; border:none; border-radius:999px; cursor:pointer;
+    background:linear-gradient(135deg,#E6C36B,#C9A227); color:#1a1408; font-size:15px; font-weight:800; white-space:nowrap; text-align:center;
     box-shadow:0 8px 24px rgba(0,0,0,0.45); font-family:inherit;">🎬 90초</button>
-  <button class="hl-btn" onclick="saveHighlight(60, this)" style="padding:14px 20px; border:none; border-radius:999px; cursor:pointer;
-    background:linear-gradient(135deg,#E6C36B,#C9A227); color:#1a1408; font-size:15px; font-weight:800;
+  <button class="hl-btn" onclick="saveHighlight(60, this)" style="width:120px; height:52px; padding:0; border:none; border-radius:999px; cursor:pointer;
+    background:linear-gradient(135deg,#E6C36B,#C9A227); color:#1a1408; font-size:15px; font-weight:800; white-space:nowrap; text-align:center;
     box-shadow:0 8px 24px rgba(0,0,0,0.45); font-family:inherit;">🎬 60초</button>
 </div>
 
@@ -1339,19 +1339,21 @@ async function saveHighlight(seconds, btn) {
   if (window._hlBusy) return;
   window._hlBusy = true;
   const original = btn ? btn.textContent : '';
-  if (btn) btn.textContent = '⏳ 저장 중…';
+  if (btn) btn.textContent = '⏳ 저장 중';   // 짧은 상태만 — 긴 문구는 토스트로(버튼 크기 고정 유지)
   try {
     const res = await fetch(`${STREAM_SERVER}/highlight`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ seconds }),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(8000),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!data.success) throw new Error(data.error || '저장 실패');
-    if (btn) btn.textContent = '✅ 저장됐어요!';
+    if (btn) btn.textContent = '✅ 저장!';
+    showToast(`🎬 ${seconds}초 하이라이트 저장 중 — 잠시 후 앱에서 확인`);
   } catch (e) {
-    if (btn) btn.textContent = '⚠️ ' + (e.message || '저장 실패');
+    if (btn) btn.textContent = original;
+    showToast('⚠️ ' + (e.message || '하이라이트 저장 실패'));
     console.error('highlight -', e);
   }
   setTimeout(() => {
@@ -1360,11 +1362,13 @@ async function saveHighlight(seconds, btn) {
   }, 2000);
 }
 
+let _healthFailCount = 0;
 async function checkStreamServer() {
   try {
-    const res = await fetch(`${STREAM_SERVER}/health`, {signal: AbortSignal.timeout(1500)});
+    const res = await fetch(`${STREAM_SERVER}/health`, {signal: AbortSignal.timeout(2500)});
     const data = await res.json();
     if (data.ok) {
+      _healthFailCount = 0;
       _streamServerOnline = true;
       _streamActive = data.streaming;
       _watchUrl = data.watch_url;
@@ -1372,8 +1376,13 @@ async function checkStreamServer() {
       if (data.streaming && data.watch_url) _showWatchBtn(data.watch_url);
     }
   } catch(e) {
-    _streamServerOnline = false;
-    _updateStreamStatus('offline');
+    // 하이라이트 저장 등으로 서버가 잠깐 느릴 수 있음 — 연속 2회 실패해야 꺼짐 처리
+    // (한 번의 타임아웃으로 LIVE 표시가 깜빡이지 않도록)
+    _healthFailCount++;
+    if (_healthFailCount >= 2) {
+      _streamServerOnline = false;
+      _updateStreamStatus('offline');
+    }
   }
 }
 

@@ -352,6 +352,17 @@ def _trim_clip(path, seconds):
     return path
 
 
+def _save_and_upload_highlight(meta, seconds=0):
+    """리플레이 저장(느림, ~수 초) + 업로드를 백그라운드로 처리.
+    save_replay_buffer가 파일 경로 폴링에 최대 ~5초 걸려서 요청 스레드를 막으면
+    안 됨(헬스체크 타임아웃 → 라이브 표시 깜빡임). 그래서 통째로 스레드에서 실행."""
+    path = obs.save_replay_buffer()
+    if not path:
+        logger.error("하이라이트 저장 실패 — 리플레이 경로 없음")
+        return
+    _upload_highlight(path, meta, seconds)
+
+
 def _upload_highlight(path, meta, seconds=0):
     try:
         import requests
@@ -387,9 +398,12 @@ def save_highlight():
     seconds = int(data.get('seconds') or 0)
     if seconds and not (15 <= seconds <= 300):
         seconds = 0  # 이상값은 무시 — 버퍼 전체 길이로
-    path = obs.save_replay_buffer()
-    if not path:
-        return jsonify({'success': False, 'error': '리플레이 저장 실패 — OBS 설정에서 리플레이 버퍼가 켜져 있는지 확인하세요'}), 500
+    # 빠른 사전 확인 — 버퍼가 꺼져 있으면 즉시 명확한 안내 (저장 시도 전에)
+    if not obs.is_replay_buffer_active():
+        return jsonify({
+            'success': False,
+            'error': 'OBS 리플레이 버퍼가 꺼져 있어요 — OBS 설정 → 출력 → 리플레이 버퍼 활성화 후 다시 눌러주세요',
+        }), 400
     with state_lock:
         meta = {
             'title': stream_state.get('title') or '하이라이트',
@@ -398,8 +412,9 @@ def save_highlight():
             'teamB': ','.join(stream_state.get('team_b') or []),
             'watchUrl': stream_state.get('watch_url') or '',
         }
-    threading.Thread(target=_upload_highlight, args=(path, meta, seconds), daemon=True).start()
-    return jsonify({'success': True, 'file': os.path.basename(path), 'seconds': seconds or None})
+    # 저장(폴링 ~수 초)+업로드는 통째로 백그라운드 — 요청은 즉시 반환(헬스체크 안 막힘)
+    threading.Thread(target=_save_and_upload_highlight, args=(meta, seconds), daemon=True).start()
+    return jsonify({'success': True, 'seconds': seconds or None})
 
 
 @app.route('/status', methods=['GET'])

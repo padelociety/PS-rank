@@ -160,6 +160,18 @@ class OBSController:
         except Exception as e:
             logger.warning(f"리플레이 버퍼 종료 중 오류: {e}")
 
+    def is_replay_buffer_active(self) -> bool:
+        """리플레이 버퍼가 켜져 있는지 — 빠른 확인(즉시 에러 피드백용)."""
+        if not self.client:
+            try:
+                self.connect()
+            except Exception:
+                return False
+        try:
+            return bool(self.client.get_replay_buffer_status().output_active)
+        except Exception:
+            return False
+
     def save_replay_buffer(self) -> str:
         """버퍼를 파일로 저장하고 저장된 파일 경로를 반환 (실패 시 빈 문자열)."""
         if not self.client:
