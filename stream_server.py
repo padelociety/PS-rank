@@ -420,11 +420,12 @@ def save_highlight():
     seconds = int(data.get('seconds') or 0)
     if seconds and not (15 <= seconds <= 300):
         seconds = 0  # 이상값은 무시 — 버퍼 전체 길이로
-    # 빠른 사전 확인 — 버퍼가 꺼져 있으면 즉시 명확한 안내 (저장 시도 전에)
-    if not obs.is_replay_buffer_active():
+    # 사전 확인 — 버퍼가 꺼져 있으면 켜기까지 시도(ensure). 그래도 안 되면 명확히 안내.
+    # (버퍼가 이미 돌고 있으면 즉시 통과 — 오판으로 "꺼짐" 뜨는 걸 방지)
+    if not obs.ensure_replay_buffer():
         return jsonify({
             'success': False,
-            'error': 'OBS 리플레이 버퍼가 꺼져 있어요 — OBS 설정 → 출력 → 리플레이 버퍼 활성화 후 다시 눌러주세요',
+            'error': 'OBS 리플레이 버퍼를 켤 수 없어요 — OBS가 실행 중인지, 설정 → 출력 → 리플레이 버퍼 활성화됐는지 확인해주세요',
         }), 400
     with state_lock:
         meta = {
