@@ -522,13 +522,13 @@ body {
 
 <!-- 🎬 하이라이트 — 라이브 중에만 표시되는 플로팅 버튼(직전 60초/90초 클립).
      OBS 리플레이 버퍼는 90초로 설정 — 60초 버튼은 뒤쪽 60초만 잘라 업로드. -->
-<div id="hl-wrap" style="display:none; position:fixed; right:16px; bottom:96px; z-index:300; flex-direction:column; gap:12px;">
-  <button class="hl-btn" onclick="saveHighlight(90, this)" style="width:120px; height:52px; padding:0; border:none; border-radius:999px; cursor:pointer;
-    background:linear-gradient(135deg,#E6C36B,#C9A227); color:#1a1408; font-size:15px; font-weight:800; white-space:nowrap; text-align:center;
-    box-shadow:0 8px 24px rgba(0,0,0,0.45); font-family:inherit;">🎬 90초</button>
-  <button class="hl-btn" onclick="saveHighlight(60, this)" style="width:120px; height:52px; padding:0; border:none; border-radius:999px; cursor:pointer;
-    background:linear-gradient(135deg,#E6C36B,#C9A227); color:#1a1408; font-size:15px; font-weight:800; white-space:nowrap; text-align:center;
-    box-shadow:0 8px 24px rgba(0,0,0,0.45); font-family:inherit;">🎬 60초</button>
+<div id="hl-wrap" style="display:none; position:fixed; right:20px; top:50%; transform:translateY(-50%); z-index:300; flex-direction:column; gap:16px;">
+  <button class="hl-btn" onclick="saveHighlight(90, this)" style="width:150px; height:68px; padding:0; border:none; border-radius:999px; cursor:pointer;
+    background:linear-gradient(135deg,#E6C36B,#C9A227); color:#1a1408; font-size:19px; font-weight:800; white-space:nowrap; text-align:center;
+    box-shadow:0 8px 28px rgba(0,0,0,0.5); font-family:inherit;">🎬 90초</button>
+  <button class="hl-btn" onclick="saveHighlight(60, this)" style="width:150px; height:68px; padding:0; border:none; border-radius:999px; cursor:pointer;
+    background:linear-gradient(135deg,#E6C36B,#C9A227); color:#1a1408; font-size:19px; font-weight:800; white-space:nowrap; text-align:center;
+    box-shadow:0 8px 28px rgba(0,0,0,0.5); font-family:inherit;">🎬 60초</button>
 </div>
 
 <!-- 메인 -->
