@@ -917,6 +917,11 @@ function pushToFirebase() {
   broadcastLiveToApp(title, setsA, setsB, gameA, gameB);
 }
 
+// 스코어보드 숨김 — 경기 종료/이탈 시 OBS 오버레이(tv.html)에서 사라지게.
+function hideScoreboard() {
+  if (typeof window.setScoreboardVisible === 'function') window.setScoreboardVisible(false);
+}
+
 // ── 앱 라이브 스코어 중계 (POST /:id/livescore — 소켓 broadcast, 휘발) ──
 async function broadcastLiveToApp(title, setsA, setsB, gameA, gameB) {
   if (!psToken || !selectedMatch || !selectedLeague) return;
@@ -1071,6 +1076,7 @@ async function cancelScore() {
   const confirmed = confirm('매치를 취소하고 팀배정 화면으로 돌아갈까요?\n(라이브 상태가 scheduled로 복원돼요)');
   if (!confirmed) return;
   stopStream(); // 스트리밍 중이었으면 종료
+  hideScoreboard(); // 📴 스코어보드 오버레이 숨김
   // 매치 상태 live → scheduled 복원 (best-effort)
   if (psToken && selectedMatch && selectedMatch.status === 'live') {
     try {
@@ -1096,6 +1102,7 @@ async function cancelMatch() {
   const confirmed = confirm('이 매치를 완전히 취소(삭제)할까요?\n\n시간 내 종료 못 한 매치를 정리할 때 사용해요.\n삭제하면 목록에서 사라지고 되돌릴 수 없어요.');
   if (!confirmed) return;
   stopStream(); // 스트리밍 중이었으면 종료
+  hideScoreboard(); // 📴 스코어보드 오버레이 숨김
   try {
     await psFetch(`/league/${selectedLeague._id}/matches/${selectedMatch._id}`, {
       method: 'DELETE',
@@ -1153,6 +1160,7 @@ async function replayDifferentPair() {
 
 function showDone(date, scoreStr) {
   stopStream(); // ⏹️ 경기 저장 완료 → 스트리밍 종료
+  hideScoreboard(); // 📴 스코어보드 오버레이 숨김
   const winsA = sets.filter(s=>s.a>s.b).length;
   const winsB = sets.filter(s=>s.b>s.a).length;
   const winner = winsA > winsB ? `🏆 ${teamA.join(' / ')} 승리!` : winsB > winsA ? `🏆 ${teamB.join(' / ')} 승리!` : '🤝 무승부';
@@ -1271,6 +1279,7 @@ function goBack() {
     curStep=2;
     const sec = document.getElementById('score-section');
     if(sec) sec.innerHTML = '';
+    hideScoreboard(); // 📴 팀배정으로 돌아가면 스코어보드 숨김
     renderStep();
     renderTeamDisplay(false);
   }
@@ -1278,6 +1287,7 @@ function goBack() {
 
 function resetAll() {
   stopStream(); // ⏹️ 처음으로 돌아갈 때 스트리밍 종료
+  hideScoreboard(); // 📴 스코어보드 오버레이 숨김
   curStep=1; selectedMatch=null; selectedLeague=null;
   teamA=[]; teamB=[]; teamAIds=[]; teamBIds=[]; teamAPar=[]; teamBPar=[];
   sets=[{a:0,b:0}]; curSet=0; matchNum=0;
@@ -1503,7 +1513,7 @@ if ('serviceWorker' in navigator) {
 <!-- Firebase SDK -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { getDatabase, ref, set, update, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBkrib1qzN8IE9NcW8tXTfKb4Z6JsOjcvE",
@@ -1526,19 +1536,27 @@ onValue(connRef, snap => {
   if(el) { el.textContent = ok ? '🟢 연결됨' : '🔴 연결 중...'; el.style.color = ok ? 'var(--green)' : 'var(--text-dim)'; }
 });
 
-window.syncToFirebase = function({ title, nameA, nameB, setsA, setsB, gameA, gameB }) {
+window.syncToFirebase = function({ title, nameA, nameB, setsA, setsB, gameA, gameB, visible }) {
   const el = document.getElementById('fb-status');
   const S = {
     title: title || 'PS i-League',
     a: { name: nameA ?? 'Team A', game: gameA ?? 0, point: 0, sets: setsA ?? [], serving: false },
     b: { name: nameB ?? 'Team B', game: gameB ?? 0, point: 0, sets: setsB ?? [], serving: false },
     superTB: false,
+    // 경기 중이면 스코어보드 표시(true). 종료 시 setScoreboardVisible(false)로 숨김.
+    visible: visible !== false,
   };
   set(sbRef, S).then(() => {
     if(el) el.textContent = `🟢 동기화됨 (${gameA ?? 0}–${gameB ?? 0})`;
   }).catch(err => {
     if(el) el.textContent = '🔴 오류: ' + err.message;
   });
+};
+
+// 스코어보드 표시/숨김만 원격 토글 (OBS tv.html이 scoreboard.visible을 읽어 페이드).
+//  경기 종료·이탈 시 false → 오버레이에서 스코어보드 사라짐. (점수 데이터는 유지)
+window.setScoreboardVisible = function(v) {
+  update(sbRef, { visible: !!v }).catch(() => {});
 };
 </script>
 </body>
