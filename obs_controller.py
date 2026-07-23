@@ -87,13 +87,15 @@ class OBSController:
             if not self.client:
                 self.connect()
 
+            # obsws-python 버전에 따라 키워드 이름이 다름(stream_service_type ↔ ss_type).
+            # 위치 인자로 넘기면 두 버전 모두에서 동작한다.
             self.client.set_stream_service_settings(
-                stream_service_type='rtmp_custom',
-                stream_service_settings={
+                'rtmp_custom',
+                {
                     'server': rtmp_url,
                     'key': stream_key,
                     'use_auth': False,
-                }
+                },
             )
             logger.info(f"✅ OBS 스트림 설정 완료 ({rtmp_url})")
 
