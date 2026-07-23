@@ -153,6 +153,26 @@ stream_state: dict = {
 }
 state_lock = threading.Lock()
 
+# ── 리플레이 버퍼 상시 유지 (라이브 아니어도 하이라이트 가능) ──────────
+# OBS가 켜져 있으면 리플레이 버퍼를 항상 돌려서, 방송 중이 아니어도 언제든
+# 직전 60/90초를 클립으로 저장할 수 있게 한다. 20초마다 상태 확인·필요 시 재시작.
+_buffer_ready = False
+
+
+def _buffer_keepalive():
+    global _buffer_ready
+    while True:
+        try:
+            active = obs.ensure_replay_buffer()
+        except Exception:
+            active = False
+        if active and not _buffer_ready:
+            logger.info("🎬 리플레이 버퍼 준비됨 — 라이브 아니어도 하이라이트 저장 가능")
+        elif not active and _buffer_ready:
+            logger.info("리플레이 버퍼 꺼짐 (OBS 실행/리플레이 버퍼 활성화 확인 필요)")
+        _buffer_ready = active
+        time.sleep(20)
+
 
 # ── 리그명 축약 ────────────────────────────────────────────────
 def shorten_league(league: str) -> str:
@@ -200,11 +220,15 @@ def build_title_and_desc(team_a: list, team_b: list, league: str,
 def health():
     """서버 상태 확인 — ps_court.html이 서버를 감지하는 데 사용"""
     with state_lock:
-        return jsonify({
-            'ok': True,
-            'streaming': stream_state['active'],
-            'watch_url': stream_state.get('watch_url'),
-        })
+        streaming = stream_state['active']
+        watch = stream_state.get('watch_url')
+    return jsonify({
+        'ok': True,
+        'streaming': streaming,
+        'watch_url': watch,
+        # 리플레이 버퍼가 대기 중이면 라이브 아니어도 하이라이트 버튼 노출
+        'buffer_ready': _buffer_ready,
+    })
 
 
 @app.route('/start-stream', methods=['POST'])
@@ -283,10 +307,8 @@ def stop_stream():
     errors = []
 
     # OBS와 YouTube를 독립적으로 종료 (하나 실패해도 다른 쪽은 시도)
-    try:
-        obs.stop_replay_buffer()
-    except Exception:
-        pass
+    # ⚠️ 리플레이 버퍼는 일부러 안 끈다 — 방송 종료 후에도 하이라이트 저장 가능하게
+    #    (키프알라이브 스레드가 계속 켜둠). 버퍼는 OBS 종료 시에만 멈춤.
     try:
         obs.stop_stream()
     except Exception as e:
@@ -499,6 +521,9 @@ if __name__ == '__main__':
     print()
     print("  종료: Ctrl+C")
     print("=" * 60)
+
+    # 리플레이 버퍼 상시 유지 스레드 시작 — 라이브 아니어도 하이라이트 가능
+    threading.Thread(target=_buffer_keepalive, daemon=True).start()
 
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True,
             ssl_context=ssl_ctx if ssl_ctx else None)

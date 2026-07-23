@@ -172,6 +172,30 @@ class OBSController:
         except Exception:
             return False
 
+    def ensure_replay_buffer(self) -> bool:
+        """리플레이 버퍼가 '돌고 있게' 보장 — 꺼져 있으면 켠다.
+        키프알라이브 루프에서 주기적으로 호출(라이브 여부와 무관하게 항상 대기 상태 유지).
+        OBS가 안 떠 있으면 조용히 False(로그 스팸 방지 — 재시도 1회, 대기 없음)."""
+        if not self.client:
+            try:
+                self.connect(retries=1, delay=0)
+            except Exception:
+                return False
+        try:
+            st = self.client.get_replay_buffer_status()
+            if st.output_active:
+                return True
+        except Exception:
+            # 연결이 끊겼을 수 있음 — 클라이언트 리셋 후 다음 사이클에 재연결
+            self.client = None
+            return False
+        # 버퍼가 꺼져 있으면 켜기 시도 (OBS 설정에서 리플레이 버퍼 활성화돼 있어야 성공)
+        try:
+            self.client.start_replay_buffer()
+            return True
+        except Exception:
+            return False
+
     def save_replay_buffer(self) -> str:
         """버퍼를 파일로 저장하고 저장된 파일 경로를 반환 (실패 시 빈 문자열)."""
         if not self.client:

@@ -1314,6 +1314,7 @@ const STREAM_SERVER = (function () {
 let _streamActive = false;
 let _streamServerOnline = false;
 let _watchUrl = null;
+let _bufferReady = false;  // OBS 리플레이 버퍼 대기중 → 라이브 아니어도 하이라이트 가능
 
 function _updateStreamStatus(state) {
   const el = document.getElementById('stream-status');
@@ -1328,9 +1329,10 @@ function _updateStreamStatus(state) {
   const info = map[state] || map.offline;
   el.textContent = info.text;
   el.style.color = info.color;
-  // 🎬 하이라이트 버튼 — 라이브 중에만 노출
+  // 🎬 하이라이트 버튼 — 라이브 중이거나 리플레이 버퍼가 대기중이면 노출
+  //   (버퍼가 상시 돌면 방송 안 해도 직전 60/90초 클립 저장 가능)
   const hw = document.getElementById('hl-wrap');
-  if (hw && !window._hlBusy) hw.style.display = state === 'live' ? 'flex' : 'none';
+  if (hw && !window._hlBusy) hw.style.display = (state === 'live' || _bufferReady) ? 'flex' : 'none';
 }
 
 // ── 하이라이트 저장 — 누른 시점 직전 N초(60/90)를 클립으로 ──
@@ -1372,6 +1374,7 @@ async function checkStreamServer() {
       _streamServerOnline = true;
       _streamActive = data.streaming;
       _watchUrl = data.watch_url;
+      _bufferReady = !!data.buffer_ready;  // 상태 갱신 후 버튼 노출 판단
       _updateStreamStatus(data.streaming ? 'live' : 'online');
       if (data.streaming && data.watch_url) _showWatchBtn(data.watch_url);
     }
@@ -1381,6 +1384,7 @@ async function checkStreamServer() {
     _healthFailCount++;
     if (_healthFailCount >= 2) {
       _streamServerOnline = false;
+      _bufferReady = false;  // 서버 꺼지면 하이라이트 버튼도 숨김
       _updateStreamStatus('offline');
     }
   }
