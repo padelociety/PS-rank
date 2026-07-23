@@ -1497,6 +1497,11 @@ setInterval(checkStreamServer, 30000);
 renderStep();
 loadMatches();
 
+// 시작 시 경기 중이 아니면(매치 목록 화면) 스코어보드 숨김 —
+// 지난 경기 데이터가 OBS 오버레이에 계속 남아있지 않게. (모듈 스크립트가
+// setScoreboardVisible을 정의한 뒤 호출되도록 살짝 지연)
+setTimeout(() => { if (curStep === 1) hideScoreboard(); }, 1500);
+
 // ── PWA 서비스워커 등록 ──────────────────────────────
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
