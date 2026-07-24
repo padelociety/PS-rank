@@ -349,20 +349,25 @@ def stop_stream():
 HIGHLIGHT_CFG = config.get('highlight', {})
 
 
+def _ffmpeg_exe():
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return 'ffmpeg'  # imageio-ffmpeg 미설치면 PATH의 ffmpeg 시도
+
+
 def _trim_clip(path, seconds):
     """클립의 '뒤쪽 seconds초'만 남긴 파일 생성 — ffmpeg 스트림카피(재인코딩 없음, 빠름).
-    키프레임 경계에서 잘려 ±수 초 오차 있음. 실패하면 원본 경로 반환(원본 길이로 업로드)."""
+    키프레임 경계에서 잘려 ±수 초 오차 있음. 실패하면 원본 경로 반환(원본 길이로 업로드).
+    +faststart: 재생정보(moov)를 파일 앞으로 → 폰에서 받으면서 바로 재생(끊김 방지)."""
     try:
-        try:
-            import imageio_ffmpeg
-            ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-        except Exception:
-            ffmpeg = 'ffmpeg'  # imageio-ffmpeg 미설치면 PATH의 ffmpeg 시도
         import subprocess
         base, ext = os.path.splitext(path)
         out = f"{base}_{seconds}s{ext}"
         r = subprocess.run(
-            [ffmpeg, '-y', '-sseof', f'-{seconds}', '-i', path, '-c', 'copy', out],
+            [_ffmpeg_exe(), '-y', '-sseof', f'-{seconds}', '-i', path,
+             '-c', 'copy', '-movflags', '+faststart', out],
             capture_output=True, timeout=90,
         )
         if r.returncode == 0 and os.path.exists(out) and os.path.getsize(out) > 0:
@@ -371,6 +376,27 @@ def _trim_clip(path, seconds):
         logger.warning(f"클립 트림 실패(코드 {r.returncode}) — 원본 길이로 업로드")
     except Exception as e:
         logger.warning(f"클립 트림 오류({e}) — 원본 길이로 업로드")
+    return path
+
+
+def _faststart_clip(path):
+    """트림 없이 업로드할 때도 faststart 리먹스(스트림카피, 수 초).
+    OBS 원본은 moov가 뒤/하이브리드라 폰에서 스트리밍 재생이 끊김 → 앞으로 옮겨준다.
+    실패하면 원본 경로 반환(재생은 되지만 로딩이 느릴 수 있음)."""
+    try:
+        import subprocess
+        base, ext = os.path.splitext(path)
+        out = f"{base}_fs{ext}"
+        r = subprocess.run(
+            [_ffmpeg_exe(), '-y', '-i', path, '-c', 'copy', '-movflags', '+faststart', out],
+            capture_output=True, timeout=90,
+        )
+        if r.returncode == 0 and os.path.exists(out) and os.path.getsize(out) > 0:
+            logger.info(f"⚡ faststart 처리됨: {os.path.basename(out)}")
+            return out
+        logger.warning(f"faststart 실패(코드 {r.returncode}) — 원본으로 업로드")
+    except Exception as e:
+        logger.warning(f"faststart 오류({e}) — 원본으로 업로드")
     return path
 
 
@@ -389,8 +415,11 @@ def _upload_highlight(path, meta, seconds=0):
     try:
         import requests
         # 요청 길이가 있으면 뒤쪽 N초만 잘라서 업로드 (버퍼=90초, 60초 버튼 대응)
+        # 트림 안 하는 경우도 faststart 리먹스 — 폰 스트리밍 재생 끊김 방지.
         if seconds:
             path = _trim_clip(path, seconds)
+        else:
+            path = _faststart_clip(path)
         api = (HIGHLIGHT_CFG.get('api_base') or 'https://api.padelsociety.co.kr').rstrip('/')
         key = HIGHLIGHT_CFG.get('upload_key') or ''
         if not key:
