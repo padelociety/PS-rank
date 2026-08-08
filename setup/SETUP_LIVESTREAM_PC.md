@@ -262,14 +262,29 @@ YouTube에서 새 RTMP 주소·스트림 키를 발급받아 OBS에 밀어 넣�
 **포맷으로 예전 SSH 키가 사라졌다.** 새 키를 VPS에 등록하지 않으면 터널이 절대 안 붙고,
 태블릿은 계속 VPS 정적 폴백 페이지만 보게 된다(스트리밍 버튼 없음).
 
-1단계에서 출력된 공개키(`ssh-ed25519 AAAA... obs-tunnel`)를 준비하고:
+1단계에서 출력된 공개키(`ssh-ed25519 AAAA... obs-tunnel`)를 준비한다.
+
+> ⚠️ **아래 리눅스 명령들을 PowerShell 창에 통째로 붙여넣지 않는다.**
+> `ssh root@...` 와 그 뒤 명령을 함께 붙이면, PowerShell이 뒷줄까지 자기 문법으로
+> 파싱하려다 `'<' 연산자는 나중에 사용하도록 예약되어 있습니다` 로 죽는다.
+> 아래 **방법 A**(PowerShell에서 한 줄)를 쓰면 이 문제가 없다.
+
+**방법 A — PowerShell에서 한 줄 (권장)**
+
+`AAAA...` 부분만 1단계에서 출력된 실제 공개키로 바꿔 붙여넣는다:
+
+```powershell
+ssh root@62.72.56.88 "id obstunnel >/dev/null 2>&1 || adduser --disabled-password --gecos '' obstunnel; install -d -m 700 -o obstunnel -g obstunnel /home/obstunnel/.ssh; echo 'ssh-ed25519 AAAA...여기에_붙여넣기... obs-tunnel' >> /home/obstunnel/.ssh/authorized_keys; chmod 600 /home/obstunnel/.ssh/authorized_keys; chown -R obstunnel:obstunnel /home/obstunnel/.ssh; echo '--- REGISTERED ---'; cat /home/obstunnel/.ssh/authorized_keys"
+```
+
+끝에 현재 `authorized_keys` 내용을 찍어준다.
+
+**방법 B — VPS에 접속해서**
+
+먼저 `ssh root@62.72.56.88` 만 실행하고, **리눅스 프롬프트(`root@...:~#`)가 뜬 뒤에** 아래를 붙여넣는다:
 
 ```bash
-ssh root@62.72.56.88
-
-# obstunnel 계정이 이미 있는지 확인 (예전에 쓰던 계정이 남아 있을 것)
 id obstunnel || adduser --disabled-password --gecos "" obstunnel
-
 install -d -m 700 -o obstunnel -g obstunnel /home/obstunnel/.ssh
 
 # ↓ 1단계에서 출력된 공개키를 그대로 붙여넣는다 (한 줄)
@@ -282,6 +297,7 @@ chown -R obstunnel:obstunnel /home/obstunnel/.ssh
 ```
 
 **옛날 키 줄은 지운다** — 개인키는 포맷과 함께 사라져 이제 아무도 쓸 수 없다.
+(`nano /home/obstunnel/.ssh/authorized_keys` 로 열어 방금 넣은 줄만 남긴다.)
 
 ### 죽은 터널이 포트를 붙잡는 문제 (권장)
 
@@ -289,29 +305,32 @@ PC가 정전으로 갑자기 죽으면 VPS의 sshd가 한동안 5001 포트를 �
 PC가 복구돼도 터널이 `remote port forwarding failed` 로 재연결에 실패할 수 있다.
 VPS에서 한 번만 설정해두면 알아서 정리된다:
 
-```bash
-ssh root@62.72.56.88
-grep -q '^ClientAliveInterval' /etc/ssh/sshd_config || cat >> /etc/ssh/sshd_config <<'EOF'
+PowerShell에서 한 줄로:
 
-# 죽은 역터널을 빨리 정리 — OBS PC가 정전으로 사라져도 5001이 오래 잠기지 않게
-ClientAliveInterval 30
-ClientAliveCountMax 3
-EOF
-sshd -t && systemctl reload sshd
+```powershell
+ssh root@62.72.56.88 "grep -q '^ClientAliveInterval' /etc/ssh/sshd_config || printf '\n# dead reverse tunnels: free port 5001 quickly after the OBS PC loses power\nClientAliveInterval 30\nClientAliveCountMax 3\n' >> /etc/ssh/sshd_config; sshd -t && systemctl reload sshd && echo SSHD_OK"
 ```
 
 ### 확인
 
-PC에서 터널 작업을 시작하고:
+먼저 키가 실제로 먹는지 PC에서 직접 시험한다 (작업 스케줄러가 하는 것과 똑같은 명령):
+
+```powershell
+ssh -N -T -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new `
+    -i "$env:USERPROFILE\.ssh\obs_tunnel_ed25519" `
+    -R 127.0.0.1:5001:127.0.0.1:5000 obstunnel@62.72.56.88
+```
+
+- **아무 출력 없이 멈춰 있으면 성공이다** (터널이 붙어 대기 중). `Ctrl+C` 로 끊는다.
+- `Permission denied (publickey)` → 공개키가 아직 VPS에 안 들어갔다.
+- `remote port forwarding failed for listen port 5001` → 죽은 옛 터널이 포트를 잡고 있다.
+  아래 sshd 설정을 넣거나, VPS에서 `ss -tlnp | grep 5001` 로 잡은 프로세스를 정리한다.
+
+성공하면 작업으로 상시 실행:
 
 ```powershell
 Start-ScheduledTask -TaskName OBS-VPS-Tunnel
-```
-
-VPS에서 포트가 잡혔는지:
-
-```bash
-ssh root@62.72.56.88 "ss -tlnp | grep 5001"
+ssh root@62.72.56.88 "ss -tlnp | grep 5001"     # VPS에서 포트가 잡혔는지
 ```
 
 ---
