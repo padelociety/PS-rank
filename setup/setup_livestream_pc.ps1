@@ -73,11 +73,50 @@ function Have-Cmd ($name) {
   return [bool]$c
 }
 
-function Ensure-Winget-Package ($id, $label, [scriptblock]$probe) {
+# Returns a hashtable @{Exe=...; Pre=@(...)} that actually runs Python 3, or $null.
+# "python resolves on PATH" is NOT the same as "Python works": Windows ships an
+# App Execution Alias stub for python.exe that only advertises the Microsoft Store,
+# and a fresh install often leaves PATH untouched entirely. So probe by running it.
+function Resolve-Python {
+  $cands = @(
+    @{ Exe = "py";     Pre = @("-3") },
+    @{ Exe = "python"; Pre = @() }
+  )
+  foreach ($glob in @("$env:LOCALAPPDATA\Programs\Python\Python3*\python.exe",
+                      "$env:ProgramFiles\Python3*\python.exe",
+                      "${env:ProgramFiles(x86)}\Python3*\python.exe",
+                      "C:\Python3*\python.exe")) {
+    Get-Item $glob -ErrorAction SilentlyContinue | Sort-Object FullName |
+      ForEach-Object { $cands += @{ Exe = $_.FullName; Pre = @() } }
+  }
+
+  # The probes below run native commands whose stderr we do not want turning into
+  # terminating errors under "Stop" - a failing candidate must just be skipped.
+  $old = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    foreach ($c in $cands) {
+      if (($c.Exe -notmatch '[\\/]') -and -not (Have-Cmd $c.Exe)) { continue }
+      if (($c.Exe -match '[\\/]')    -and -not (Test-Path $c.Exe)) { continue }
+      try {
+        # Build one argument list and splat a variable: @(...) inline is the array
+        # subexpression operator, not splatting, and the two are only accidentally
+        # equivalent here.
+        $probeArgs = @($c.Pre) + @("-c", "import sys;print(sys.version_info[0])")
+        $out = & $c.Exe @probeArgs
+        if ($LASTEXITCODE -eq 0 -and "$out".Trim() -eq "3") { return $c }
+      } catch { }
+    }
+  } finally { $ErrorActionPreference = $old }
+  return $null
+}
+
+function Ensure-Winget-Package ($id, $label, [scriptblock]$probe, $hint) {
   if (& $probe) { Ok "$label already installed"; return }
   if (-not (Have-Cmd winget)) {
+    # winget is absent on LTSC/N images and anywhere App Installer was removed.
     Warn "$label missing and winget is unavailable - install it by hand"
-    Todo "Install $label manually"
+    Todo ("Install $label manually" + $(if ($hint) { " - $hint" } else { "" }))
     return
   }
   Say "installing $label ..."
@@ -89,10 +128,12 @@ function Ensure-Winget-Package ($id, $label, [scriptblock]$probe) {
 if ($SkipInstall) {
   Say "skipped (-SkipInstall)"
 } else {
-  Try-Step "python install" { Ensure-Winget-Package "Python.Python.3.12" "Python 3.12" { (Have-Cmd py) -or (Have-Cmd python) } }
-  Try-Step "git install"    { Ensure-Winget-Package "Git.Git"            "Git"          { Have-Cmd git } }
-  Try-Step "obs install"    { Ensure-Winget-Package "OBSProject.OBSStudio" "OBS Studio" {
-      Test-Path "$env:ProgramFiles\obs-studio\bin\64bit\obs64.exe" } }
+  Try-Step "python install" { Ensure-Winget-Package "Python.Python.3.12" "Python 3.12" `
+      { [bool](Resolve-Python) } `
+      "https://www.python.org/downloads/windows/ and TICK 'Add python.exe to PATH'" }
+  Try-Step "git install"    { Ensure-Winget-Package "Git.Git" "Git" { Have-Cmd git } "https://git-scm.com/download/win" }
+  Try-Step "obs install"    { Ensure-Winget-Package "OBSProject.OBSStudio" "OBS Studio" `
+      { Test-Path "$env:ProgramFiles\obs-studio\bin\64bit\obs64.exe" } "https://obsproject.com/download" }
   # PATH additions from winget only reach new processes - refresh ours.
   $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
               [Environment]::GetEnvironmentVariable("Path","User")
@@ -160,14 +201,28 @@ Step "3/9  Python venv + packages"
 $venvPy = Join-Path $RepoDir ".venv\Scripts\python.exe"
 Try-Step "venv" {
   if (-not (Test-Path $venvPy)) {
-    # `py -3 -m venv` vs `python -m venv` - the -3 selector only exists on the launcher.
-    if (Have-Cmd py) { py -3 -m venv (Join-Path $RepoDir ".venv") }
-    else             { python -m venv (Join-Path $RepoDir ".venv") }
+    $py = Resolve-Python
+    if (-not $py) {
+      throw ("no working Python 3 found. Install it from https://www.python.org/downloads/windows/ " +
+             "and TICK 'Add python.exe to PATH' in the installer, then re-run this script. " +
+             "If PATH holds the Microsoft Store stub, turn it off in " +
+             "Settings > Apps > Advanced app settings > App execution aliases (python.exe / python3.exe).")
+    }
+    Say "using python: $($py.Exe) $($py.Pre -join ' ')"
+    $venvArgs = @($py.Pre) + @("-m", "venv", (Join-Path $RepoDir ".venv"))
+    & $py.Exe @venvArgs
+    # venv failures are not always non-zero exits (the Store stub just prints and
+    # leaves), so confirm the interpreter really exists before claiming success.
+    if (-not (Test-Path $venvPy)) { throw "venv did not produce $venvPy" }
     Ok "venv created"
   } else { Ok "venv already exists" }
 
   & $venvPy -m pip install --upgrade pip --quiet
   & $venvPy -m pip install -r (Join-Path $RepoDir "requirements.txt") --quiet
+  # Import the two that matter most - a silent pip failure would otherwise only
+  # surface later as the stream server dying on boot.
+  & $venvPy -c "import flask, obsws_python, googleapiclient"
+  if ($LASTEXITCODE -ne 0) { throw "packages did not import - check the pip output above" }
   Ok "packages installed (flask, obsws-python, google-api-python-client, imageio-ffmpeg ...)"
 }
 
@@ -308,19 +363,22 @@ if ($SkipTasks) {
   # and obs_tunnel.ps1 resolves its key through $env:USERPROFILE, which is only
   # correct inside a real user session. Pair this with auto sign-in so that
   # "powered on" always means "logged on".
-  function Register-Task ($name, $exe, $args, $workdir) {
-    $a = if ($workdir) {
-      New-ScheduledTaskAction -Execute $exe -Argument $args -WorkingDirectory $workdir
+  # NOTE: do not name a parameter $args. It is an automatic variable (the array of
+  # unbound arguments), so inside the function it is an Object[] no matter what was
+  # passed - and -Argument then fails with "cannot convert to System.String".
+  function Register-Task ($taskName, $exe, $argLine, $workDir) {
+    $a = if ($workDir) {
+      New-ScheduledTaskAction -Execute $exe -Argument $argLine -WorkingDirectory $workDir
     } else {
-      New-ScheduledTaskAction -Execute $exe -Argument $args
+      New-ScheduledTaskAction -Execute $exe -Argument $argLine
     }
     $t = New-ScheduledTaskTrigger -AtLogOn -User $user
     $s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
            -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
            -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
-    Register-ScheduledTask -TaskName $name -Action $a -Trigger $t -Settings $s `
+    Register-ScheduledTask -TaskName $taskName -Action $a -Trigger $t -Settings $s `
       -User $user -RunLevel Highest -Force | Out-Null
-    Ok "task registered: $name"
+    Ok "task registered: $taskName"
   }
 
   Try-Step "task: tunnel" {
