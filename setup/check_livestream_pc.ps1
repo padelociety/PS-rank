@@ -18,11 +18,17 @@ param(
 
 $pass = 0; $fail = 0
 
-# streaming_config.json.example ships Korean placeholder text in these fields.
-# A real OBS password / upload key is printable ASCII, so "has a non-ASCII
-# character" is a locale-safe way to spot an unfilled placeholder.
+# Read as UTF-8 explicitly: Windows PowerShell 5.1's Get-Content falls back to the
+# system ANSI codepage (CP949 on Korean Windows) for files without a BOM, which
+# turns this UTF-8 file into mojibake and makes ConvertFrom-Json fail on a file
+# that is perfectly fine (Python opens it with encoding='utf-8').
+function Read-Utf8 ($path) { [IO.File]::ReadAllText($path, [Text.Encoding]::UTF8) }
+
+# True while a field still holds a template value rather than a real secret.
+# Covers the ASCII PUT_..._HERE template and the older Korean-placeholder example.
 function Is-Placeholder ($v) {
   if (-not $v) { return $true }
+  if ($v -match '^PUT_.*_HERE$') { return $true }
   return ($v -notmatch '^[\x20-\x7E]+$')
 }
 
@@ -51,7 +57,7 @@ Chk "tunnel ssh key"        (Test-Path (Join-Path $env:USERPROFILE ".ssh\obs_tun
 $cfgPath = Join-Path $RepoDir "config.json"
 if (Test-Path $cfgPath) {
   try {
-    $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
+    $cfg = (Read-Utf8 $cfgPath) | ConvertFrom-Json
     Chk "config.json obs.password set" (-not (Is-Placeholder $cfg.obs.password)) $null
     Chk "config.json highlight.upload_key set" (-not (Is-Placeholder $cfg.highlight.upload_key)) `
         "must equal HIGHLIGHT_UPLOAD_KEY in the VPS .env"

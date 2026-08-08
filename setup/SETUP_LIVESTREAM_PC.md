@@ -170,22 +170,28 @@ Start-Process powershell -Verb RunAs -ArgumentList '-NoExit','-NoProfile','-Exec
 
 ### ① `config.json`
 
-`streaming_config.json.example`을 복사한 것. 두 곳을 채운다.
+1단계 스크립트가 만들어 둔다. `PUT_..._HERE` 두 곳만 실제 값으로 바꾼다.
 
 ```jsonc
 {
+  "cors_origins": ["https://padelociety.github.io", "http://localhost:3000"],
   "obs": {
     "host": "localhost",
     "port": 4455,
-    "password": "여기 ← 3단계에서 OBS가 만들어준 비밀번호"
+    "password": "PUT_OBS_WEBSOCKET_PASSWORD_HERE"   // ← 3단계에서 OBS가 만들어준 비밀번호
   },
   "youtube": { "privacy": "public", "latency": "ultraLow" },
   "highlight": {
     "api_base": "https://api.padelsociety.co.kr",
-    "upload_key": "여기 ← VPS의 HIGHLIGHT_UPLOAD_KEY 와 완전히 같은 값"
+    "upload_key": "PUT_HIGHLIGHT_UPLOAD_KEY_HERE"   // ← VPS의 HIGHLIGHT_UPLOAD_KEY 와 완전히 같은 값
   }
 }
 ```
+
+> **⚠️ 저장 인코딩은 UTF-8.** `stream_server.py`가 이 파일을 `encoding='utf-8'`로 열기 때문에
+> 메모장에서 **ANSI로 저장하면 서버가 아예 안 뜬다.** 메모장 하단 인코딩이 `UTF-8`인지 확인
+> (`UTF-8 with BOM`도 안 된다 — `json.load`가 BOM에서 깨진다).
+> 그래서 이 템플릿은 한글을 한 글자도 넣지 않았다. 값도 ASCII만 넣으면 인코딩 사고가 안 난다.
 
 `upload_key` 값 확인:
 

@@ -41,11 +41,22 @@ function Try-Step ($name, [scriptblock]$body) {
   catch { Warn "$name failed: $($_.Exception.Message)" }
 }
 
-# streaming_config.json.example ships Korean placeholder text in these fields.
-# A real OBS password / upload key is printable ASCII, so "has a non-ASCII
-# character" is a locale-safe way to spot an unfilled placeholder.
+# Read/write JSON as UTF-8 explicitly. Windows PowerShell 5.1's Get-Content falls
+# back to the system ANSI codepage (CP949 on Korean Windows) for files without a
+# BOM, which turns this UTF-8 file into mojibake and breaks ConvertFrom-Json.
+# Set-Content -Encoding UTF8 would add a BOM, which Python's json.load then chokes on.
+function Read-Utf8 ($path) { [IO.File]::ReadAllText($path, [Text.Encoding]::UTF8) }
+function Write-Utf8NoBom ($path, $text) {
+  [IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding $false))
+}
+
+# True while a field still holds a template value rather than a real secret.
+# Covers both templates: the ASCII PUT_..._HERE one written below, and the older
+# streaming_config.json.example whose placeholders are Korean text (a real OBS
+# password / upload key is always printable ASCII).
 function Is-Placeholder ($v) {
   if (-not $v) { return $true }
+  if ($v -match '^PUT_.*_HERE$') { return $true }
   return ($v -notmatch '^[\x20-\x7E]+$')
 }
 
@@ -230,22 +241,58 @@ Try-Step "venv" {
 Step "4/9  config.json"
 
 $cfgPath = Join-Path $RepoDir "config.json"
+
+# Written fresh instead of copied from streaming_config.json.example. The example
+# carries Korean comment keys and placeholder values; stream_server.py opens the
+# file as UTF-8, so one editor re-saving it as ANSI breaks the server at startup.
+# An ASCII-only config removes that whole failure mode.
+$CONFIG_TEMPLATE = @'
+{
+  "cors_origins": [
+    "https://padelociety.github.io",
+    "http://localhost:3000"
+  ],
+  "obs": {
+    "host": "localhost",
+    "port": 4455,
+    "password": "PUT_OBS_WEBSOCKET_PASSWORD_HERE"
+  },
+  "youtube": {
+    "privacy": "public",
+    "latency": "ultraLow"
+  },
+  "highlight": {
+    "api_base": "https://api.padelsociety.co.kr",
+    "upload_key": "PUT_HIGHLIGHT_UPLOAD_KEY_HERE"
+  }
+}
+'@
+
 Try-Step "config.json" {
+  $cfg = $null
   if (Test-Path $cfgPath) {
-    Ok "config.json already present"
-    $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
-    if (Is-Placeholder $cfg.obs.password) {
-      Warn "config.json obs.password is still a placeholder"
-      Todo "Fill config.json > obs.password with the OBS WebSocket password"
-    }
-    if (Is-Placeholder $cfg.highlight.upload_key) {
-      Warn "config.json highlight.upload_key is still a placeholder"
-      Todo "Fill config.json > highlight.upload_key (must equal HIGHLIGHT_UPLOAD_KEY in the VPS .env)"
-    }
+    try { $cfg = (Read-Utf8 $cfgPath) | ConvertFrom-Json }
+    catch { Warn "config.json does not parse as JSON: $($_.Exception.Message)" }
+  }
+
+  # Replace only when there is provably nothing to lose: unreadable, or both
+  # secrets still unset. A half-filled config is never touched.
+  $empty = (-not $cfg) -or ((Is-Placeholder $cfg.obs.password) -and (Is-Placeholder $cfg.highlight.upload_key))
+  if ($empty) {
+    Write-Utf8NoBom $cfgPath $CONFIG_TEMPLATE
+    $cfg = $CONFIG_TEMPLATE | ConvertFrom-Json
+    Ok "config.json written from the clean template (nothing was filled in yet)"
   } else {
-    Copy-Item (Join-Path $RepoDir "streaming_config.json.example") $cfgPath
-    Ok "config.json created from the example - it still holds placeholders"
-    Todo "Edit $cfgPath : obs.password + highlight.upload_key"
+    Ok "config.json already present"
+  }
+
+  if (Is-Placeholder $cfg.obs.password) {
+    Warn "config.json obs.password is still a placeholder"
+    Todo "Fill $cfgPath > obs.password with the OBS WebSocket password (OBS > Tools > WebSocket Server Settings)"
+  }
+  if (Is-Placeholder $cfg.highlight.upload_key) {
+    Warn "config.json highlight.upload_key is still a placeholder"
+    Todo "Fill $cfgPath > highlight.upload_key (must equal HIGHLIGHT_UPLOAD_KEY in the VPS .env)"
   }
 }
 
