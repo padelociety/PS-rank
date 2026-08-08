@@ -91,12 +91,21 @@ PC가 쓰는 코드와 이 세팅 키트는 **public repo `padelociety/PS-rank`*
 공개 저장소라 로그인·토큰이 필요 없다. 관리자 PowerShell에서:
 
 ```powershell
-winget install --id Git.Git -e --source winget     # Git 이미 있으면 건너뜀
+# 1) Git 설치 (이미 있으면 그냥 넘어간다)
+winget install --id Git.Git -e --source winget --accept-source-agreements --accept-package-agreements
+
+# 2) 방금 설치한 Git을 '이 창'에 인식시킨다 (새 창 여는 것과 같은 효과)
+$env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
+
+# 3) 확인 후 클론
+git --version
 git clone https://github.com/padelociety/PS-rank.git C:\dev\PS-rank
 ```
 
-새로 포맷한 PC라 `git`이 없을 테니 위 두 줄을 순서대로 실행한다.
-Git 설치 후에는 **PowerShell 창을 새로 열어야** `git`이 PATH에 잡힌다.
+> ⚠️ **`'git' 용어가 ... 인식되지 않습니다`** 가 뜨면 Git이 망가진 게 아니라
+> **PATH가 이 창에 아직 반영되지 않은 것**이다. 설치 프로그램이 PATH를 바꿔도
+> 이미 떠 있는 PowerShell 창에는 적용되지 않는다.
+> 위 2)번 줄을 실행하거나, PowerShell 창을 **관리자 권한으로 새로 열면** 된다.
 
 <details>
 <summary>winget도 없는 구형 Windows라면</summary>
@@ -110,12 +119,25 @@ https://github.com/padelociety/PS-rank/archive/refs/heads/main.zip 을 받아
 
 ### 1-2. 관리자 PowerShell에서 실행
 
-시작 → `powershell` 우클릭 → **관리자 권한으로 실행**:
+**Win+X → 터미널(관리자)** 로 새 창을 열고:
 
 ```powershell
 cd C:\dev\PS-rank\setup
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup_livestream_pc.ps1
 ```
+
+지금 열려 있는 일반 창에서 바로 승격시키려면 (UAC 창이 뜨면 **예**):
+
+```powershell
+Start-Process powershell -Verb RunAs -ArgumentList '-NoExit','-NoProfile','-ExecutionPolicy','Bypass','-File','C:\dev\PS-rank\setup\setup_livestream_pc.ps1'
+```
+
+> `-NoExit` 를 빼지 않는다. 없으면 스크립트가 끝나는 순간 창이 닫혀
+> **VPS에 등록해야 할 SSH 공개키 출력을 놓친다**(4단계에서 필요).
+
+> 관리자가 아니면 스크립트가 `Run this script as Administrator` 로 **일부러 멈춘다.**
+> 절전 설정·작업 스케줄러 등록·방화벽 규칙이 전부 관리자 권한을 요구하는데,
+> 그냥 진행하면 절반만 적용된 채 "된 것처럼" 끝나기 때문이다.
 
 스크립트가 하는 일:
 
