@@ -1,7 +1,20 @@
 # 민감 정보
+# ⚠️ stream_server.py 는 이 파일들을 repo **루트**에서 읽는다(youtube_api.py 의 _DIR 기준).
+#    아래 streaming/ 경로만 있던 시절엔 실제 파일이 무시되지 않아, OBS PC에서 `git add .`
+#    한 번이면 YouTube OAuth 시크릿과 업로드 키가 public repo 로 올라갈 수 있었다.
+/config.json
+/client_secrets.json
+/youtube_token.pickle
+/ssl/
+
+# 예전 경로 (하위호환)
 streaming/config.json
 streaming/client_secrets.json
 streaming/youtube_token.pickle
+
+# 라이브스트림 PC 로컬 산출물
+/.venv/
+/logs/
 
 # Python
 __pycache__/
