@@ -333,8 +333,11 @@ YouTube에서 새 RTMP 주소·스트림 키를 발급받아 OBS에 밀어 넣�
 OBS를 켜둔 채로:
 
 ```powershell
-Restart-ScheduledTask -TaskName PS-StreamServer   # config.json 을 다시 읽게
-Start-Sleep 8
+# config.json 을 다시 읽게 재시작. Restart-ScheduledTask 라는 cmdlet 은 없다 — Stop + Start.
+Stop-ScheduledTask -TaskName PS-StreamServer
+Get-Process python -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-ScheduledTask -TaskName PS-StreamServer
+Start-Sleep 15
 Invoke-RestMethod http://127.0.0.1:5000/health
 ```
 
