@@ -90,6 +90,28 @@ function Get-StreamServerProcs {
     Where-Object { $_.CommandLine -and $_.CommandLine -match 'stream_server\.py' })
 }
 
+# The supervisor (run_stream_server.ps1) and the cmd it uses for redirection.
+# These MUST die before python does: Stop-ScheduledTask does not reap them, and a
+# surviving supervisor relaunches python 10s later - so killing python alone leaves
+# two servers fighting over :5000 once the task is started again.
+function Get-SupervisorProcs {
+  @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -in 'powershell.exe','cmd.exe' -and
+                   $_.CommandLine -and $_.CommandLine -match 'run_stream_server\.ps1|stream_server\.py' })
+}
+
+# Stop the whole stream_server tree: supervisors first, then python.
+function Stop-StreamServerTree {
+  Stop-ScheduledTask -TaskName PS-StreamServer -ErrorAction SilentlyContinue
+  foreach ($p in Get-SupervisorProcs)   { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+  Start-Sleep 1
+  foreach ($p in Get-StreamServerProcs) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+  Start-Sleep 2
+  # One more sweep - a supervisor may have spawned python right before it died.
+  foreach ($p in Get-SupervisorProcs)   { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+  foreach ($p in Get-StreamServerProcs) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+}
+
 # Talks to OBS through the venv (obsws-python lives there) and reports what OBS
 # actually says - start_replay_buffer failures are swallowed by the server's
 # keepalive loop on purpose, so this is the only place the reason surfaces.
@@ -264,6 +286,14 @@ Chk "OBS WebSocket :4455"  (Port-Open 4455) $null `
 Chk "stream_server :5000"  (Port-Open 5000) $null `
     "Start-ScheduledTask -TaskName PS-StreamServer   (then check logs\stream_server_*.log)"
 
+# Two servers means the loser cannot bind :5000, exits, and its supervisor relaunches
+# it every 10s forever. /health still answers (the winner holds the port) so nothing
+# else in this script would notice.
+$ssProcs = Get-StreamServerProcs
+Chk "exactly one stream_server" ($ssProcs.Count -eq 1) `
+    ("python running stream_server.py: " + $ssProcs.Count) `
+    "re-run this script with -Fix (duplicates fight over :5000)"
+
 # stream_server health - also tells us whether the replay buffer is armed
 try {
   $h = Invoke-RestMethod -Uri "http://127.0.0.1:5000/health" -TimeoutSec 5
@@ -381,13 +411,14 @@ if ($Fix) {
   # 2) stream_server: none running, or several fighting over :5000.
   $procs = Get-StreamServerProcs
   if ($procs.Count -ne 1) {
-    Info "stream_server processes: $($procs.Count) - restarting clean"
-    Stop-ScheduledTask -TaskName PS-StreamServer -ErrorAction SilentlyContinue
-    foreach ($p in $procs) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
-    Start-Sleep 3
+    Info "stream_server processes: $($procs.Count)  supervisors: $((Get-SupervisorProcs).Count) - restarting clean"
+    Stop-StreamServerTree
+    $left = (Get-StreamServerProcs).Count + (Get-SupervisorProcs).Count
+    if ($left) { Info "WARNING: $left process(es) survived the stop - restart Windows if this repeats" }
     Start-ScheduledTask -TaskName PS-StreamServer -ErrorAction SilentlyContinue
     Info "waiting for startup (it downloads the court page first, 15s timeout) ..."
     Start-Sleep 18
+    Info "now running: $((Get-StreamServerProcs).Count) stream_server process(es)"
   } else { Info "stream_server: 1 process, leaving it alone" }
 
   # 3) Replay buffer.
@@ -425,7 +456,8 @@ if ($fail -gt 0 -or $Fix) {
   Write-Host "  [stream_server processes]"
   $procs = Get-StreamServerProcs
   if ($procs.Count -eq 0) { Info "(none)" }
-  foreach ($p in $procs) { Info ("pid=" + $p.ProcessId + "  started=" + $p.CreationDate) }
+  foreach ($p in $procs) { Info ("python  pid=" + $p.ProcessId + "  ppid=" + $p.ParentProcessId + "  started=" + $p.CreationDate) }
+  foreach ($p in Get-SupervisorProcs) { Info ($p.Name + "  pid=" + $p.ProcessId + "  ppid=" + $p.ParentProcessId) }
 
   Write-Host "  [OBS probe]"
   if ((Test-Path $venvPy) -and (Test-Path $cfgPath)) {
