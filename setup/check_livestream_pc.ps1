@@ -85,9 +85,19 @@ function Get-IniValue ($path, $section, $key) {
 
 function Info ($m) { Write-Host ("  " + $m) -ForegroundColor DarkGray }
 
+$IsElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+              ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
 function Get-StreamServerProcs {
-  @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -and $_.CommandLine -match 'stream_server\.py' })
+  # Win32_Process.CommandLine reads as $null for a process we are not allowed to
+  # inspect - and the scheduled task runs elevated (RunLevel Highest). So from a
+  # normal shell the command-line filter matches nothing and the server looks
+  # absent while it is plainly serving :5000. Fall back to "any python.exe":
+  # this is a dedicated PC, nothing else here runs Python.
+  $all = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue)
+  $named = @($all | Where-Object { $_.CommandLine -and $_.CommandLine -match 'stream_server\.py' })
+  if ($named.Count -gt 0) { return $named }
+  return $all
 }
 
 # The supervisor (run_stream_server.ps1) and the cmd it uses for redirection.
@@ -147,6 +157,9 @@ if not active and len(sys.argv) > 2:
   $tmp = Join-Path $env:TEMP "ps_obs_probe.py"
   [IO.File]::WriteAllText($tmp, $py, (New-Object System.Text.UTF8Encoding $false))
   $env:PYTHONUTF8 = "1"
+  # Python emits UTF-8; PowerShell decodes native output with the console codepage
+  # (CP949 here), which turns Korean scene and source names into mojibake.
+  try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }
   $ErrorActionPreference = "Continue"
   if ($StartBuffer) { & $venvPy $tmp $cfgPath "start" 2>&1 } else { & $venvPy $tmp $cfgPath 2>&1 }
 }
@@ -291,8 +304,9 @@ Chk "stream_server :5000"  (Port-Open 5000) $null `
 # else in this script would notice.
 $ssProcs = Get-StreamServerProcs
 Chk "exactly one stream_server" ($ssProcs.Count -eq 1) `
-    ("python running stream_server.py: " + $ssProcs.Count) `
-    "re-run this script with -Fix (duplicates fight over :5000)"
+    ("python processes: " + $ssProcs.Count +
+     $(if (-not $IsElevated) { "  (counted by name - run as Administrator for an exact match)" } else { "" })) `
+    "re-run this script with -Fix from an ADMIN PowerShell (duplicates fight over :5000)"
 
 # stream_server health - also tells us whether the replay buffer is armed
 try {
@@ -397,6 +411,11 @@ Write-Host "  confirm it by hand in the BIOS, or by pulling the plug once and wa
 if ($Fix) {
   Write-Host ""
   Write-Host "-- Repairs (-Fix)" -ForegroundColor Cyan
+  if (-not $IsElevated) {
+    # The task's processes run elevated; Stop-Process on them fails from here.
+    Write-Host "  [!!] not running as Administrator - cannot stop the task's processes." -ForegroundColor Yellow
+    Write-Host "       If a repair below does not stick, re-run this from an admin PowerShell." -ForegroundColor Yellow
+  }
 
   # 1) config.json BOM - Python cannot read past it, PowerShell can.
   if (Test-Path $cfgPath) {
@@ -475,7 +494,10 @@ if ($fail -gt 0 -or $Fix) {
   $log = Get-ChildItem (Join-Path $RepoDir "logs") -Filter "stream_server_*.log" -ErrorAction SilentlyContinue |
            Sort-Object LastWriteTime | Select-Object -Last 1
   if ($log) {
-    Get-Content $log.FullName -Tail 25 -ErrorAction SilentlyContinue | ForEach-Object { Info $_ }
+    # -Encoding UTF8: the log holds Python's UTF-8 output, and Get-Content would
+    # otherwise read it with the ANSI codepage and print mojibake.
+    Get-Content $log.FullName -Tail 25 -Encoding UTF8 -ErrorAction SilentlyContinue |
+      ForEach-Object { Info $_ }
   } else { Info "(no log file)" }
 }
 
