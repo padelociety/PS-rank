@@ -116,6 +116,19 @@ if (Test-Path $cfgPath) {
     Chk "config.json parses as JSON" $false $_.Exception.Message `
         "STEP 2 - fix config.json (must be valid JSON, saved as UTF-8 without BOM)"
   }
+
+  # Check it the way stream_server.py actually reads it. .NET strips a BOM while
+  # reading, so a Notepad "UTF-8 with BOM" save passes every check above and then
+  # crashes Python with 'Expecting value: line 1 column 1'. Test with Python itself.
+  if (Test-Path $venvPy) {
+    $bytes = [IO.File]::ReadAllBytes($cfgPath)
+    $bom = if ($bytes.Length -ge 3) { "{0:X2} {1:X2} {2:X2}" -f $bytes[0],$bytes[1],$bytes[2] } else { "" }
+    $ErrorActionPreference = "Continue"
+    $pyOut = & $venvPy -c "import json,sys;json.load(open(sys.argv[1],encoding='utf-8'))" $cfgPath 2>&1
+    Chk "config.json readable by Python" ($LASTEXITCODE -eq 0) `
+        ("first bytes: $bom" + $(if ($LASTEXITCODE -ne 0) { "  |  " + (("$pyOut" -split "`n")[-1]).Trim() } else { "" })) `
+        "STEP 2 - re-save config.json as UTF-8 WITHOUT BOM (EF BB BF at the start is the BOM)"
+  }
 }
 
 # ------------------------------------------------------------- OBS settings

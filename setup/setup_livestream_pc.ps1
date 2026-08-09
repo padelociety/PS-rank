@@ -277,6 +277,14 @@ $CONFIG_TEMPLATE = @'
 Try-Step "config.json" {
   $cfg = $null
   if (Test-Path $cfgPath) {
+    # Strip a byte order mark if an editor added one. .NET reads straight through
+    # a BOM, but stream_server.py opens this with encoding='utf-8' and json.load
+    # then dies with "Unexpected UTF-8 BOM" - a crash loop every check above misses.
+    $bytes = [IO.File]::ReadAllBytes($cfgPath)
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+      Write-Utf8NoBom $cfgPath ([IO.File]::ReadAllText($cfgPath))
+      Ok "config.json had a UTF-8 BOM - rewritten without it"
+    }
     try { $cfg = (Read-Utf8 $cfgPath) | ConvertFrom-Json }
     catch { Warn "config.json does not parse as JSON: $($_.Exception.Message)" }
   }
