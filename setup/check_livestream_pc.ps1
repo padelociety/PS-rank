@@ -157,11 +157,18 @@ if not active and len(sys.argv) > 2:
   $tmp = Join-Path $env:TEMP "ps_obs_probe.py"
   [IO.File]::WriteAllText($tmp, $py, (New-Object System.Text.UTF8Encoding $false))
   $env:PYTHONUTF8 = "1"
-  # Python emits UTF-8; PowerShell decodes native output with the console codepage
-  # (CP949 here), which turns Korean scene and source names into mojibake.
-  try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }
   $ErrorActionPreference = "Continue"
-  if ($StartBuffer) { & $venvPy $tmp $cfgPath "start" 2>&1 } else { & $venvPy $tmp $cfgPath 2>&1 }
+
+  # Route the output through a file instead of PowerShell's native-command pipe.
+  # Reading the pipe decodes with the console codepage (CP949 here) and mojibakes
+  # Korean scene/source names; and switching [Console]::OutputEncoding to fix that
+  # makes the console print every wide character twice. Writing raw bytes with cmd
+  # and reading them back as UTF-8 avoids the console encoding entirely.
+  $out = Join-Path $env:TEMP "ps_obs_probe.out"
+  Remove-Item $out -Force -ErrorAction SilentlyContinue
+  $extra = if ($StartBuffer) { ' start' } else { '' }
+  & cmd.exe /c "`"$venvPy`" `"$tmp`" `"$cfgPath`"$extra > `"$out`" 2>&1"
+  if (Test-Path $out) { Get-Content $out -Encoding UTF8 -ErrorAction SilentlyContinue } else { @() }
 }
 
 Write-Host ""
