@@ -100,6 +100,17 @@ function Get-StreamServerProcs {
   return $all
 }
 
+# One server can legitimately show up as two processes: the interpreter re-execs
+# itself (same command line, child of the first), and only the child actually
+# serves - the log shows a single Flask banner and there is no port conflict.
+# So count ROOTS: a stream_server process whose parent is not itself one.
+# Two roots = two real servers fighting over :5000. Parent+child = one server.
+function Get-StreamServerRoots {
+  $all = Get-StreamServerProcs
+  $ids = @($all | ForEach-Object { $_.ProcessId })
+  @($all | Where-Object { $ids -notcontains $_.ParentProcessId })
+}
+
 # The supervisor (run_stream_server.ps1) and the cmd it uses for redirection.
 # These MUST die before python does: Stop-ScheduledTask does not reap them, and a
 # surviving supervisor relaunches python 10s later - so killing python alone leaves
@@ -309,10 +320,10 @@ Chk "stream_server :5000"  (Port-Open 5000) $null `
 # Two servers means the loser cannot bind :5000, exits, and its supervisor relaunches
 # it every 10s forever. /health still answers (the winner holds the port) so nothing
 # else in this script would notice.
-$ssProcs = Get-StreamServerProcs
-Chk "exactly one stream_server" ($ssProcs.Count -eq 1) `
-    ("python processes: " + $ssProcs.Count +
-     $(if (-not $IsElevated) { "  (counted by name - run as Administrator for an exact match)" } else { "" })) `
+$ssRoots = Get-StreamServerRoots
+Chk "exactly one stream_server" ($ssRoots.Count -eq 1) `
+    ("servers: " + $ssRoots.Count + "  (python processes: " + (Get-StreamServerProcs).Count + ")" +
+     $(if (-not $IsElevated) { "  - run as Administrator for an exact match" } else { "" })) `
     "re-run this script with -Fix from an ADMIN PowerShell (duplicates fight over :5000)"
 
 # stream_server health - also tells us whether the replay buffer is armed
@@ -436,15 +447,15 @@ if ($Fix) {
 
   # 2) stream_server: none running, or several fighting over :5000.
   $procs = Get-StreamServerProcs
-  if ($procs.Count -ne 1) {
-    Info "stream_server processes: $($procs.Count)  supervisors: $((Get-SupervisorProcs).Count) - restarting clean"
+  if ((Get-StreamServerRoots).Count -ne 1) {
+    Info "servers: $((Get-StreamServerRoots).Count)  python: $($procs.Count)  supervisors: $((Get-SupervisorProcs).Count) - restarting clean"
     Stop-StreamServerTree
     $left = (Get-StreamServerProcs).Count + (Get-SupervisorProcs).Count
     if ($left) { Info "WARNING: $left process(es) survived the stop - restart Windows if this repeats" }
     Start-ScheduledTask -TaskName PS-StreamServer -ErrorAction SilentlyContinue
     Info "waiting for startup (it downloads the court page first, 15s timeout) ..."
     Start-Sleep 18
-    Info "now running: $((Get-StreamServerProcs).Count) stream_server process(es)"
+    Info "now running: $((Get-StreamServerRoots).Count) server(s), $((Get-StreamServerProcs).Count) python process(es)"
   } else { Info "stream_server: 1 process, leaving it alone" }
 
   # 3) Replay buffer.
