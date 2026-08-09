@@ -326,10 +326,14 @@ if ($SkipPower) {
     powercfg /change disk-timeout-ac      0
     Ok "display/sleep/hibernate/disk timeouts set to Never (on AC)"
   }
-  # Turning hibernation off also kills Fast Startup, which is what makes a machine
-  # come back in a half-resumed state after the power is cut.
+  # Fast Startup is what makes a machine come back half-resumed after the power is
+  # cut. `powercfg /hibernate off` stops it working but leaves HiberbootEnabled at
+  # 1, so clear that too - otherwise re-enabling hibernation later silently brings
+  # Fast Startup back.
   Try-Step "hibernate off" {
     powercfg /hibernate off
+    New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power" `
+      -Name HiberbootEnabled -Value 0 -PropertyType DWord -Force | Out-Null
     Ok "hibernation + fast startup disabled"
   }
   # USB selective suspend drops capture cards mid-stream.

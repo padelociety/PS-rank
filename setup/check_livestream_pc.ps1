@@ -248,8 +248,11 @@ $hibOn  = (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Power" `
              -Name HibernateEnabled -ErrorAction SilentlyContinue).HibernateEnabled
 $fastOn = (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power" `
              -Name HiberbootEnabled -ErrorAction SilentlyContinue).HiberbootEnabled
-Chk "hibernate/fast startup off" (($hibOn -ne 1) -and ($fastOn -ne 1)) `
-    "keeps the PC from resuming into a half state after a power cut" `
+# Fast startup only runs when BOTH are 1, so either being 0 means a power cut is
+# followed by a real cold boot. `powercfg /hibernate off` clears HibernateEnabled
+# and leaves HiberbootEnabled alone - demanding both be 0 was a false alarm.
+Chk "fast startup cannot run" (-not (($hibOn -eq 1) -and ($fastOn -eq 1))) `
+    "HibernateEnabled=$hibOn  HiberbootEnabled=$fastOn (either 0 is enough)" `
     "STEP 1 - re-run setup_livestream_pc.ps1 as Administrator"
 
 $win  = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
@@ -293,9 +296,11 @@ if ($fail -eq 0) {
 
   if ($ordered.Count) {
     Write-Host ""
-    Write-Host "  TO DO (inner layers first - a later step cannot work before an earlier one):" -ForegroundColor Yellow
+    Write-Host "  TO DO (in check order - inner layers first):" -ForegroundColor Yellow
+    # Insertion order IS the diagnostic order (files -> config -> OBS -> ports ->
+    # tasks -> tunnel -> power). Sorting this alphabetically would scramble it.
     $i = 1
-    foreach ($t in ($ordered | Sort-Object)) { Write-Host ("   {0}) {1}" -f $i, $t); $i++ }
+    foreach ($t in $ordered) { Write-Host ("   {0}) {1}" -f $i, $t); $i++ }
   }
   Write-Host ""
   Write-Host "  Chain: OBS -> WebSocket 4455 -> stream_server 5000 -> tunnel -> public URL"
