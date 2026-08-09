@@ -12,9 +12,17 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$RepoDir   = (Split-Path -Parent $PSScriptRoot),
+  [string]$RepoDir,
   [string]$PublicUrl = "https://obs.padelsociety.co.kr"
 )
+
+# Resolve the script's own folder HERE, not in a param() default: Windows
+# PowerShell 5.1 does not reliably have $PSScriptRoot populated while param
+# defaults are evaluated, and Split-Path then dies on an empty -Path.
+$ScriptDir = $PSScriptRoot
+if (-not $ScriptDir) { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $ScriptDir) { $ScriptDir = (Get-Location).Path }
+if (-not $RepoDir)   { $RepoDir   = Split-Path -Parent $ScriptDir }
 
 $pass = 0; $fail = 0; $todo = @()
 
@@ -291,7 +299,7 @@ if ($fail -eq 0) {
   }
   Write-Host ""
   Write-Host "  Chain: OBS -> WebSocket 4455 -> stream_server 5000 -> tunnel -> public URL"
-  Write-Host "  Full walkthrough: $(Join-Path $PSScriptRoot 'SETUP_LIVESTREAM_PC.md')"
+  Write-Host "  Full walkthrough: $(Join-Path $ScriptDir 'SETUP_LIVESTREAM_PC.md')"
 }
 Write-Host "============================================================"
 Write-Host ""

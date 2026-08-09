@@ -29,6 +29,12 @@ $ErrorActionPreference = "Stop"
 $script:Warnings = @()
 $script:Manual   = @()
 
+# Where this script lives. Resolved with fallbacks because $PSScriptRoot is empty
+# under some invocation paths in Windows PowerShell 5.1.
+$ScriptDir = $PSScriptRoot
+if (-not $ScriptDir) { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $ScriptDir) { $ScriptDir = (Get-Location).Path }
+
 function Say  ($m) { Write-Host "  $m" }
 function Step ($m) { Write-Host ""; Write-Host "== $m" -ForegroundColor Cyan }
 function Ok   ($m) { Write-Host "  [OK] $m" -ForegroundColor Green }
@@ -182,13 +188,13 @@ if (-not (Test-Path (Join-Path $RepoDir "stream_server.py"))) {
 $setupDir = Join-Path $RepoDir "setup"
 Try-Step "setup scripts in repo" {
   if (-not (Test-Path $setupDir)) { New-Item -ItemType Directory -Path $setupDir -Force | Out-Null }
-  $here  = (Resolve-Path $PSScriptRoot).Path.TrimEnd('\')
+  $here  = (Resolve-Path $ScriptDir).Path.TrimEnd('\')
   $there = (Resolve-Path $setupDir).Path.TrimEnd('\')
   if ($here -ieq $there) {
     Ok "already running from $setupDir"
   } else {
-    Copy-Item (Join-Path $PSScriptRoot "*.ps1") $setupDir -Force
-    Copy-Item (Join-Path $PSScriptRoot "*.md")  $setupDir -Force -ErrorAction SilentlyContinue
+    Copy-Item (Join-Path $ScriptDir "*.ps1") $setupDir -Force
+    Copy-Item (Join-Path $ScriptDir "*.md")  $setupDir -Force -ErrorAction SilentlyContinue
     Ok "setup scripts copied to $setupDir (tasks will reference that copy)"
   }
 }

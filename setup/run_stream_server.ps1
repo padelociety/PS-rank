@@ -16,13 +16,24 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$RepoDir = (Split-Path -Parent $PSScriptRoot),
+  [string]$RepoDir,
   [int]$RestartDelaySeconds = 10,
   [int]$LogRetentionDays = 14,
   [switch]$Foreground
 )
 
 $ErrorActionPreference = "Stop"
+
+# Resolve the script's own folder HERE, not in a param() default: Windows
+# PowerShell 5.1 does not reliably have $PSScriptRoot populated while param
+# defaults are evaluated, and Split-Path then dies on an empty -Path. The
+# scheduled task passes -RepoDir explicitly, but the -Foreground run does not.
+if (-not $RepoDir) {
+  $ScriptDir = $PSScriptRoot
+  if (-not $ScriptDir) { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
+  if (-not $ScriptDir) { $ScriptDir = (Get-Location).Path }
+  $RepoDir = Split-Path -Parent $ScriptDir
+}
 
 $server = Join-Path $RepoDir "stream_server.py"
 $venvPy = Join-Path $RepoDir ".venv\Scripts\python.exe"
