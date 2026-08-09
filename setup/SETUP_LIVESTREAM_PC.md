@@ -339,7 +339,7 @@ $ff = & C:\dev\PS-rank\.venv\Scripts\python.exe -c "import imageio_ffmpeg;print(
 
 `Stream #0:0: Video: h264 ... 1920x1080` 이 나오면 정상.
 
-> **DDNS 주소보다 LAN IP가 낫다.** DDNS(`xxx.gonetis.com`)를 쓰면 같은 건물 안 카메라
+> **DDNS 주소보다 LAN IP가 낫다.** DDNS 호스트명을 쓰면 같은 건물 안 카메라
 > 영상이 인터넷을 한 바퀴 돌아 들어온다. LAN에서 카메라를 찾으려면 554 포트를 스캔한다:
 >
 > ```powershell
