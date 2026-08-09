@@ -83,6 +83,52 @@ function Get-IniValue ($path, $section, $key) {
   return $null
 }
 
+function Info ($m) { Write-Host ("  " + $m) -ForegroundColor DarkGray }
+
+function Get-StreamServerProcs {
+  @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine -match 'stream_server\.py' })
+}
+
+# Talks to OBS through the venv (obsws-python lives there) and reports what OBS
+# actually says - start_replay_buffer failures are swallowed by the server's
+# keepalive loop on purpose, so this is the only place the reason surfaces.
+function Invoke-ObsProbe ($venvPy, $cfgPath, [switch]$StartBuffer) {
+  $py = @'
+import json, sys, time
+import obsws_python as o
+cfg = json.load(open(sys.argv[1], encoding='utf-8'))['obs']
+r = o.ReqClient(host=cfg.get('host', 'localhost'), port=int(cfg.get('port', 4455)),
+                password=cfg.get('password', ''), timeout=5)
+print('obs_version=' + r.get_version().obs_version)
+active = r.get_replay_buffer_status().output_active
+print('buffer_before=' + str(active))
+# A scene with no sources streams a black screen and nothing anywhere reports it.
+try:
+    sc = r.get_current_program_scene()
+    name = getattr(sc, 'current_program_scene_name', None) or getattr(sc, 'scene_name', '')
+    items = r.get_scene_item_list(name).scene_items
+    print('scene=' + str(name))
+    print('sources=' + str(len(items)))
+    for it in items:
+        print('  source: ' + str(it.get('sourceName')) + '  enabled=' + str(it.get('sceneItemEnabled')))
+except Exception as e:
+    print('scene_error=' + repr(e))
+if not active and len(sys.argv) > 2:
+    try:
+        r.start_replay_buffer()
+        time.sleep(2)
+        print('buffer_after=' + str(r.get_replay_buffer_status().output_active))
+    except Exception as e:
+        print('start_error=' + repr(e))
+'@
+  $tmp = Join-Path $env:TEMP "ps_obs_probe.py"
+  [IO.File]::WriteAllText($tmp, $py, (New-Object System.Text.UTF8Encoding $false))
+  $env:PYTHONUTF8 = "1"
+  $ErrorActionPreference = "Continue"
+  if ($StartBuffer) { & $venvPy $tmp $cfgPath "start" 2>&1 } else { & $venvPy $tmp $cfgPath 2>&1 }
+}
+
 Write-Host ""
 Write-Host "============================================================"
 Write-Host "  PS Livestream PC - health check"
@@ -186,6 +232,20 @@ if (-not ($basicIni -and (Test-Path $basicIni))) {
   if ($null -ne $ws) {
     Chk "websocket server enabled (profile)" ($ws -ieq "true") $null `
         "STEP 3 - Tools > WebSocket Server Settings > Enable WebSocket server"
+  }
+}
+
+# A scene with no sources streams a pure black screen. OBS is happy, the server is
+# happy, /health is happy - only a viewer would ever notice. Ask OBS directly.
+if ((Test-Path $venvPy) -and (Test-Path $cfgPath)) {
+  $probe = (Invoke-ObsProbe $venvPy $cfgPath) -join "`n"
+  if ($probe -match 'sources=(\d+)') {
+    $srcCount = [int]$Matches[1]
+    $sceneName = if ($probe -match 'scene=(.+)') { $Matches[1].Trim() } else { "?" }
+    Chk "scene has at least one source" ($srcCount -gt 0) "scene '$sceneName' has $srcCount source(s)" `
+        "STEP 3 - add the court camera in OBS: Sources + > Video Capture Device (an empty scene streams black)"
+  } else {
+    Skip "scene source check" "could not query OBS (see Diagnostics below)"
   }
 }
 
@@ -304,41 +364,6 @@ Write-Host "  confirm it by hand in the BIOS, or by pulling the plug once and wa
 
 # ================================================================= repairs
 # Everything here is safe to repeat. Run with -Fix.
-function Info ($m) { Write-Host ("  " + $m) -ForegroundColor DarkGray }
-
-function Get-StreamServerProcs {
-  @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -and $_.CommandLine -match 'stream_server\.py' })
-}
-
-# Talks to OBS through the venv (obsws-python lives there) and reports what OBS
-# actually says - start_replay_buffer failures are swallowed by the server's
-# keepalive loop on purpose, so this is the only place the reason surfaces.
-function Invoke-ObsProbe ($venvPy, $cfgPath, [switch]$StartBuffer) {
-  $py = @'
-import json, sys, time
-import obsws_python as o
-cfg = json.load(open(sys.argv[1], encoding='utf-8'))['obs']
-r = o.ReqClient(host=cfg.get('host', 'localhost'), port=int(cfg.get('port', 4455)),
-                password=cfg.get('password', ''), timeout=5)
-print('obs_version=' + r.get_version().obs_version)
-active = r.get_replay_buffer_status().output_active
-print('buffer_before=' + str(active))
-if not active and len(sys.argv) > 2:
-    try:
-        r.start_replay_buffer()
-        time.sleep(2)
-        print('buffer_after=' + str(r.get_replay_buffer_status().output_active))
-    except Exception as e:
-        print('start_error=' + repr(e))
-'@
-  $tmp = Join-Path $env:TEMP "ps_obs_probe.py"
-  [IO.File]::WriteAllText($tmp, $py, (New-Object System.Text.UTF8Encoding $false))
-  $env:PYTHONUTF8 = "1"
-  $ErrorActionPreference = "Continue"
-  if ($StartBuffer) { & $venvPy $tmp $cfgPath "start" 2>&1 } else { & $venvPy $tmp $cfgPath 2>&1 }
-}
-
 if ($Fix) {
   Write-Host ""
   Write-Host "-- Repairs (-Fix)" -ForegroundColor Cyan
