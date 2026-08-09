@@ -308,10 +308,69 @@ stream_server가 20초마다 버퍼 상태를 확인해 꺼져 있으면 다시 
 
 ### 3-6. 소스와 소리
 
-**장면**에 코트 카메라를 추가한다.
+**장면에 소스가 하나도 없으면 순수한 검은 화면이 방송된다.** OBS도 stream_server도
+`/health`도 전부 정상이라 아무 데서도 티가 나지 않는다 — 시청자만 아는 고장이다.
+(그래서 `check_livestream_pc.ps1`이 OBS에 직접 물어 소스 개수를 확인한다.)
 
-- 캡처카드 / 웹캠 → **소스 + → 비디오 캡처 장치**
-- 미리보기에 코트가 보이는지, 해상도·FPS가 장치 설정과 맞는지 확인
+#### IP 카메라 (RTSP) — 현재 PS 코트 방식
+
+**소스 + → 미디어 소스** → 이름 `코트 카메라` → 확인
+
+| 항목 | 값 |
+|---|---|
+| **로컬 파일** | **체크 해제** ⚠️ 풀어야 입력 칸이 나온다 |
+| 입력 | `rtsp://<계정>:<비밀번호>@<카메라IP>:554/Streaming/Channels/101` |
+| 입력 형식 | 비움 |
+| 네트워크 버퍼링 | `1` MB (지연 줄이려면 낮게) |
+| 재연결 지연 시간 | `5` 초 |
+| **소스가 비활성일 때 파일 닫기** | **체크 해제** ⚠️ 체크되면 매번 재접속해 끊긴다 |
+| 가능한 경우 하드웨어 디코딩 사용 | 체크 |
+
+Hikvision 계열 경로: `/Streaming/Channels/101`(메인) · `/102`(서브, 저해상도).
+
+OBS에 넣기 전에 **ffmpeg으로 먼저 찔러보면** 원인이 카메라인지 OBS인지 바로 갈린다
+(venv에 imageio-ffmpeg이 들어 있다):
+
+```powershell
+$ff = & C:\dev\PS-rank\.venv\Scripts\python.exe -c "import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())"
+& $ff -rtsp_transport tcp -i "rtsp://<계정>:<비밀번호>@<카메라IP>:554/Streaming/Channels/101" -t 5 -f null NUL 2>&1 |
+  Select-String "Input #|Stream #|401|Unauthorized|Error|error|failed"
+```
+
+`Stream #0:0: Video: h264 ... 1920x1080` 이 나오면 정상.
+
+> **DDNS 주소보다 LAN IP가 낫다.** DDNS(`xxx.gonetis.com`)를 쓰면 같은 건물 안 카메라
+> 영상이 인터넷을 한 바퀴 돌아 들어온다. LAN에서 카메라를 찾으려면 554 포트를 스캔한다:
+>
+> ```powershell
+> $prefix = ((Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '169.*' -and $_.IPAddress -ne '127.0.0.1' } | Select-Object -First 1).IPAddress) -replace '\.\d+$',''
+> $t = 1..254 | ForEach-Object { $c = New-Object Net.Sockets.TcpClient; [pscustomobject]@{IP="$prefix.$_"; C=$c; T=$c.ConnectAsync("$prefix.$_", 554)} }
+> Start-Sleep 4
+> $t | ForEach-Object { if ($_.T.Status -eq 'RanToCompletion') { Write-Host ("  554 -> " + $_.IP) }; $_.C.Close() }
+> ```
+>
+> 여러 개 나오면 NVR과 카메라가 섞인 것이다. **카메라 직결이 낫다**(NVR을 거치면 지연이 는다).
+> Hikvision 공장 기본 IP는 보통 `x.x.x.64`.
+>
+> ⚠️ **LAN IP를 쓰면 반드시 공유기에서 DHCP 예약(MAC↔IP 고정)을 건다.** 안 하면 공유기가
+> 재부팅되는 날 IP가 바뀌어 방송이 통째로 죽는데, 무인 PC라 아무도 모른다.
+> 예약을 걸 수 없으면 차라리 DDNS 주소를 그대로 쓴다.
+
+⚠️ RTSP URL에는 카메라 비밀번호가 들어간다. OBS 장면 파일(`%APPDATA%\obs-studio\basic\scenes\*.json`)에
+평문으로 저장되니 그 파일을 공유하거나 커밋하지 않는다.
+
+#### 캡처카드 / USB 웹캠
+
+**소스 + → 비디오 캡처 장치** → 장치 드롭다운에서 선택.
+드롭다운이 비어 있으면 카메라가 안 잡힌 것 — 포맷 직후엔 **캡처카드 드라이버부터** 확인한다:
+
+```powershell
+Get-PnpDevice -Class Camera,Media,Image -PresentOnly | Select-Object Status, Class, FriendlyName | Format-Table -AutoSize
+```
+
+#### 공통
+
+소스를 넣었으면 우클릭 → **변환 → 화면에 맞추기**(`Ctrl+F`)로 화면을 채운다.
 
 **소리도 반드시 확인한다.** 오디오 믹서에 레벨이 움직여야 한다.
 무음으로 나가면 시청자에겐 방송이 고장 난 것처럼 보이는데, 로그에는 아무 문제도 안 남는다.
