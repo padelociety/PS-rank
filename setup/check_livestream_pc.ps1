@@ -4,16 +4,28 @@
   tablet says "streaming server is off".
 
     powershell -NoProfile -ExecutionPolicy Bypass -File .\check_livestream_pc.ps1
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\check_livestream_pc.ps1 -Fix
 
   Checks the whole chain, in the order it breaks in practice:
     OBS -> OBS WebSocket -> stream_server :5000 -> reverse tunnel -> public URL
   plus the "stays powered on" settings.
+
+  -Fix additionally repairs what can be repaired from here (all idempotent):
+  strips a BOM from config.json, restarts a missing or duplicated stream_server,
+  asks OBS to arm the replay buffer AND prints OBS's refusal reason, starts the
+  tunnel task - then re-verifies.
+
+  On any failure it also prints a Diagnostics block (processes, OBS probe, OBS
+  profile settings, log tail) so one paste carries everything needed to help.
   (ASCII only - Windows PowerShell 5.1 misreads non-ASCII without a BOM.)
 #>
 [CmdletBinding()]
 param(
   [string]$RepoDir,
-  [string]$PublicUrl = "https://obs.padelsociety.co.kr"
+  [string]$PublicUrl = "https://obs.padelsociety.co.kr",
+  # Try to fix what can be fixed from here (restart a stuck server, arm the replay
+  # buffer, strip a BOM), then re-verify. Everything it does is idempotent.
+  [switch]$Fix
 )
 
 # Resolve the script's own folder HERE, not in a param() default: Windows
@@ -289,6 +301,126 @@ Chk "Windows Update auto-reboot blocked" ($nr -eq 1) $null `
 Write-Host ""
 Write-Host "  BIOS 'Restore on AC Power Loss = Power On' cannot be read from Windows -" -ForegroundColor DarkGray
 Write-Host "  confirm it by hand in the BIOS, or by pulling the plug once and watching it boot." -ForegroundColor DarkGray
+
+# ================================================================= repairs
+# Everything here is safe to repeat. Run with -Fix.
+function Info ($m) { Write-Host ("  " + $m) -ForegroundColor DarkGray }
+
+function Get-StreamServerProcs {
+  @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine -match 'stream_server\.py' })
+}
+
+# Talks to OBS through the venv (obsws-python lives there) and reports what OBS
+# actually says - start_replay_buffer failures are swallowed by the server's
+# keepalive loop on purpose, so this is the only place the reason surfaces.
+function Invoke-ObsProbe ($venvPy, $cfgPath, [switch]$StartBuffer) {
+  $py = @'
+import json, sys, time
+import obsws_python as o
+cfg = json.load(open(sys.argv[1], encoding='utf-8'))['obs']
+r = o.ReqClient(host=cfg.get('host', 'localhost'), port=int(cfg.get('port', 4455)),
+                password=cfg.get('password', ''), timeout=5)
+print('obs_version=' + r.get_version().obs_version)
+active = r.get_replay_buffer_status().output_active
+print('buffer_before=' + str(active))
+if not active and len(sys.argv) > 2:
+    try:
+        r.start_replay_buffer()
+        time.sleep(2)
+        print('buffer_after=' + str(r.get_replay_buffer_status().output_active))
+    except Exception as e:
+        print('start_error=' + repr(e))
+'@
+  $tmp = Join-Path $env:TEMP "ps_obs_probe.py"
+  [IO.File]::WriteAllText($tmp, $py, (New-Object System.Text.UTF8Encoding $false))
+  $env:PYTHONUTF8 = "1"
+  $ErrorActionPreference = "Continue"
+  if ($StartBuffer) { & $venvPy $tmp $cfgPath "start" 2>&1 } else { & $venvPy $tmp $cfgPath 2>&1 }
+}
+
+if ($Fix) {
+  Write-Host ""
+  Write-Host "-- Repairs (-Fix)" -ForegroundColor Cyan
+
+  # 1) config.json BOM - Python cannot read past it, PowerShell can.
+  if (Test-Path $cfgPath) {
+    $b = [IO.File]::ReadAllBytes($cfgPath)
+    if ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) {
+      [IO.File]::WriteAllText($cfgPath, [IO.File]::ReadAllText($cfgPath),
+                              (New-Object System.Text.UTF8Encoding $false))
+      Info "config.json: removed UTF-8 BOM"
+    } else { Info "config.json: no BOM" }
+  }
+
+  # 2) stream_server: none running, or several fighting over :5000.
+  $procs = Get-StreamServerProcs
+  if ($procs.Count -ne 1) {
+    Info "stream_server processes: $($procs.Count) - restarting clean"
+    Stop-ScheduledTask -TaskName PS-StreamServer -ErrorAction SilentlyContinue
+    foreach ($p in $procs) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+    Start-Sleep 3
+    Start-ScheduledTask -TaskName PS-StreamServer -ErrorAction SilentlyContinue
+    Info "waiting for startup (it downloads the court page first, 15s timeout) ..."
+    Start-Sleep 18
+  } else { Info "stream_server: 1 process, leaving it alone" }
+
+  # 3) Replay buffer.
+  if (Test-Path $venvPy) {
+    Info "asking OBS to arm the replay buffer ..."
+    Invoke-ObsProbe $venvPy $cfgPath -StartBuffer | ForEach-Object { Info "  $_" }
+  }
+
+  # 4) Tunnel task (harmless if the key is not registered yet - it just retries).
+  if (-not (Get-Process ssh -ErrorAction SilentlyContinue)) {
+    Start-ScheduledTask -TaskName OBS-VPS-Tunnel -ErrorAction SilentlyContinue
+    Info "started OBS-VPS-Tunnel"
+  }
+
+  # Re-verify the two that matter after repairs.
+  Write-Host ""
+  Write-Host "-- After repairs" -ForegroundColor Cyan
+  Start-Sleep 22   # the server re-checks the buffer every 20s
+  try {
+    $h2 = Invoke-RestMethod -Uri "http://127.0.0.1:5000/health" -TimeoutSec 5
+    Write-Host ("  /health  ok=" + $h2.ok + "  buffer_ready=" + $h2.buffer_ready) `
+      -ForegroundColor $(if ($h2.ok -and $h2.buffer_ready) { "Green" } else { "Yellow" })
+  } catch {
+    Write-Host ("  /health still down: " + $_.Exception.Message) -ForegroundColor Red
+  }
+}
+
+# ============================================================= diagnostics
+# One block holding everything needed to diagnose remotely - so a single paste
+# answers the question instead of another round of one-command-at-a-time.
+if ($fail -gt 0 -or $Fix) {
+  Write-Host ""
+  Write-Host "-- Diagnostics (paste this whole block when asking for help)" -ForegroundColor Cyan
+
+  Write-Host "  [stream_server processes]"
+  $procs = Get-StreamServerProcs
+  if ($procs.Count -eq 0) { Info "(none)" }
+  foreach ($p in $procs) { Info ("pid=" + $p.ProcessId + "  started=" + $p.CreationDate) }
+
+  Write-Host "  [OBS probe]"
+  if ((Test-Path $venvPy) -and (Test-Path $cfgPath)) {
+    Invoke-ObsProbe $venvPy $cfgPath | ForEach-Object { Info $_ }
+  } else { Info "(venv or config.json missing)" }
+
+  Write-Host "  [OBS profile settings]"
+  if ($basicIni -and (Test-Path $basicIni)) {
+    foreach ($k in @("RecFilePath", "RecFormat2", "RecEncoder", "RecRB", "RecRBTime", "RecRBSize")) {
+      Info ("$k = " + (Get-IniValue $basicIni "AdvOut" $k))
+    }
+  } else { Info "(basic.ini not found)" }
+
+  Write-Host "  [stream_server log, last 25 lines]"
+  $log = Get-ChildItem (Join-Path $RepoDir "logs") -Filter "stream_server_*.log" -ErrorAction SilentlyContinue |
+           Sort-Object LastWriteTime | Select-Object -Last 1
+  if ($log) {
+    Get-Content $log.FullName -Tail 25 -ErrorAction SilentlyContinue | ForEach-Object { Info $_ }
+  } else { Info "(no log file)" }
+}
 
 # ---------------------------------------------------------------- summary
 Write-Host ""
