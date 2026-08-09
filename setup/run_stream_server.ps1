@@ -49,6 +49,13 @@ Get-ChildItem -Path $logDir -Filter "stream_server_*.log" -ErrorAction SilentlyC
   Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$LogRetentionDays) } |
   Remove-Item -Force -ErrorAction SilentlyContinue
 
+# Python switches stdout to the locale encoding (cp949 on Korean Windows) the
+# moment it is redirected, and stream_server.py's startup banner contains emoji -
+# so a supervised run died on UnicodeEncodeError before Flask ever bound :5000,
+# while an interactive run was fine. UTF-8 mode makes the encoding explicit.
+$env:PYTHONUTF8       = "1"
+$env:PYTHONIOENCODING = "utf-8"
+
 if ($Foreground) {
   # Interactive run: no redirection, so the YouTube OAuth prompt and its browser
   # hand-off stay visible. This is the run that creates youtube_token.pickle.
@@ -73,10 +80,11 @@ while ($true) {
   Add-Content -Path $log -Value "[$start] starting stream_server.py (python: $python)"
 
   try {
-    # `*>>` appends every stream to the day's log. Start-Process redirection would
-    # truncate it on each restart, losing the history of what kept killing it.
+    # cmd does the redirection, not PowerShell: `*>>` would re-decode the child's
+    # UTF-8 bytes through the console codepage (mojibake in the log) and turn every
+    # stderr line into a NativeCommandError record. cmd appends the bytes as-is.
     # -u keeps Python unbuffered so the log is current instead of lagging a block.
-    & $python -u $server *>> $log
+    & cmd.exe /c "`"$python`" -u `"$server`" >> `"$log`" 2>&1"
     $code = $LASTEXITCODE
   } catch {
     Add-Content -Path $log -Value "[$(Get-Date -Format 'HH:mm:ss')] launch failed: $($_.Exception.Message)"
