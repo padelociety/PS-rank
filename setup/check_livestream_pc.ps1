@@ -133,6 +133,62 @@ function Stop-StreamServerTree {
   foreach ($p in Get-StreamServerProcs) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
 }
 
+# Which YouTube channel the stored token actually belongs to, and whether that
+# channel may go live. Signing in with the wrong Google account (a personal one
+# instead of the PS brand channel) produces a 403 liveStreamingNotEnabled at the
+# worst possible moment - the first point of a real match. This surfaces it early.
+# Loads the pickle directly instead of calling _ensure_auth(), which would pop a
+# browser if the refresh failed; a health check must never block on a login.
+function Invoke-YouTubeProbe ($venvPy, $RepoDir) {
+  $py = @'
+import json, os, pickle, sys
+repo = sys.argv[1]
+tok  = os.path.join(repo, 'youtube_token.pickle')
+try:
+    from googleapiclient.discovery import build
+    from google.auth.transport.requests import Request
+    with open(tok, 'rb') as f:
+        creds = pickle.load(f)
+    if not creds.valid and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+    if not creds.valid:
+        print('token=invalid')
+        sys.exit(0)
+    yt = build('youtube', 'v3', credentials=creds)
+except Exception as e:
+    print('token_error=' + str(e)[:200])
+    sys.exit(0)
+
+try:
+    items = yt.channels().list(part='snippet', mine=True).execute().get('items', [])
+    if items:
+        for c in items:
+            print('channel=' + c['snippet']['title'] + '  id=' + c['id'])
+    else:
+        print('channel=(none - the token has no channel)')
+except Exception as e:
+    print('channel_error=' + str(e)[:200])
+
+# Read-only probe: it 403s exactly like liveBroadcasts().insert would, but
+# creates nothing.
+try:
+    yt.liveBroadcasts().list(part='id', broadcastStatus='all', maxResults=1).execute()
+    print('live_enabled=True')
+except Exception as e:
+    print('live_enabled=False')
+    print('live_error=' + str(e)[:300])
+'@
+  $tmp = Join-Path $env:TEMP "ps_yt_probe.py"
+  [IO.File]::WriteAllText($tmp, $py, (New-Object System.Text.UTF8Encoding $false))
+  $out = Join-Path $env:TEMP "ps_yt_probe.out"
+  Remove-Item $out -Force -ErrorAction SilentlyContinue
+  $env:PYTHONUTF8 = "1"
+  $ErrorActionPreference = "Continue"
+  # cd into the repo so youtube_token.pickle resolves the same way the server sees it.
+  & cmd.exe /c "cd /d `"$RepoDir`" && `"$venvPy`" `"$tmp`" `"$RepoDir`" > `"$out`" 2>&1"
+  if (Test-Path $out) { Get-Content $out -Encoding UTF8 -ErrorAction SilentlyContinue } else { @() }
+}
+
 # Talks to OBS through the venv (obsws-python lives there) and reports what OBS
 # actually says - start_replay_buffer failures are swallowed by the server's
 # keepalive loop on purpose, so this is the only place the reason surfaces.
@@ -240,6 +296,29 @@ if (Test-Path $cfgPath) {
         ("first bytes: $bom" + $(if ($LASTEXITCODE -ne 0) { "  |  " + (("$pyOut" -split "`n")[-1]).Trim() } else { "" })) `
         "STEP 2 - re-save config.json as UTF-8 WITHOUT BOM (EF BB BF at the start is the BOM)"
   }
+}
+
+# ----------------------------------------------------------------- YouTube
+Write-Host ""
+Write-Host "-- YouTube" -ForegroundColor Cyan
+if ((Test-Path $venvPy) -and (Test-Path (Join-Path $RepoDir "youtube_token.pickle"))) {
+  $yt = (Invoke-YouTubeProbe $venvPy $RepoDir) -join "`n"
+  $chan = if ($yt -match 'channel=(.+)') { $Matches[1].Trim() } else { '(unknown)' }
+
+  Chk "signed in to a YouTube channel" ($yt -match 'channel=' -and $yt -notmatch 'channel=\(none') $chan `
+      "STEP 5 - delete youtube_token.pickle and sign in again with the PS channel"
+
+  if ($yt -match 'live_enabled=True') {
+    Chk "channel may go live" $true $null
+  } else {
+    $why = if ($yt -match 'live_error=(.+)') { $Matches[1].Trim() } else { $yt }
+    Chk "channel may go live" $false $why `
+        ("STEP 5 - this channel cannot stream. If it is the wrong account: delete " +
+         "youtube_token.pickle and re-authenticate, picking the PS channel. If it is the " +
+         "right one: enable live streaming at https://www.youtube.com/features (24h wait on first activation)")
+  }
+} else {
+  Skip "YouTube" "no token yet - complete the first sign-in (STEP 5)"
 }
 
 # ------------------------------------------------------------- OBS settings
