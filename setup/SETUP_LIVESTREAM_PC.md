@@ -743,7 +743,7 @@ Start-Process "$env:ProgramFiles\obs-studio\bin\64bit\obs64.exe" `
 
 | 이름 | 트리거 | 실행 |
 |---|---|---|
-| `PS-OBS-Studio` | 로그온 시 | `obs64.exe --startreplaybuffer --minimize-to-tray --disable-shutdown-check` |
+| `PS-OBS-Studio` | 로그온 시 | `obs64.exe --startreplaybuffer --disable-shutdown-check` |
 | `PS-StreamServer` | 로그온 시 | `setup\run_stream_server.ps1` (죽으면 10초 뒤 재시작) |
 | `OBS-VPS-Tunnel` | 로그온 시 | `obs_tunnel\obs_tunnel.ps1` (끊기면 5초 뒤 재연결) |
 
@@ -766,6 +766,26 @@ Start-Process "$env:ProgramFiles\obs-studio\bin\64bit\obs64.exe" `
 | `padelociety/PS-rank` (public) — `setup/` | **PC가 실제로 clone하는 쪽** |
 
 PC는 public 쪽만 보므로, 키트를 고쳤으면 **PS-rank에도 반영해야 현장에 반영된다.**
+
+> ### ⚠️ 한글이 든 `.ps1`은 반드시 'UTF-8 with BOM'으로
+>
+> Windows PowerShell 5.1(현장 PC의 기본 셸)은 `.ps1`에 BOM이 없으면 **cp949로 읽는다.**
+> 그러면 한글이 깨지는 정도로 안 끝나고 **파싱 자체가 깨진다** — 예를 들어 `"유지됨"`은
+> `EC 9C A0 EC A7 80 EB 90 A8` 인데, cp949는 이걸 두 바이트씩 묶다가 마지막 `A8`을
+> 선행 바이트로 보고 **바로 뒤의 닫는 따옴표(`0x22`)까지 먹어버린다.** 문자열이 안 닫히니
+> 그 뒤로 전부 무너진다(`식 또는 문에서 예기치 않은 토큰입니다`).
+>
+> `setup/` 안의 다른 스크립트들은 화면 메시지가 영어라 이 함정을 안 밟았을 뿐이다.
+> 확인:
+>
+> ```powershell
+> Get-ChildItem .\setup\*.ps1 | ForEach-Object {
+>   $b = [System.IO.File]::ReadAllBytes($_.FullName)
+>   $bom = ($b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF)
+>   $han = $b | Where-Object { $_ -gt 127 } | Select-Object -First 1
+>   if ($han -and -not $bom) { "BOM 없음 + 한글 있음 -> 깨짐: $($_.Name)" }
+> }
+> ```
 
 ```powershell
 # 데스크톱에서
