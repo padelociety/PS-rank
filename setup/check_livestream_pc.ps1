@@ -375,6 +375,25 @@ if (-not ($basicIni -and (Test-Path $basicIni))) {
     Chk "websocket server enabled (profile)" ($ws -ieq "true") $null `
         "STEP 3 - Tools > WebSocket Server Settings > Enable WebSocket server"
   }
+
+  # The one that cost an evening. If the profile's service is the account-linked
+  # "YouTube - RTMPS" (rtmp_common), OBS's frontend goes into broadcast-picker mode
+  # at load time and StartStream over websocket only pops "no broadcast configured",
+  # which then blocks the UI thread and every request behind it. The server DOES set
+  # rtmp_custom over websocket, so a live probe looks fine - the stale value is the
+  # one on disk, and it wins on every restart. Only this file tells the truth.
+  $svcJson = Join-Path (Split-Path $basicIni -Parent) "service.json"
+  if (Test-Path $svcJson) {
+    $svcType = ""; $svcName = ""
+    try {
+      $svc = Get-Content $svcJson -Raw -Encoding UTF8 | ConvertFrom-Json
+      $svcType = "$($svc.type)"
+      $svcName = "$($svc.settings.service)"
+    } catch { $svcType = "(parse failed)" }
+    Chk "stream service is Custom" ($svcType -ieq "rtmp_custom") `
+        ("service.json type=" + $svcType + $(if ($svcName) { " service=$svcName" } else { "" })) `
+        "run setup\fix_obs_broadcast.ps1 as Administrator (YouTube-linked service makes OBS demand a broadcast and hang)"
+  }
 }
 
 # A scene with no sources streams a pure black screen. OBS is happy, the server is
@@ -616,6 +635,16 @@ if ($fail -gt 0 -or $Fix) {
     foreach ($k in @("RecFilePath", "RecFormat2", "RecEncoder", "RecRB", "RecRBTime", "RecRBSize")) {
       Info ("$k = " + (Get-IniValue $basicIni "AdvOut" $k))
     }
+    # The stream key is redacted on purpose - this block gets pasted into chat.
+    $sj = Join-Path (Split-Path $basicIni -Parent) "service.json"
+    if (Test-Path $sj) {
+      try {
+        $s = Get-Content $sj -Raw -Encoding UTF8 | ConvertFrom-Json
+        Info ("service.json: type=" + $s.type + "  service=" + $s.settings.service +
+              "  server=" + $s.settings.server +
+              "  key=" + $(if ($s.settings.key) { "(set)" } else { "(empty)" }))
+      } catch { Info "service.json = (unreadable)" }
+    } else { Info "service.json = (missing)" }
   } else { Info "(basic.ini not found)" }
 
   Write-Host "  [stream_server log, last 25 lines]"

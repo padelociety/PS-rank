@@ -409,13 +409,39 @@ Get-PnpDevice -Class Camera,Media,Image -PresentOnly | Select-Object Status, Cla
 > 씬이 여러 개면 **방송에 쓸 씬을 활성(Program) 씬으로 두고 끝낸다.**
 > stream_server는 씬을 자동으로 바꾸지 않는다 — 켜져 있는 씬 그대로 나간다.
 
-### 3-7. 방송(스트림) 설정은 건드리지 않는다
+### 3-8. 방송(스트림) 설정 — 서비스는 반드시 '사용자 지정' ⭐
 
-**설정 → 방송** 은 손대지 않아도 된다. 방송을 시작할 때마다 stream_server가
-YouTube에서 새 RTMP 주소·스트림 키를 발급받아 OBS에 밀어 넣는다(`rtmp_custom`).
-여기에 수동으로 넣은 값은 다음 방송에서 덮어써진다.
+**설정 → 방송**의 서비스는 **`사용자 지정`** 이어야 한다. 서버·키는 비워둬도 된다 —
+방송을 시작할 때마다 stream_server가 YouTube에서 발급받아 OBS에 밀어 넣는다
+(`rtmp_custom`). 여기에 수동으로 넣은 값은 다음 방송에서 덮어써진다.
 
-### 3-8. 확인
+> ### ⛔ OBS 안에서 YouTube 계정으로 로그인하지 말 것
+>
+> 서비스를 **`YouTube - RTMPS`** 로 고르고 "계정 연결"을 누르면, OBS는 그때부터
+> **"방송을 먼저 고르고 나서 송출한다"** 는 모드로 켜진다. 그 상태에서 태블릿이
+> 송출을 요청하면 OBS는 방송 대신 **`설정된 방송 없음`** 대화상자만 띄우고 멈추고,
+> 그 대화상자가 OBS를 붙잡아 뒤이은 요청까지 전부 막는다. 태블릿에는 `스트리밍 오류`만 뜬다.
+>
+> 구분법: OBS 오른쪽 **제어 패널에 `방송 설정 관리` 버튼이 보이면 걸린 것**이다
+> (사용자 지정이면 그 버튼 자체가 없다).
+>
+> 화면에서 서비스만 '사용자 지정'으로 되돌려도 **로그인 정보는 프로필에 남아 있어**
+> 재시작하면 되살아난다. 뿌리까지 지우려면:
+>
+> ```powershell
+> # 관리자 PowerShell
+> cd C:\dev\PS-rank
+> powershell -NoProfile -ExecutionPolicy Bypass -File .\setup\fix_obs_broadcast.ps1
+> ```
+>
+> service.json을 `rtmp_custom`으로 되돌리고, `basic.ini`의 `[Auth]`·`[YouTube*]`
+> (저장된 토큰) 섹션을 지우고, OBS를 창이 보이게 다시 띄운다. 원본은 둘 다
+> `.bak-<날짜시각>` 으로 백업해 둔다.
+>
+> YouTube 인증은 OBS가 아니라 **stream_server가 따로 한다**(5단계, `youtube_token.pickle`).
+> OBS 쪽 로그인은 이 구성에선 쓸 일이 없다.
+
+### 3-9. 확인
 
 OBS를 켜둔 채로:
 
@@ -443,7 +469,7 @@ buffer_ready  : True      ← 이게 True 여야 하이라이트 버튼이 산�
 
 로그: `Get-Content C:\dev\PS-rank\logs\stream_server_*.log -Tail 30`
 
-### 3-9. 유지보수 — 하이라이트 원본이 쌓인다
+### 3-10. 유지보수 — 하이라이트 원본이 쌓인다
 
 🎬 를 누를 때마다 3-3의 **녹화 경로에 mp4가 하나씩 영구히 쌓인다**(업로드와 별개).
 상시 운영이라 시즌이 지나면 수십 GB가 된다. 가끔 비워준다.
@@ -650,6 +676,31 @@ VPS 폴백 페이지를 보고 있는 것 = **터널이 죽었다**. 점수 입�
 2. 로그에 `하이라이트 업로드 실패 403` → `config.json`의 `upload_key` ≠ VPS `HIGHLIGHT_UPLOAD_KEY`
 3. 로그에 `503` → VPS `.env`에 `HIGHLIGHT_UPLOAD_KEY`가 아예 없음
 4. 로그에 `upload_key 없음` → `config.json`을 아직 안 채웠음 (PC에 파일만 저장됨)
+
+### OBS에 `설정된 방송 없음` 이 뜨고 태블릿은 `스트리밍 오류`
+
+OBS 프로필에 **YouTube 계정 연동이 남아 있는 것**이다. 자세한 설명과 구분법은 3-8 참고.
+
+```powershell
+# 관리자 PowerShell
+cd C:\dev\PS-rank
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup\fix_obs_broadcast.ps1
+```
+
+점검 스크립트의 `stream service is Custom` 항목이 이걸 미리 잡아준다.
+
+### OBS 창이 안 보이는데 "이미 실행 중"이라고 한다
+
+예전 `PS-OBS-Studio` 작업이 `--minimize-to-tray`로 띄웠기 때문이다. 위
+`fix_obs_broadcast.ps1`이 작업을 다시 등록하면서 그 옵션을 뺀다. 급하면:
+
+```powershell
+Get-Process obs64 -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep 3
+Start-Process "$env:ProgramFiles\obs-studio\bin\64bit\obs64.exe" `
+  -ArgumentList "--startreplaybuffer --disable-shutdown-check" `
+  -WorkingDirectory "$env:ProgramFiles\obs-studio\bin\64bit"
+```
 
 ### 방송 시작이 갑자기 안 된다 (전엔 됐는데)
 

@@ -466,8 +466,13 @@ if ($SkipTasks) {
     # --disable-shutdown-check is load-bearing: without it, the first boot after a
     # power cut stops on the "OBS closed unexpectedly - start in safe mode?" dialog
     # and nothing streams until somebody walks over and clicks it.
+    #
+    # NOT --minimize-to-tray. It hides OBS on a dedicated PC where nothing else uses
+    # the screen, and then the operator cannot see the preview, the bitrate, or a
+    # modal dialog that is blocking a stream - they just see "OBS is already running"
+    # with no window anywhere. Worse, with the tray icon disabled it is unreachable.
     Register-Task "PS-OBS-Studio" $obs `
-      "--startreplaybuffer --minimize-to-tray --disable-shutdown-check" `
+      "--startreplaybuffer --disable-shutdown-check" `
       "$env:ProgramFiles\obs-studio\bin\64bit"
   }
 }

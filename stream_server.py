@@ -297,8 +297,9 @@ def start_stream():
         if not obs.wait_until_streaming():
             raise RuntimeError(
                 "OBS가 송출을 시작하지 않았어요. OBS 화면에 대화상자가 떠 있는지 확인해주세요. "
-                "'설정된 방송 없음'이면 OBS 설정 → 방송에서 서비스를 '사용자 지정', "
-                "서버 rtmp://a.rtmp.youtube.com/live2 로 한 번 저장해두면 해결됩니다."
+                "'설정된 방송 없음'이면 OBS 프로필에 YouTube 계정 연동이 남아 있는 겁니다 — "
+                "관리자 PowerShell에서 setup\\fix_obs_broadcast.ps1 을 한 번 실행하면 해결됩니다. "
+                "(설정 화면에서 서비스만 바꾸는 걸로는 로그인 정보가 안 지워져 재시작하면 되살아납니다.)"
             )
 
         obs.start_replay_buffer()  # 하이라이트 대기 — OBS 설정에서 리플레이 버퍼 활성화 필요(60~90초)
