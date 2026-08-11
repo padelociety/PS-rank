@@ -133,14 +133,32 @@ class OBSController:
                 self.disconnect()
 
     def is_streaming(self) -> bool:
-        """현재 스트리밍 중인지 확인합니다."""
+        """현재 스트리밍 중인지 확인합니다. 연결이 없으면 한 번 붙여보고 판단."""
         with self._lock:
             if not self.client:
-                return False
+                try:
+                    self.connect(retries=1, delay=0)
+                except Exception:
+                    return False
             try:
                 return self.client.get_stream_status().output_active
             except Exception:
                 return False
+
+    def wait_until_streaming(self, timeout: float = 8.0) -> bool:
+        """OBS가 '실제로' 송출을 시작했는지 확인.
+
+        start_stream()은 요청이 접수된 것만 성공으로 돌려준다. 방송 설정(서버·키)이
+        비어 있으면 OBS는 요청을 받아놓고 GUI에 '설정된 방송 없음' 대화상자를 띄운 채
+        송출을 시작하지 않는다. 그러면 서버만 '라이브'라고 믿는 유령 상태가 되고,
+        대화상자가 OBS를 붙잡아 이후 WebSocket 요청까지 207로 막힌다(실제로 겪음).
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self.is_streaming():
+                return True
+            time.sleep(0.4)
+        return False
 
     # ── 리플레이 버퍼 (하이라이트 클립) ───────────────────────────
     # ⚠️ OBS 사전 설정 필요: 설정 → 출력 → 리플레이 버퍼 활성화 + 최대 길이 60~90초.

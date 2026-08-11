@@ -153,6 +153,21 @@ stream_state: dict = {
 }
 state_lock = threading.Lock()
 
+
+def _clear_state_locked():
+    """스트림 상태를 초기값으로. 호출자가 state_lock을 잡고 있어야 한다."""
+    stream_state.update({
+        'active': False,
+        'broadcast_id': None,
+        'watch_url': None,
+        'started_at': None,
+        'team_a': [],
+        'team_b': [],
+        'league': '',
+        'title': '',
+        'error': None,
+    })
+
 # ── 리플레이 버퍼 상시 유지 (라이브 아니어도 하이라이트 가능) ──────────
 # OBS가 켜져 있으면 리플레이 버퍼를 항상 돌려서, 방송 중이 아니어도 언제든
 # 직전 60/90초를 클립으로 저장할 수 있게 한다. 20초마다 상태 확인·필요 시 재시작.
@@ -239,7 +254,15 @@ def start_stream():
     """
     with state_lock:
         if stream_state['active']:
-            return jsonify({'success': False, 'error': '이미 스트리밍 중이에요'}), 409
+            # 정말 송출 중인지 OBS에 물어본다. OBS가 재시작되거나 송출이 끊겨도 이
+            # 플래그는 True로 남고, 그 뒤 모든 방송 요청이 409로 막힌다 — 실제로
+            # 3시간 동안 그랬고, 사람이 /stop-stream을 눌러야만 풀렸다.
+            # 송출 중이 아니면 죽은 상태로 보고 정리한 뒤 새로 시작한다.
+            if obs.is_streaming():
+                return jsonify({'success': False, 'error': '이미 스트리밍 중이에요'}), 409
+            stale = stream_state.get('watch_url') or stream_state.get('broadcast_id') or ''
+            logger.warning(f"⚠️ 이전 스트리밍 상태가 남아 있는데 OBS는 송출 중이 아님 — 정리하고 새로 시작 ({stale})")
+            _clear_state_locked()
         stream_state['active'] = True  # 먼저 잠금 — 동시 요청 방지
 
     data = request.get_json(silent=True) or {}
@@ -254,6 +277,7 @@ def start_stream():
             stream_state['active'] = False  # 롤백
         return jsonify({'success': False, 'error': '팀 정보가 없어요'}), 400
 
+    broadcast_id = None   # 실패 시 정리해야 하므로 try 밖에서 잡아둔다
     try:
         title, description = build_title_and_desc(team_a, team_b, league, category, match_number)
         logger.info(f"🎬 스트리밍 시작: {title}")
@@ -266,6 +290,17 @@ def start_stream():
         obs.connect()
         obs.set_stream_settings(rtmp_url, stream_key)
         obs.start_stream()
+
+        # OBS가 진짜로 송출을 시작했는지 확인한다. 여기를 안 보면 OBS가 대화상자를
+        # 띄운 채 가만히 있어도 '시작됨'으로 응답해, 태블릿엔 라이브라고 뜨는데
+        # YouTube로는 아무것도 안 나가는 상태가 된다.
+        if not obs.wait_until_streaming():
+            raise RuntimeError(
+                "OBS가 송출을 시작하지 않았어요. OBS 화면에 대화상자가 떠 있는지 확인해주세요. "
+                "'설정된 방송 없음'이면 OBS 설정 → 방송에서 서비스를 '사용자 지정', "
+                "서버 rtmp://a.rtmp.youtube.com/live2 로 한 번 저장해두면 해결됩니다."
+            )
+
         obs.start_replay_buffer()  # 하이라이트 대기 — OBS 설정에서 리플레이 버퍼 활성화 필요(60~90초)
 
         with state_lock:
@@ -290,6 +325,20 @@ def start_stream():
 
     except Exception as e:
         logger.error(f"❌ 스트리밍 시작 실패: {e}")
+
+        # 방송을 만든 뒤에 실패했으면 그 방송을 닫는다. 안 그러면 YouTube에 아무것도
+        # 안 나가는 빈 방송이 열린 채 남는다(실제로 3시간 떠 있었다).
+        if broadcast_id:
+            try:
+                youtube.end_broadcast(broadcast_id)
+                logger.info(f"↩️ 실패한 방송 정리됨 ({broadcast_id})")
+            except Exception:
+                pass
+        try:
+            obs.stop_stream()
+        except Exception:
+            pass
+
         with state_lock:
             stream_state['active'] = False  # 실패 시 롤백
             stream_state['error'] = str(e)
@@ -323,17 +372,7 @@ def stop_stream():
 
     # 상태 전체 초기화
     with state_lock:
-        stream_state.update({
-            'active': False,
-            'broadcast_id': None,
-            'watch_url': None,
-            'started_at': None,
-            'team_a': [],
-            'team_b': [],
-            'league': '',
-            'title': '',
-            'error': None,
-        })
+        _clear_state_locked()
 
     if errors:
         logger.warning(f"⚠️ 스트리밍 종료 중 일부 오류: {errors}")
