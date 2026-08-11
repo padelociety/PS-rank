@@ -399,9 +399,9 @@ Chk "stream_server :5000"  (Port-Open 5000) $null `
 # Two servers means the loser cannot bind :5000, exits, and its supervisor relaunches
 # it every 10s forever. /health still answers (the winner holds the port) so nothing
 # else in this script would notice.
-$ssRoots = Get-StreamServerRoots
+$ssRoots = @(Get-StreamServerRoots)
 Chk "exactly one stream_server" ($ssRoots.Count -eq 1) `
-    ("servers: " + $ssRoots.Count + "  (python processes: " + (Get-StreamServerProcs).Count + ")" +
+    ("servers: " + $ssRoots.Count + "  (python processes: " + @(Get-StreamServerProcs).Count + ")" +
      $(if (-not $IsElevated) { "  - run as Administrator for an exact match" } else { "" })) `
     "re-run this script with -Fix from an ADMIN PowerShell (duplicates fight over :5000)"
 
@@ -526,15 +526,15 @@ if ($Fix) {
 
   # 2) stream_server: none running, or several fighting over :5000.
   $procs = Get-StreamServerProcs
-  if ((Get-StreamServerRoots).Count -ne 1) {
-    Info "servers: $((Get-StreamServerRoots).Count)  python: $($procs.Count)  supervisors: $((Get-SupervisorProcs).Count) - restarting clean"
+  if (@(Get-StreamServerRoots).Count -ne 1) {
+    Info "servers: $(@(Get-StreamServerRoots).Count)  python: $($procs.Count)  supervisors: $(@(Get-SupervisorProcs).Count) - restarting clean"
     Stop-StreamServerTree
-    $left = (Get-StreamServerProcs).Count + (Get-SupervisorProcs).Count
+    $left = @(Get-StreamServerProcs).Count + @(Get-SupervisorProcs).Count
     if ($left) { Info "WARNING: $left process(es) survived the stop - restart Windows if this repeats" }
     Start-ScheduledTask -TaskName PS-StreamServer -ErrorAction SilentlyContinue
     Info "waiting for startup (it downloads the court page first, 15s timeout) ..."
     Start-Sleep 18
-    Info "now running: $((Get-StreamServerRoots).Count) server(s), $((Get-StreamServerProcs).Count) python process(es)"
+    Info "now running: $(@(Get-StreamServerRoots).Count) server(s), $(@(Get-StreamServerProcs).Count) python process(es)"
   } else { Info "stream_server: 1 process, leaving it alone" }
 
   # 3) Replay buffer.
