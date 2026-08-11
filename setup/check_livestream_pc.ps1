@@ -5,6 +5,7 @@
 
     powershell -NoProfile -ExecutionPolicy Bypass -File .\check_livestream_pc.ps1
     powershell -NoProfile -ExecutionPolicy Bypass -File .\check_livestream_pc.ps1 -Fix
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\check_livestream_pc.ps1 -Restart
 
   Checks the whole chain, in the order it breaks in practice:
     OBS -> OBS WebSocket -> stream_server :5000 -> reverse tunnel -> public URL
@@ -14,6 +15,10 @@
   strips a BOM from config.json, restarts a missing or duplicated stream_server,
   asks OBS to arm the replay buffer AND prints OBS's refusal reason, starts the
   tunnel task - then re-verifies.
+
+  -Restart forces a clean restart of stream_server (run as Administrator). Needed
+  after editing config.json or re-authenticating YouTube - a running server keeps
+  the settings and the account it started with.
 
   On any failure it also prints a Diagnostics block (processes, OBS probe, OBS
   profile settings, log tail) so one paste carries everything needed to help.
@@ -25,7 +30,12 @@ param(
   [string]$PublicUrl = "https://obs.padelsociety.co.kr",
   # Try to fix what can be fixed from here (restart a stuck server, arm the replay
   # buffer, strip a BOM), then re-verify. Everything it does is idempotent.
-  [switch]$Fix
+  [switch]$Fix,
+  # Force a clean restart of stream_server even when it looks healthy. Needed after
+  # changing config.json or re-authenticating YouTube: the server reads config once
+  # at startup and caches the YouTube client after the first use, so a running
+  # process keeps using the old settings and the old account.
+  [switch]$Restart
 )
 
 # Resolve the script's own folder HERE, not in a param() default: Windows
@@ -505,6 +515,27 @@ Write-Host "  confirm it by hand in the BIOS, or by pulling the plug once and wa
 
 # ================================================================= repairs
 # Everything here is safe to repeat. Run with -Fix.
+if ($Restart) {
+  Write-Host ""
+  Write-Host "-- Restart" -ForegroundColor Cyan
+  if (-not $IsElevated) {
+    Write-Host "  [!!] not running as Administrator - the task's processes cannot be stopped." -ForegroundColor Yellow
+  }
+  Info "stopping stream_server (supervisors first) ..."
+  Stop-StreamServerTree
+  Start-ScheduledTask -TaskName PS-StreamServer -ErrorAction SilentlyContinue
+  Info "waiting for startup ..."
+  Start-Sleep 18
+  Info "now running: $(@(Get-StreamServerRoots).Count) server(s)"
+  try {
+    $h3 = Invoke-RestMethod -Uri "http://127.0.0.1:5000/health" -TimeoutSec 5
+    Write-Host ("  /health  ok=" + $h3.ok + "  buffer_ready=" + $h3.buffer_ready) `
+      -ForegroundColor $(if ($h3.ok) { "Green" } else { "Yellow" })
+  } catch {
+    Write-Host ("  /health down: " + $_.Exception.Message) -ForegroundColor Red
+  }
+}
+
 if ($Fix) {
   Write-Host ""
   Write-Host "-- Repairs (-Fix)" -ForegroundColor Cyan
