@@ -509,6 +509,9 @@ body {
     <div>
       <div id="stream-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:2px">📡 스트리밍 서버 확인 중...</div>
       <div id="fb-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:4px">🔴 Firebase 연결 중...</div>
+      <!-- 빌드 표시 — 태블릿이 최신 파일을 받았는지 눈으로 확인하는 용도.
+           배포할 때마다 아래 COURTBUILD 와 스크립트의 BUILD 를 함께 올린다. -->
+      <!--COURTBUILD:c1--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c1</div>
       <div class="step-indicator" id="step-label">STEP 1 / 3</div>
       <div class="step-dots">
         <div class="step-dot active" id="dot-1"></div>
@@ -1513,6 +1516,51 @@ if ('serviceWorker' in navigator) {
     }
   });
 }
+</script>
+
+<!-- ── 빌드 확인 / 자동 갱신 ─────────────────────────────────────────
+  이 페이지는 GitHub → stream_server 메모리 캐시 → 태블릿 순으로 내려온다.
+  중간 어디가 옛 파일을 들고 있어도 화면만 봐서는 알 수 없어서, 헤더에 빌드를
+  띄우고 서버가 더 새 파일을 들고 있으면 스스로 갱신한다.
+
+  ⚠️ 경기 중에는 자동 새로고침하지 않는다 — 점수 입력 중에 페이지가 다시 뜨면
+  진행 상태가 날아간다. 새 버전이 있으면 배지만 띄우고, 매치 목록(STEP 1)으로
+  돌아왔을 때 갱신한다. 배지를 눌러 즉시 갱신할 수도 있다.
+
+  서버가 새 파일을 집어야 태블릿도 갱신된다: OBS PC 에서 /reload-html 을 부르거나
+  stream_server 를 재시작한다.
+-->
+<script>
+(function () {
+  var BUILD = "c1";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
+  var el = document.getElementById('app-build');
+  if (el) el.textContent = '앱 ' + BUILD;
+
+  function announce(newBuild) {
+    if (!el) return;
+    el.textContent = '새 버전 ' + newBuild + ' · 탭하여 갱신';
+    el.style.color = 'var(--gold, #E6C36B)';
+    el.style.cursor = 'pointer';
+    el.onclick = function () { location.reload(); };
+  }
+
+  function check() {
+    fetch(location.pathname + '?_ts=' + Date.now(), { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (html) {
+        if (!html) return;
+        var m = html.match(/COURTBUILD:([A-Za-z0-9._]+)/);
+        if (!m || !m[1] || m[1] === BUILD) return;
+        // 매치 목록 화면일 때만 스스로 새로고침
+        var idle = (typeof curStep === 'undefined') || curStep === 1;
+        if (idle) location.reload(); else announce(m[1]);
+      })
+      .catch(function () {});
+  }
+
+  setInterval(check, 120000);   // 2분마다
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) check(); });
+})();
 </script>
 
 <!-- Firebase SDK -->

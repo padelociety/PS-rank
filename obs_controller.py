@@ -97,6 +97,28 @@ class OBSController:
                     'use_auth': False,
                 },
             )
+
+            # 넣은 값을 되읽어 확인한다. 이 요청이 조용히 안 먹으면 OBS 의 방송 설정이
+            # 빈 채로 남고, 다음 start_stream 이 '설정된 방송 없음' 대화상자를 띄운 채
+            # 멈춘다. 그 대화상자는 OBS 를 붙잡아 이후 WebSocket 요청까지 막는다.
+            # 여기서 미리 걸러야 그 상태로 들어가지 않는다.
+            try:
+                cur = self.client.get_stream_service_settings()
+                got = getattr(cur, 'stream_service_settings', None) or {}
+                got_type = getattr(cur, 'stream_service_type', '') or ''
+            except Exception as e:
+                logger.warning(f"스트림 설정 확인 실패(무시하고 진행): {e}")
+                got, got_type = None, ''
+
+            if got is not None and (not got.get('server') or not got.get('key')):
+                raise RuntimeError(
+                    "OBS 가 스트림 설정을 받지 않았어요 "
+                    f"(type={got_type!r}, server={'있음' if got.get('server') else '없음'}, "
+                    f"key={'있음' if got.get('key') else '없음'}). "
+                    "OBS 설정 → 방송에서 서비스를 '사용자 지정', "
+                    "서버 rtmp://a.rtmp.youtube.com/live2 로 한 번 저장한 뒤 다시 시도해주세요."
+                )
+
             logger.info(f"✅ OBS 스트림 설정 완료 ({rtmp_url})")
 
     # ── 스트리밍 시작/종료 ────────────────────────────────────────
