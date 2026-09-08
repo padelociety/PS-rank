@@ -23,7 +23,7 @@ import sys
 import threading
 import time
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -142,9 +142,12 @@ def _manifest():
 # ── 스트림 상태 ────────────────────────────────────────────────
 stream_state: dict = {
     'active': False,
+    'mode': '',            # 'league'(리그 매치 — 점수 저장하면 끝) | 'free'(자유 라이브 — 시간이 다 되면 끝)
     'broadcast_id': None,
     'watch_url': None,
     'started_at': None,
+    'ends_at': None,       # 자유 라이브만. 이 시각이 지나면 워치독이 끈다(태블릿이 꺼져도).
+    'duration_minutes': 0,
     'team_a': [],
     'team_b': [],
     'league': '',
@@ -158,9 +161,12 @@ def _clear_state_locked():
     """스트림 상태를 초기값으로. 호출자가 state_lock을 잡고 있어야 한다."""
     stream_state.update({
         'active': False,
+        'mode': '',
         'broadcast_id': None,
         'watch_url': None,
         'started_at': None,
+        'ends_at': None,
+        'duration_minutes': 0,
         'team_a': [],
         'team_b': [],
         'league': '',
@@ -227,6 +233,33 @@ def build_title_and_desc(team_a: list, team_b: list, league: str,
     return title, description
 
 
+# ── 자유 라이브 (리그 매치가 아닌 방송) ─────────────────────────
+# 리그가 없는 달에도 코트에 온 사람들이 태블릿에서 바로 방송을 켜고 🎬 하이라이트를
+# 남길 수 있게 한다. 리그 방송과 다른 점 하나: **끝나는 시각을 시작할 때 정한다.**
+# 리그 방송은 점수를 저장하면 끝나지만 자유 라이브엔 그런 신호가 없어서, 시간을 안
+# 정해 두면 사람들이 집에 간 뒤에도 빈 코트가 몇 시간씩 방송된다(유튜브에 그대로 남는다).
+FREE_LIVE_MINUTES = (90, 120, 180)
+
+
+def build_free_title_and_desc(team_a: list, team_b: list, minutes: int) -> tuple:
+    date_str = datetime.now().strftime('%Y.%m.%d %H:%M')
+    names = ''
+    if team_a or team_b:
+        a_str = ' / '.join(team_a) if team_a else '팀 A'
+        b_str = ' / '.join(team_b) if team_b else '팀 B'
+        names = f" · {a_str} vs {b_str}"
+    title = f"Padel Society 라이브 {date_str}{names}"
+    description = (
+        f"🎾 Padel Society 코트 라이브\n\n"
+        f"📅 {date_str}\n"
+        f"⏱ {minutes}분\n"
+        + (f"🟢 Team A: {' / '.join(team_a)}\n" if team_a else '')
+        + (f"🟡 Team B: {' / '.join(team_b)}\n" if team_b else '')
+        + "\n#빠델 #빠델소사이어티 #빠소 #PSL"
+    )
+    return title, description
+
+
 # ════════════════════════════════════════════════════════════════
 # API 엔드포인트
 # ════════════════════════════════════════════════════════════════
@@ -235,14 +268,21 @@ def build_title_and_desc(team_a: list, team_b: list, league: str,
 def health():
     """서버 상태 확인 — ps_court.html이 서버를 감지하는 데 사용"""
     with state_lock:
-        streaming = stream_state['active']
-        watch = stream_state.get('watch_url')
+        st = dict(stream_state)
     return jsonify({
         'ok': True,
-        'streaming': streaming,
-        'watch_url': watch,
+        'streaming': st['active'],
+        'watch_url': st.get('watch_url'),
         # 리플레이 버퍼가 대기 중이면 라이브 아니어도 하이라이트 버튼 노출
         'buffer_ready': _buffer_ready,
+        # 태블릿이 다시 켜져도 진행 중인 라이브(무슨 모드·언제 끝나나)를 그대로 그릴 수 있게
+        'mode': st.get('mode') or '',
+        'title': st.get('title') or '',
+        'started_at': st.get('started_at'),
+        'ends_at': st.get('ends_at'),
+        'duration_minutes': st.get('duration_minutes') or 0,
+        'team_a': st.get('team_a') or [],
+        'team_b': st.get('team_b') or [],
     })
 
 
@@ -250,8 +290,25 @@ def health():
 def start_stream():
     """
     스트리밍 시작
-    Body: { "teamA": ["이름1","이름2"], "teamB": ["이름3","이름4"], "league": "gold"|"bs" }
+    Body(리그):     { "teamA": [...], "teamB": [...], "league": "...", "category": "...", "matchNumber": n }
+    Body(자유 라이브): { "mode": "free", "durationMinutes": 90|120|180, "teamA": [...](선택), "teamB": [...](선택) }
     """
+    data = request.get_json(silent=True) or {}
+    mode = 'free' if (data.get('mode') == 'free') else 'league'
+    team_a = [str(x).strip() for x in (data.get('teamA') or []) if str(x).strip()]
+    team_b = [str(x).strip() for x in (data.get('teamB') or []) if str(x).strip()]
+    league = data.get('league', '')
+    category = data.get('category', '')
+    match_number = int(data.get('matchNumber', 0) or 0)
+    minutes = int(data.get('durationMinutes', 0) or 0)
+
+    # 입력 검증은 **잠그기 전에** — 잘못된 요청이 자리를 차지했다 롤백하는 창을 없앤다.
+    if mode == 'league' and (not team_a or not team_b):
+        return jsonify({'success': False, 'error': '팀 정보가 없어요'}), 400
+    if mode == 'free' and minutes not in FREE_LIVE_MINUTES:
+        return jsonify({'success': False, 'error': f'방송 시간은 {"/".join(str(m) for m in FREE_LIVE_MINUTES)}분 중에서 골라주세요'}), 400
+
+    takeover = False
     with state_lock:
         if stream_state['active']:
             # 정말 송출 중인지 OBS에 물어본다. OBS가 재시작되거나 송출이 끊겨도 이
@@ -259,29 +316,39 @@ def start_stream():
             # 3시간 동안 그랬고, 사람이 /stop-stream을 눌러야만 풀렸다.
             # 송출 중이 아니면 죽은 상태로 보고 정리한 뒤 새로 시작한다.
             if obs.is_streaming():
-                return jsonify({'success': False, 'error': '이미 스트리밍 중이에요'}), 409
-            stale = stream_state.get('watch_url') or stream_state.get('broadcast_id') or ''
-            logger.warning(f"⚠️ 이전 스트리밍 상태가 남아 있는데 OBS는 송출 중이 아님 — 정리하고 새로 시작 ({stale})")
-            _clear_state_locked()
-        stream_state['active'] = True  # 먼저 잠금 — 동시 요청 방지
+                cur_mode = stream_state.get('mode') or 'league'
+                if cur_mode == 'free' and mode == 'league':
+                    # 리그 경기가 우선이다 — 자유 라이브가 켜져 있으면 끄고 리그 방송을 연다.
+                    # (안 그러면 코트에 온 리그 4명이 '이미 스트리밍 중' 에 막혀 점수판만 켠다.)
+                    takeover = True
+                elif cur_mode == 'free':
+                    left = _minutes_left_locked()
+                    return jsonify({'success': False,
+                                    'error': f'자유 라이브가 진행 중이에요 ({left}분 남음) — 먼저 종료해주세요'}), 409
+                else:
+                    return jsonify({'success': False, 'error': '리그 경기 방송 중이에요'}), 409
+            else:
+                stale = stream_state.get('watch_url') or stream_state.get('broadcast_id') or ''
+                logger.warning(f"⚠️ 이전 스트리밍 상태가 남아 있는데 OBS는 송출 중이 아님 — 정리하고 새로 시작 ({stale})")
+                _clear_state_locked()
+        if not takeover:
+            stream_state['active'] = True  # 먼저 잠금 — 동시 요청 방지
 
-    data = request.get_json(silent=True) or {}
-    team_a = data.get('teamA', [])
-    team_b = data.get('teamB', [])
-    league = data.get('league', '')
-    category = data.get('category', '')
-    match_number = int(data.get('matchNumber', 0) or 0)
-
-    if not team_a or not team_b:
+    if takeover:
+        logger.info("🔁 리그 경기 시작 — 진행 중이던 자유 라이브를 먼저 끕니다")
+        _stop_stream_impl('리그 경기로 전환')
         with state_lock:
-            stream_state['active'] = False  # 롤백
-        return jsonify({'success': False, 'error': '팀 정보가 없어요'}), 400
+            if stream_state['active']:
+                return jsonify({'success': False, 'error': '이미 스트리밍 중이에요'}), 409
+            stream_state['active'] = True
 
     broadcast_id = None   # 실패 시 정리해야 하므로 try 밖에서 잡아둔다
     try:
-        title, description = build_title_and_desc(team_a, team_b, league, category, match_number)
-        logger.info(f"🎬 스트리밍 시작: {title}")
-
+        if mode == 'free':
+            title, description = build_free_title_and_desc(team_a, team_b, minutes)
+        else:
+            title, description = build_title_and_desc(team_a, team_b, league, category, match_number)
+        logger.info(f"🎬 스트리밍 시작({mode}): {title}")
         # 1. YouTube 방송 생성
         broadcast_id, rtmp_url, stream_key = youtube.create_broadcast_and_stream(title, description)
         watch_url = YouTubeAPI.get_watch_url(broadcast_id)
@@ -304,24 +371,35 @@ def start_stream():
 
         obs.start_replay_buffer()  # 하이라이트 대기 — OBS 설정에서 리플레이 버퍼 활성화 필요(60~90초)
 
+        started = datetime.now(timezone.utc)
+        ends = (started + timedelta(minutes=minutes)) if mode == 'free' else None
         with state_lock:
             stream_state.update({
+                'mode': mode,
                 'broadcast_id': broadcast_id,
                 'watch_url': watch_url,
-                'started_at': datetime.now(timezone.utc).isoformat(),
+                'started_at': started.isoformat(),
+                'ends_at': ends.isoformat() if ends else None,
+                'duration_minutes': minutes if mode == 'free' else 0,
                 'team_a': team_a,
                 'team_b': team_b,
                 'league': league,
                 'title': title,
                 'error': None,
             })
+        if ends:
+            logger.info(f"⏱ 자유 라이브 {minutes}분 — {ends.astimezone().strftime('%H:%M')} 에 자동 종료")
 
         logger.info(f"✅ 스트리밍 시작됨! 시청: {watch_url}")
+        with state_lock:
+            ends_at = stream_state.get('ends_at')
         return jsonify({
             'success': True,
+            'mode': mode,
             'title': title,
             'watch_url': watch_url,
             'broadcast_id': broadcast_id,
+            'ends_at': ends_at,
         })
 
     except Exception as e:
@@ -346,13 +424,26 @@ def start_stream():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@app.route('/stop-stream', methods=['POST'])
-def stop_stream():
-    """스트리밍 종료"""
+def _minutes_left_locked() -> int:
+    """자유 라이브 남은 분. 호출자가 state_lock을 잡고 있어야 한다. 없으면 0."""
+    ends = stream_state.get('ends_at')
+    if not ends:
+        return 0
+    try:
+        left = datetime.fromisoformat(ends) - datetime.now(timezone.utc)
+        return max(0, int(left.total_seconds() // 60))
+    except Exception:
+        return 0
+
+
+def _stop_stream_impl(reason: str = '') -> list:
+    """스트리밍 종료 — 사람이 누른 /stop-stream 과 시간 만료 워치독이 **같은 길**을 탄다.
+    돌려주는 값은 일부 실패 목록(빈 리스트면 깨끗이 끝남). 스트리밍 중이 아니면 아무것도 안 한다."""
     with state_lock:
         if not stream_state['active']:
-            return jsonify({'success': True, 'message': '스트리밍 중이 아니에요'})
+            return []
         broadcast_id = stream_state.get('broadcast_id')
+        title = stream_state.get('title') or ''
 
     errors = []
 
@@ -375,12 +466,51 @@ def stop_stream():
     with state_lock:
         _clear_state_locked()
 
+    why = f" ({reason})" if reason else ''
     if errors:
-        logger.warning(f"⚠️ 스트리밍 종료 중 일부 오류: {errors}")
-        return jsonify({'success': True, 'warnings': errors})
+        logger.warning(f"⚠️ 스트리밍 종료 중 일부 오류{why}: {errors}")
+    else:
+        logger.info(f"⏹️  스트리밍 종료됨{why} — {title}")
+    return errors
 
-    logger.info("⏹️  스트리밍 종료됨")
+
+@app.route('/stop-stream', methods=['POST'])
+def stop_stream():
+    """스트리밍 종료"""
+    with state_lock:
+        if not stream_state['active']:
+            return jsonify({'success': True, 'message': '스트리밍 중이 아니에요'})
+    errors = _stop_stream_impl('태블릿에서 종료')
+    if errors:
+        return jsonify({'success': True, 'warnings': errors})
     return jsonify({'success': True})
+
+
+def _auto_stop_once(now=None) -> bool:
+    """자유 라이브가 만료됐으면 끈다. 껐으면 True. (워치독 한 바퀴 — 테스트가 직접 부른다)"""
+    now = now or datetime.now(timezone.utc)
+    with state_lock:
+        active = stream_state['active']
+        ends = stream_state.get('ends_at')
+    if not (active and ends):
+        return False
+    if datetime.fromisoformat(ends) > now:
+        return False
+    logger.info("⏱ 자유 라이브 시간 만료 — 자동 종료")
+    _stop_stream_impl('시간 만료')
+    return True
+
+
+def _auto_stop_loop():
+    """자유 라이브 시간 만료 워치독. 태블릿이 꺼지거나 페이지가 닫혀도 서버가 스스로 끈다.
+    ⚠️ 이게 없으면 '3시간' 을 고른 방송이 3시간에 끝날 방법이 태블릿 타이머 하나뿐이다 —
+       태블릿은 화면이 꺼지면 타이머도 멈춘다."""
+    while True:
+        try:
+            _auto_stop_once()
+        except Exception as e:
+            logger.warning(f"자동 종료 워치독 오류(무시): {e}")
+        time.sleep(10)
 
 
 # ── 하이라이트 (리플레이 버퍼 클립) ───────────────────────────
@@ -496,6 +626,11 @@ def save_highlight():
             'success': False,
             'error': 'OBS 리플레이 버퍼를 켤 수 없어요 — OBS가 실행 중인지, 설정 → 출력 → 리플레이 버퍼 활성화됐는지 확인해주세요',
         }), 400
+    # ⚠️ **녹화 시각을 지금 찍는다.** 아래 저장(리플레이 버퍼 폴링 ~수 초) →
+    #    ffmpeg 트림/리먹스(수십 초) → 업로드까지 시간이 걸려서, 서버가 받는 시각은
+    #    실제 녹화보다 한참 뒤다. 23:59 에 누른 클립이 00:00 에 도착하면 목록에서
+    #    **다음 날 클립**이 된다. 버튼을 누른 이 순간이 맞는 시각이다.
+    recorded_at = datetime.now(timezone.utc).isoformat()
     with state_lock:
         meta = {
             'title': stream_state.get('title') or '하이라이트',
@@ -503,6 +638,7 @@ def save_highlight():
             'teamA': ','.join(stream_state.get('team_a') or []),
             'teamB': ','.join(stream_state.get('team_b') or []),
             'watchUrl': stream_state.get('watch_url') or '',
+            'recordedAt': recorded_at,
         }
     # 저장(폴링 ~수 초)+업로드는 통째로 백그라운드 — 요청은 즉시 반환(헬스체크 안 막힘)
     threading.Thread(target=_save_and_upload_highlight, args=(meta, seconds), daemon=True).start()
@@ -594,6 +730,8 @@ if __name__ == '__main__':
 
     # 리플레이 버퍼 상시 유지 스레드 시작 — 라이브 아니어도 하이라이트 가능
     threading.Thread(target=_buffer_keepalive, daemon=True).start()
+    # 자유 라이브 시간 만료 워치독 — 태블릿이 꺼져도 서버가 끈다
+    threading.Thread(target=_auto_stop_loop, daemon=True).start()
 
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True,
             ssl_context=ssl_ctx if ssl_ctx else None)

@@ -241,6 +241,56 @@ body {
   margin-bottom: 12px;
 }
 
+/* ── 이 네 명의 대진 3개 + 지난 짝 (했던 페어) ── */
+.pair-info {
+  max-width: min(680px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: clamp(12px,2vh,18px) clamp(12px,2vw,20px);
+}
+.pair-info-title {
+  font-size: clamp(12px,1.6vw,15px);
+  font-weight: 800;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+.combo-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: clamp(7px,1vh,10px) 0;
+  border-top: 1px solid var(--border);
+  font-size: clamp(13px,1.9vw,17px);
+  font-weight: 700;
+}
+.combo-row:first-of-type { border-top: none; }
+.combo-names { flex: 1; line-height: 1.35; }
+.combo-row.done .combo-names { color: var(--text-dim); text-decoration: line-through; }
+.combo-row.now  .combo-names { color: var(--green); }
+.combo-state {
+  flex: 0 0 auto;
+  font-size: clamp(11px,1.5vw,13px);
+  font-weight: 800;
+  padding: 3px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.combo-state.done { background: rgba(248,113,113,0.12); color: var(--red); border: 1px solid rgba(248,113,113,0.28); }
+.combo-state.now  { background: rgba(46,204,113,0.14); color: var(--green); border: 1px solid rgba(46,204,113,0.35); }
+.combo-state.open { background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); }
+.pair-used {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: clamp(12px,1.6vw,15px);
+  font-weight: 600;
+  color: var(--text-dim);
+  line-height: 1.7;
+}
+.pair-used b { color: var(--bronze); font-weight: 800; }
+
 .no-combo-msg {
   text-align: center;
   padding: 40px 20px;
@@ -461,6 +511,35 @@ body {
 }
 .toast.show { opacity: 1; }
 
+/* ── 자유 라이브 카드 (STEP 1 상단) — 리그 매치가 없어도 방송·하이라이트 ── */
+.free-live {
+  background: var(--surface);
+  border: 2px solid rgba(255,82,82,0.35);
+  border-radius: var(--radius);
+  padding: clamp(14px,2vh,20px) clamp(16px,2.5vw,24px);
+  margin-bottom: clamp(12px,2vw,20px);
+}
+.free-live.on { border-color: #FF5252; background: rgba(255,82,82,0.06); }
+.free-live.off { opacity: 0.55; }
+.free-live-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.free-live-title { font-family:'Bebas Neue',sans-serif; font-size: clamp(22px,3.5vw,30px); letter-spacing:2px; }
+.free-live-state { font-size: clamp(12px,1.7vw,15px); font-weight: 800; color: var(--text-dim); white-space:nowrap; }
+.free-live.on .free-live-state { color: #FF5252; }
+.free-live-timer { font-family:'Bebas Neue',sans-serif; font-size: clamp(26px,4.5vw,40px); letter-spacing:2px; color: var(--gold); line-height:1; }
+.free-live-sub { font-size: clamp(12px,1.7vw,15px); color: var(--text-dim); font-weight:600; margin-top:8px; line-height:1.5; }
+.free-live-sub b { color: var(--text); }
+.free-live-actions { display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; }
+.free-live-actions .btn { flex: 0 0 auto; padding: clamp(10px,1.4vh,16px) clamp(18px,2.5vw,28px); font-size: clamp(14px,2vw,18px); }
+.btn-red { background: #FF5252; color: #fff; }
+.free-live-link { font-size: 12px; color: var(--text-dim); word-break: break-all; margin-top: 8px; }
+.dur-row { display:flex; gap:10px; }
+.dur-chip {
+  flex:1; padding: 14px 0; border-radius: var(--radius-sm); cursor:pointer;
+  background: var(--surface2); color: var(--text); border: 2px solid var(--border);
+  font-family:'Pretendard',sans-serif; font-size: 17px; font-weight: 800;
+}
+.dur-chip.on { background: rgba(245,200,66,0.15); border-color: var(--gold); color: var(--gold); }
+
 /* ── 설정/로그인 모달 ── */
 .modal-overlay {
   position: fixed; inset: 0;
@@ -511,7 +590,7 @@ body {
       <div id="fb-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:4px">🔴 Firebase 연결 중...</div>
       <!-- 빌드 표시 — 태블릿이 최신 파일을 받았는지 눈으로 확인하는 용도.
            배포할 때마다 아래 COURTBUILD 와 스크립트의 BUILD 를 함께 올린다. -->
-      <!--COURTBUILD:c1--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c1</div>
+      <!--COURTBUILD:c2--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c2</div>
       <div class="step-indicator" id="step-label">STEP 1 / 3</div>
       <div class="step-dots">
         <div class="step-dot active" id="dot-1"></div>
@@ -541,6 +620,16 @@ body {
   <div class="screen active" id="screen-1">
     <div class="screen-title">리그 매치</div>
     <div class="screen-sub">정원이 찬 매치를 선택해 팀을 배정하세요</div>
+    <!-- 자유 라이브 — 리그 매치 없이도 방송 + 🎬 하이라이트. 시간(90분/2시간/3시간)은 시작할 때 고르고,
+         다 되면 서버가 스스로 끈다(태블릿이 꺼져도). 상태 그리기는 renderFreeLive() 하나. -->
+    <div class="free-live" id="free-live-card">
+      <div class="free-live-head">
+        <div class="free-live-title">🔴 자유 라이브</div>
+        <div class="free-live-state" id="free-live-state">📡 스트리밍 서버 확인 중...</div>
+      </div>
+      <div class="free-live-sub" id="free-live-sub">리그 경기가 아니어도 지금 코트를 유튜브로 방송하고, 🎬 버튼으로 하이라이트를 남길 수 있어요.</div>
+      <div class="free-live-actions" id="free-live-actions"></div>
+    </div>
     <div id="match-list-wrap">
       <div class="loading-msg"><div class="spinner"></div>매치 불러오는 중...</div>
     </div>
@@ -551,6 +640,8 @@ body {
     <div class="screen-title">팀 배정</div>
     <div class="screen-sub" id="team-sub">랜덤 팀이 배정됐어요</div>
     <div id="team-display"></div>
+    <!-- 이 네 명의 대진 3개 + 이미 짝이었던 페어 -->
+    <div id="pair-info"></div>
   </div>
 
   <!-- STEP 3: 스코어 입력 -->
@@ -596,6 +687,28 @@ body {
   </div>
 </div>
 
+<!-- 자유 라이브 시작 모달 -->
+<div class="modal-overlay" id="free-live-modal">
+  <div class="modal">
+    <h3>🔴 자유 라이브 시작</h3>
+    <label>방송 시간 — 시간이 다 되면 자동으로 꺼져요</label>
+    <div class="dur-row">
+      <button class="dur-chip on" data-min="90" onclick="pickDuration(90)">90분</button>
+      <button class="dur-chip" data-min="120" onclick="pickDuration(120)">2시간</button>
+      <button class="dur-chip" data-min="180" onclick="pickDuration(180)">3시간</button>
+    </div>
+    <label>팀 A 이름 (선택 · 쉼표로 구분)</label>
+    <input id="fl-team-a" placeholder="예: 김빠델, 이소사" autocomplete="off">
+    <label>팀 B 이름 (선택)</label>
+    <input id="fl-team-b" placeholder="예: 박라켓, 최코트" autocomplete="off">
+    <div class="modal-status" id="fl-status" style="color:var(--text-dim)">이름을 적으면 유튜브 제목과 하이라이트에 같이 남아요.</div>
+    <div class="modal-btns">
+      <button class="btn btn-back" style="flex:0 0 auto" onclick="closeFreeLive()">닫기</button>
+      <button class="btn btn-primary" id="fl-start-btn" onclick="startFreeLive()">▶️ 라이브 시작</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -611,6 +724,7 @@ let psToken = localStorage.getItem('ps_token') || '';
 // ── 상태 ───────────────────────────────────────────────────
 let curStep = 1;
 let allMatches = [];        // [{ m, lg }] — 선택 가능한 매치들
+let leagueMatchesById = {}; // leagueId -> 그 리그의 **전체** 매치(완료 포함) — 페어 기록 계산용
 let selectedMatch = null;   // 선택한 매치(populate된 players/teamA/teamB)
 let selectedLeague = null;  // 선택한 매치의 리그
 let teamA = [], teamB = []; // 이름 배열 (점수/Firebase 표시용)
@@ -632,7 +746,10 @@ async function psFetch(path, opts = {}) {
   let body = null;
   try { body = await res.json(); } catch (_) {}
   if (!res.ok || (body && body.isSuccess === false)) {
-    throw new Error((body && body.message) || `HTTP ${res.status}`);
+    // 상태코드를 실어 보낸다 — 401(토큰 만료)과 400(규칙 위반)은 안내가 완전히 달라야 한다.
+    const err = new Error((body && body.message) || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
   }
   return body;
 }
@@ -743,6 +860,8 @@ async function loadMatches() {
       try {
         const mr = await psFetchRetry(`/league/${lg._id}/matches`, { noAuth: true });
         matches = mr.data || [];
+        // 완료 매치까지 통째로 보관 — '했던 페어' 계산에 필요(카드 목록은 완료를 버린다).
+        leagueMatchesById[String(lg._id)] = matches;
       } catch (_) { anyFail = true; continue; } // 재시도까지 실패한 리그만 스킵
       for (const m of matches) {
         if (m.status === 'completed') continue;
@@ -822,8 +941,15 @@ async function selectMatch(idx) {
   selectedLeague = row.lg;
   // 미채번(0)이면 라이브 시작 시 부여. 이미 번호 있으면(재진입) 그대로 사용.
   matchNum = (row.m.matchNumber && row.m.matchNumber > 0) ? row.m.matchNumber : 0;
-  sets = [{a:0,b:0}];
-  curSet = 0;
+  // 중간 저장된 세트 복원 — 태블릿이 꺼졌거나 목록으로 나갔다 돌아온 라이브 매치는
+  // 서버에 세트가 남아 있다. 이걸 안 읽으면 이어치기가 0-0부터 다시 시작된다.
+  const savedSets = (row.m.sets || [])
+    .filter(s => (s.a||0) + (s.b||0) > 0)
+    .map(s => ({ a: s.a||0, b: s.b||0 }))
+    .slice(0, 3);
+  sets = savedSets.length ? savedSets : [{a:0,b:0}];
+  curSet = Math.max(0, sets.length - 1);
+  phase = 'playing';
   // 항상 초기화 — 이전 매치 팀이 남아있으면 hasTeams 판단 오류 발생
   teamA = []; teamB = []; teamAIds = []; teamBIds = []; teamAPar = []; teamBPar = [];
 
@@ -840,7 +966,138 @@ async function selectMatch(idx) {
     renderStep();
     document.getElementById('team-display').innerHTML =
       '<div class="no-combo-msg" style="color:var(--text-dim)">👥 아래 버튼으로 팀을 랜덤 생성해주세요.</div>';
+    renderPairInfo(); // 배정 전에도 '뭐가 남았나'가 보여야 한다
   }
+  // 기록은 목록 로드 시점 스냅샷이라 방금 끝난 매치가 빠질 수 있다 — 뒤늦게라도 갱신.
+  // 그 사이 다른 매치로 넘어갔으면 다시 그리지 않는다(늦게 온 응답이 화면을 덮지 않게).
+  const pending = String(row.m._id);
+  refreshLeagueMatches(row.lg._id).then(() => {
+    if (curStep === 2 && selectedMatch && String(selectedMatch._id) === pending) renderPairInfo();
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+// ── 했던 페어 / 이 네 명의 대진 3개 ──────────────────────────
+// 백엔드 utils/leaguePairs 와 **같은 규칙**: 페어도 대진도 순서를 무시한다.
+// '구하경·이지원'과 '이지원·구하경'은 같은 짝이고, A팀/B팀이 바뀐 대진도 같은 대진이다.
+// ════════════════════════════════════════════════════════════
+// 이 리그의 매치 기록을 다시 받아온다(방금 끝난 매치까지 반영). 실패하면 캐시 유지.
+async function refreshLeagueMatches(leagueId) {
+  if (!leagueId) return;
+  try {
+    const mr = await psFetchRetry(`/league/${leagueId}/matches`, { noAuth: true }, 1);
+    leagueMatchesById[String(leagueId)] = mr.data || [];
+  } catch (_) { /* 캐시 유지 — 기록 패널은 조금 옛것이어도 낫다 */ }
+}
+
+const cPairKey = (a, b) => [String(a), String(b)].sort().join('-');
+function cTeamPair(team) {
+  const ids = [...new Set((team || []).map(psId).map(String).filter(Boolean))];
+  return ids.length === 2 ? cPairKey(ids[0], ids[1]) : null;
+}
+function cMatchupKey(a, b) {
+  const ka = cTeamPair(a);
+  const kb = cTeamPair(b);
+  return (ka && kb) ? [ka, kb].sort().join('|') : null;
+}
+// 이 매치의 명단 — players 우선, 4명이 안 되면 teamA+teamB. (백엔드 matchRoster 와 동일)
+function cRoster(m) {
+  if (!m) return [];
+  const players = [...new Set((m.players || []).map(psId).map(String).filter(Boolean))];
+  if (players.length >= 4) return players;
+  const teamed = [...new Set([...(m.teamA || []), ...(m.teamB || [])].map(psId).map(String).filter(Boolean))];
+  return teamed.length === 4 ? teamed : players;
+}
+const cMatchLabel = (m) => (m.matchNumber && m.matchNumber > 0 ? `매치 ${m.matchNumber}` : (m.date || ''));
+
+// 이 리그의 지난 매치들(현재 매치·모집중 제외)에서 페어/대진 사용 현황을 만든다.
+function cUsage() {
+  const hist = (leagueMatchesById[String(selectedLeague && selectedLeague._id)] || [])
+    .filter((m) => m.status !== 'recruiting' && String(m._id) !== String(selectedMatch && selectedMatch._id));
+  const byPair = new Map();
+  const byMatchup = new Map();
+  for (const m of hist) {
+    for (const t of [m.teamA, m.teamB]) {
+      const k = cTeamPair(t);
+      if (!k) continue;
+      if (!byPair.has(k)) byPair.set(k, []);
+      byPair.get(k).push(m);
+    }
+    const mk = cMatchupKey(m.teamA, m.teamB);
+    if (!mk) continue;
+    if (!byMatchup.has(mk)) byMatchup.set(mk, []);
+    byMatchup.get(mk).push(m);
+  }
+  return { byPair, byMatchup };
+}
+
+// 대진키는 팀 순서를 무시하므로, 찾은 매치의 A팀이 내 조합의 A팀과 반대일 수 있다.
+// 그대로 쓰면 점수가 뒤집혀 보인다 — 내 조합 기준으로 돌려놓는다. (백엔드 alignScore 동일)
+function cAlignedScore(comboA, m) {
+  const flipped = cTeamPair(m.teamA) !== cTeamPair(comboA);
+  const sets = (m.sets || []).map((s) => (flipped ? { a: s.b || 0, b: s.a || 0 } : { a: s.a || 0, b: s.b || 0 }));
+  return sets.length ? sets.map((s) => `${s.a}-${s.b}`).join(' ') : '';
+}
+
+// STEP 2 하단 패널 — 3개 조합의 상태 + 이미 짝이었던 페어.
+function renderPairInfo() {
+  const el = document.getElementById('pair-info');
+  if (!el) return;
+  const roster = cRoster(selectedMatch);
+  if (roster.length !== 4 || !selectedLeague) { el.innerHTML = ''; return; }
+
+  // 이름 사전 — 이 매치에 실린 populate 된 사람들로 충분하다.
+  const nameOf = {};
+  for (const u of [...(selectedMatch.players || []), ...(selectedMatch.teamA || []), ...(selectedMatch.teamB || [])]) {
+    if (u && u._id) nameOf[String(u._id)] = psName(u);
+  }
+  const nm = (id) => nameOf[String(id)] || '선수';
+
+  const { byPair, byMatchup } = cUsage();
+  const [p0, p1, p2, p3] = roster;
+  const combos = [
+    { a: [p0, p1], b: [p2, p3] },
+    { a: [p0, p2], b: [p1, p3] },
+    { a: [p0, p3], b: [p1, p2] },
+  ];
+  const curKey = cMatchupKey(selectedMatch.teamA, selectedMatch.teamB);
+
+  const rows = combos.map((c) => {
+    const key = cMatchupKey(c.a, c.b);
+    const used = byMatchup.get(key) || [];
+    const isNow = !!curKey && key === curKey;
+    const names = `${c.a.map(nm).join('·')} <span style="color:var(--text-dim);font-weight:600">vs</span> ${c.b.map(nm).join('·')}`;
+    let cls = 'open';
+    let state = '가능';
+    if (isNow) { cls = 'now'; state = '지금 이 매치'; }
+    else if (used.length) {
+      cls = 'done';
+      const m = used[used.length - 1];
+      const score = cAlignedScore(c.a, m);
+      state = `${cMatchLabel(m) || '완료'}${score ? ` · ${score}` : ''}`;
+    }
+    return `<div class="combo-row ${cls}"><div class="combo-names">${names}</div><div class="combo-state ${cls}">${state}</div></div>`;
+  }).join('');
+
+  // 이미 같은 편이었던 짝 — 규칙 위반은 아니지만, 랜덤이 또 붙였는지 코트에서 바로 보이게.
+  const seen = [];
+  for (let i = 0; i < 4; i++) {
+    for (let j = i + 1; j < 4; j++) {
+      const refs = byPair.get(cPairKey(roster[i], roster[j]));
+      if (!refs || !refs.length) continue;
+      const where = refs.map(cMatchLabel).filter(Boolean).join(', ');
+      seen.push(`<b>${nm(roster[i])}·${nm(roster[j])}</b> ${refs.length}회${where ? ` (${where})` : ''}`);
+    }
+  }
+  const usedLine = seen.length
+    ? `<div class="pair-used">이미 짝이었던 페어 — ${seen.join(' / ')}</div>`
+    : '<div class="pair-used">이 네 명은 아직 짝이 겹친 적이 없어요.</div>';
+
+  el.innerHTML = `<div class="pair-info">
+    <div class="pair-info-title">이 네 명의 대진 3개</div>
+    ${rows}
+    ${usedLine}
+  </div>`;
 }
 
 function applyTeams(aArr, bArr) {
@@ -866,8 +1123,17 @@ async function doAssignTeams() {
     renderTeamDisplay(true);
     renderStep(); // footer 갱신 — 팀 배정됐으니 '매치 시작하기' 버튼으로
   } catch (e) {
+    // ⚠️ 예전엔 무슨 에러든 '가능한 조합을 모두 사용했거나...'를 붙였다. 그래서 토큰이
+    //    만료돼 401이 떨어져도 페어를 다 쓴 것처럼 보였고, 멀쩡한 조합을 두고 코트에서
+    //    한참 헤맸다. 원인별로 다르게 말한다.
+    if (e.status === 401 || e.status === 403) {
+      document.getElementById('team-display').innerHTML =
+        `<div class="no-combo-msg">🔑 운영자 로그인이 만료됐어요.<br><span style="font-size:14px">⚙ 설정에서 다시 로그인한 뒤 시도해주세요.</span></div>`;
+      openSettings();
+      return;
+    }
     document.getElementById('team-display').innerHTML =
-      `<div class="no-combo-msg">😅 ${e.message}<br><span style="font-size:14px">가능한 조합을 모두 사용했거나 4명이 모이지 않았어요.</span></div>`;
+      `<div class="no-combo-msg">😅 ${e.message}</div>`;
   }
 }
 
@@ -875,6 +1141,7 @@ function renderTeamDisplay(fresh) {
   const wrap = document.getElementById('team-display');
   if (!teamA.length || !teamB.length) {
     wrap.innerHTML = '<div class="no-combo-msg">팀 정보를 불러오지 못했어요.</div>';
+    renderPairInfo();
     return;
   }
   const badge = fresh
@@ -893,6 +1160,7 @@ function renderTeamDisplay(fresh) {
         ${teamB.map((p,i)=>`<div class="team-player">${p}${parTag(teamBPar[i])}</div>`).join('')}
       </div>
     </div>`;
+  renderPairInfo();
 }
 
 async function reshuffleTeams() {
@@ -994,11 +1262,33 @@ function adjustScore(i, team, delta) {
 //  1세트 저장 → 2세트
 //  2세트 저장 → 2:0이면 종료 대기(phase=finish), 1:1이면 3세트
 //  3세트 저장 → 바로 종료
+// 지금까지의 세트를 서버에 중간 저장. **status:'live'를 반드시 같이 보낸다** —
+// sets만 보내면 백엔드가 '결과 입력'으로 보고 매치를 completed로 끝내버린다(채번 + PAR 반영).
+// 이게 없던 동안 '세트 저장'은 화면과 스코어보드만 갱신했고, 태블릿을 닫거나 새로고침하면
+// 그때까지 친 점수가 통째로 사라졌다(매치는 번호도 점수도 없이 남았다).
+async function persistSetsLive() {
+  if (!psToken || !selectedMatch || !selectedLeague) return;
+  const played = sets.filter(s => (s.a||0) + (s.b||0) > 0).map(s => ({ a: s.a||0, b: s.b||0 }));
+  if (!played.length) return;
+  try {
+    await psFetch(`/league/${selectedLeague._id}/matches/${selectedMatch._id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ sets: played, status: 'live' }),
+    });
+    selectedMatch.sets = played;
+    selectedMatch.status = 'live';
+  } catch (e) {
+    // 실패해도 경기는 계속된다 — 화면 점수는 남아 있고, 매치 종료 때 다시 저장한다.
+    showToast('⚠️ 세트 중간 저장 실패 — 종료할 때 다시 저장돼요');
+  }
+}
+
 function saveSet() {
   const s = sets[curSet];
   if ((s.a||0) === (s.b||0)) { showToast('이 세트 승자가 없어요 (동점은 저장 불가)'); return; }
   const winsA = sets.slice(0, curSet+1).filter(x => (x.a||0) > (x.b||0)).length;
   const winsB = sets.slice(0, curSet+1).filter(x => (x.b||0) > (x.a||0)).length;
+  persistSetsLive(); // 기다리지 않는다 — 코트 진행이 네트워크에 묶이면 안 된다
   if (curSet === 0) {
     if (sets.length < 2) sets.push({a:0, b:0});
     curSet = 1;
@@ -1076,17 +1366,19 @@ async function saveMatch() {
 
 // ── 스코어 화면 취소 — live → scheduled 복원 후 팀배정 화면으로 ──
 async function cancelScore() {
-  const confirmed = confirm('매치를 취소하고 팀배정 화면으로 돌아갈까요?\n(라이브 상태가 scheduled로 복원돼요)');
+  const confirmed = confirm('매치를 취소하고 팀배정 화면으로 돌아갈까요?\n(입력한 점수는 지워지고 라이브 상태가 scheduled로 복원돼요)');
   if (!confirmed) return;
   stopStream(); // 스트리밍 중이었으면 종료
   hideScoreboard(); // 📴 스코어보드 오버레이 숨김
-  // 매치 상태 live → scheduled 복원 (best-effort)
+  // 매치 상태 live → scheduled 복원 + 중간 저장된 세트 비우기 (best-effort).
+  // 세트를 안 지우면 '취소한 매치'가 점수를 달고 결과 탭에 남는다.
   if (psToken && selectedMatch && selectedMatch.status === 'live') {
     try {
       await psFetch(`/league/${selectedLeague._id}/matches/${selectedMatch._id}`, {
-        method: 'PATCH', body: JSON.stringify({ status: 'scheduled' }),
+        method: 'PATCH', body: JSON.stringify({ status: 'scheduled', sets: [] }),
       });
       selectedMatch.status = 'scheduled';
+      selectedMatch.sets = [];
     } catch(_) {}
   }
   // 스코어 초기화 후 팀배정 화면으로
@@ -1126,6 +1418,8 @@ async function replayDifferentPair() {
   if (playerIds.length !== 4) { showToast('선수 4명 정보를 못 찾았어요'); return; }
   try {
     showToast('🔀 다음 매치 생성 중...');
+    // 방금 끝난 매치를 기록에 반영한 뒤 새 매치를 만든다 — 안 하면 패널이 직전 판을 못 본다.
+    await refreshLeagueMatches(selectedLeague._id);
     // 새 매치를 생성(from-players) — 직전 결과는 보존되고, 번호가 늘어나며, 미사용 페어로 배정.
     const res = await psFetch(
       `/league/${selectedLeague._id}/matches/from-players`,
@@ -1253,8 +1547,12 @@ async function ensureMatchNumber() {
 }
 
 async function goToScore() {
-  sets=[{a:0,b:0}];
-  curSet=0;
+  // ⚠️ 여기서 sets를 초기화하면 안 된다 — selectMatch가 서버에 남은 세트를 복원해 두는데,
+  //    이어치기로 들어온 라이브 매치의 점수가 그 순간 0-0으로 날아간다.
+  //    새 매치·다시뽑기·취소 경로는 각자 이미 sets를 비우고 온다.
+  if (sets.length > 1 || (sets[0] && (sets[0].a || sets[0].b))) {
+    showToast(`⏱️ 저장돼 있던 ${sets.length}세트를 불러왔어요 — 마지막 세트부터 이어서`);
+  }
   phase='playing';
   curStep=3;
   renderStep();
@@ -1275,6 +1573,8 @@ function goBack() {
   if(curStep===2) {
     curStep=1;
     selectedMatch=null; selectedLeague=null;
+    const pi = document.getElementById('pair-info');
+    if(pi) pi.innerHTML = '';
     renderStep();
   } else if(curStep===3) {
     sets=[{a:0,b:0}];
@@ -1296,6 +1596,8 @@ function resetAll() {
   sets=[{a:0,b:0}]; curSet=0; matchNum=0;
   const sec = document.getElementById('score-section');
   if(sec) sec.innerHTML = '';
+  const pi = document.getElementById('pair-info');
+  if(pi) pi.innerHTML = '';
   renderStep();
   loadMatches();
 }
@@ -1328,6 +1630,11 @@ let _streamActive = false;
 let _streamServerOnline = false;
 let _watchUrl = null;
 let _bufferReady = false;  // OBS 리플레이 버퍼 대기중 → 라이브 아니어도 하이라이트 가능
+// 진행 중인 방송의 모드 — 'league'(리그 매치) | 'free'(자유 라이브) | ''(없음). 서버 /health 가 준다.
+let _liveMode = '';
+let _liveEndsAt = null;   // 자유 라이브 종료 시각(ISO). 카운트다운은 이걸로만 그린다 — 태블릿 타이머는 신뢰 못 한다.
+let _liveTitle = '';
+let _liveTeams = { a: [], b: [] };
 
 function _updateStreamStatus(state) {
   const el = document.getElementById('stream-status');
@@ -1346,6 +1653,7 @@ function _updateStreamStatus(state) {
   //   (버퍼가 상시 돌면 방송 안 해도 직전 60/90초 클립 저장 가능)
   const hw = document.getElementById('hl-wrap');
   if (hw && !window._hlBusy) hw.style.display = (state === 'live' || _bufferReady) ? 'flex' : 'none';
+  renderFreeLive();
 }
 
 // ── 하이라이트 저장 — 누른 시점 직전 N초(60/90)를 클립으로 ──
@@ -1388,6 +1696,11 @@ async function checkStreamServer() {
       _streamActive = data.streaming;
       _watchUrl = data.watch_url;
       _bufferReady = !!data.buffer_ready;  // 상태 갱신 후 버튼 노출 판단
+      // 진행 중인 방송의 정체 — 태블릿이 꺼졌다 켜져도 자유 라이브 카드가 그대로 살아난다.
+      _liveMode = data.streaming ? (data.mode || 'league') : '';
+      _liveEndsAt = data.streaming ? (data.ends_at || null) : null;
+      _liveTitle = data.title || '';
+      _liveTeams = { a: data.team_a || [], b: data.team_b || [] };
       _updateStreamStatus(data.streaming ? 'live' : 'online');
       if (data.streaming && data.watch_url) _showWatchBtn(data.watch_url);
     }
@@ -1439,6 +1752,7 @@ async function startStream() {
     if (data.success) {
       _streamActive = true;
       _watchUrl = data.watch_url;
+      _liveMode = 'league'; _liveEndsAt = null;
       _updateStreamStatus('live');
       showToast('▶️ YouTube 라이브 시작됨!');
       // 앱에서 유튜브 라이브 배너가 뜨도록 리그 youtubeUrl 업데이트
@@ -1469,6 +1783,7 @@ async function stopStream() {
     });
     _streamActive = false;
     _watchUrl = null;
+    _liveMode = ''; _liveEndsAt = null;
     _hideWatchBtn();
     _updateStreamStatus(_streamServerOnline ? 'online' : 'offline');
     showToast('⏹️ 스트리밍 종료됨');
@@ -1486,6 +1801,140 @@ async function stopStream() {
     _hideWatchBtn();
     _updateStreamStatus('offline');
     showToast('⚠️ 스트리밍 종료 중 오류 (서버 확인 필요)');
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// ── 자유 라이브 — 리그 매치 없이 방송 + 🎬 하이라이트 ──────────
+// 시간(90분/2시간/3시간)은 시작할 때 고른다. 끝나는 건 **서버**가 한다(ends_at 워치독) —
+// 태블릿은 카운트다운을 그릴 뿐이고, 화면이 꺼져도 방송은 제시간에 꺼진다.
+// ════════════════════════════════════════════════════════════
+let _flMinutes = 90;
+const FREE_LIVE_MINUTES = [90, 120, 180];
+
+function _fmtLeft(ms) {
+  const t = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
+  const p = (n) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${p(m)}:${p(sec)}` : `${m}:${p(sec)}`;
+}
+const _durLabel = (min) => (min === 90 ? '90분' : min === 120 ? '2시간' : min === 180 ? '3시간' : `${min}분`);
+
+// 카드 그리기 — 상태는 전부 위 변수(_streamServerOnline/_streamActive/_liveMode/_liveEndsAt)에서.
+function renderFreeLive() {
+  const card = document.getElementById('free-live-card');
+  if (!card) return;
+  const st = document.getElementById('free-live-state');
+  const sub = document.getElementById('free-live-sub');
+  const act = document.getElementById('free-live-actions');
+  card.classList.remove('on', 'off');
+
+  if (!_streamServerOnline) {
+    card.classList.add('off');
+    st.textContent = '📡 스트리밍 서버 꺼짐';
+    sub.textContent = '방송 PC(OBS)가 켜져 있어야 해요. 켜지면 여기서 바로 시작할 수 있어요.';
+    act.innerHTML = '';
+    return;
+  }
+  if (_streamActive && _liveMode === 'free') {
+    card.classList.add('on');
+    const left = _liveEndsAt ? (Date.parse(_liveEndsAt) - Date.now()) : 0;
+    st.innerHTML = `🔴 LIVE · <span class="free-live-timer" id="free-live-timer">${_liveEndsAt ? _fmtLeft(left) : ''}</span>`;
+    const names = (_liveTeams.a.length || _liveTeams.b.length)
+      ? `<b>${_liveTeams.a.join(' / ') || '팀 A'}</b> vs <b>${_liveTeams.b.join(' / ') || '팀 B'}</b> · `
+      : '';
+    sub.innerHTML = `${names}시간이 다 되면 자동으로 꺼져요. 명장면은 오른쪽 위 <b>🎬 버튼</b>으로 저장 — 앱 '하이라이트'에 쌓여요.`
+      + (_watchUrl ? `<div class="free-live-link">📺 ${_watchUrl}</div>` : '');
+    act.innerHTML = `
+      ${_watchUrl ? `<button class="btn btn-shuffle" onclick="copyWatchUrl()">🔗 시청 링크 복사</button>` : ''}
+      <button class="btn btn-red" onclick="stopFreeLive()">⏹ 라이브 종료</button>`;
+    return;
+  }
+  if (_streamActive) {
+    st.textContent = '🔴 리그 경기 방송 중';
+    sub.textContent = '리그 매치가 방송 중이에요. 경기를 저장하면 끝나요.';
+    act.innerHTML = '';
+    return;
+  }
+  st.textContent = '📡 대기 중';
+  sub.textContent = '리그 경기가 아니어도 지금 코트를 유튜브로 방송하고, 🎬 버튼으로 하이라이트를 남길 수 있어요.';
+  act.innerHTML = `<button class="btn btn-primary" onclick="openFreeLive()">▶️ 라이브 시작</button>`;
+}
+
+// 카운트다운 — 1초마다 숫자만 갱신. 0 이 되면 서버가 끄는 걸 곧 health 로 확인한다(30초 안).
+setInterval(() => {
+  const el = document.getElementById('free-live-timer');
+  if (!el || !_liveEndsAt) return;
+  const left = Date.parse(_liveEndsAt) - Date.now();
+  el.textContent = _fmtLeft(left);
+  if (left <= 0 && !window._flEndPinged) { window._flEndPinged = true; setTimeout(() => { window._flEndPinged = false; checkStreamServer(); }, 3000); }
+}, 1000);
+
+function openFreeLive() {
+  if (!_streamServerOnline) { showToast('📡 스트리밍 서버가 꺼져 있어요'); return; }
+  if (_streamActive) { showToast('이미 방송 중이에요'); return; }
+  pickDuration(_flMinutes);
+  const fs = document.getElementById('fl-status');
+  if (fs) { fs.textContent = '이름을 적으면 유튜브 제목과 하이라이트에 같이 남아요.'; fs.style.color = 'var(--text-dim)'; }
+  document.getElementById('free-live-modal').classList.add('show');
+}
+function closeFreeLive() { document.getElementById('free-live-modal').classList.remove('show'); }
+function pickDuration(min) {
+  if (!FREE_LIVE_MINUTES.includes(min)) return;
+  _flMinutes = min;
+  document.querySelectorAll('#free-live-modal .dur-chip').forEach((b) => {
+    b.classList.toggle('on', Number(b.dataset.min) === min);
+  });
+}
+const _splitNames = (v) => String(v || '').split(/[,，/·]/).map((x) => x.trim()).filter(Boolean).slice(0, 4);
+
+async function startFreeLive() {
+  const btn = document.getElementById('fl-start-btn');
+  const fs = document.getElementById('fl-status');
+  const teamA = _splitNames(document.getElementById('fl-team-a').value);
+  const teamB = _splitNames(document.getElementById('fl-team-b').value);
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 유튜브 방송 만드는 중...'; }
+  if (fs) { fs.textContent = '유튜브 방송을 만들고 OBS 송출을 시작해요 — 10~20초 걸려요.'; fs.style.color = 'var(--text-dim)'; }
+  _updateStreamStatus('starting');
+  try {
+    const res = await fetch(`${STREAM_SERVER}/start-stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'free', durationMinutes: _flMinutes, teamA, teamB }),
+      signal: AbortSignal.timeout(40000),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!data.success) throw new Error(data.error || '시작 실패');
+    _streamActive = true;
+    _watchUrl = data.watch_url || null;
+    _liveMode = 'free';
+    _liveEndsAt = data.ends_at || new Date(Date.now() + _flMinutes * 60000).toISOString();
+    _liveTitle = data.title || '';
+    _liveTeams = { a: teamA, b: teamB };
+    closeFreeLive();
+    _updateStreamStatus('live');
+    showToast(`▶️ 라이브 시작 — ${_durLabel(_flMinutes)} 뒤 자동 종료`);
+  } catch (e) {
+    _updateStreamStatus(_streamServerOnline ? 'online' : 'offline');
+    if (fs) { fs.textContent = '⚠️ ' + (e.name === 'TimeoutError' ? '서버 응답이 없어요 — OBS·방송 PC를 확인해주세요' : (e.message || '시작 실패')); fs.style.color = 'var(--red)'; }
+    setTimeout(() => checkStreamServer(), 3000);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '▶️ 라이브 시작'; }
+}
+
+async function stopFreeLive() {
+  if (!confirm('라이브를 지금 종료할까요?\n(유튜브 방송이 끝나요. 저장한 하이라이트는 남아요)')) return;
+  await stopStream();
+  checkStreamServer();
+}
+
+function copyWatchUrl() {
+  if (!_watchUrl) return;
+  const done = () => showToast('🔗 시청 링크를 복사했어요');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(_watchUrl).then(done).catch(() => window.prompt('이 링크를 복사하세요', _watchUrl));
+  } else {
+    window.prompt('이 링크를 복사하세요', _watchUrl);
   }
 }
 
@@ -1532,7 +1981,7 @@ if ('serviceWorker' in navigator) {
 -->
 <script>
 (function () {
-  var BUILD = "c1";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
+  var BUILD = "c2";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
   var el = document.getElementById('app-build');
   if (el) el.textContent = '앱 ' + BUILD;
 
