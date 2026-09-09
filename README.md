@@ -30,7 +30,7 @@ git pull --ff-only
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup\check_livestream_pc.ps1 -Restart
 ```
 
-python 파일은 재시작해야 반영된다. 태블릿 페이지는 재시작 때 새로 받고, 태블릿 헤더의 `앱 c2` 같은
+python 파일은 재시작해야 반영된다. 태블릿 페이지는 재시작 때 새로 받고, 태블릿 헤더의 `앱 c3` 같은
 빌드 표시가 바뀌면 2분 안에 스스로 새로고침한다. 페이지만 갱신: `https://obs.padelsociety.co.kr/reload-html`.
 
 ## 검증
