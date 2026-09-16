@@ -757,6 +757,9 @@ let selectedLeague = null;  // 선택한 매치의 리그
 let teamA = [], teamB = []; // 이름 배열 (점수/Firebase 표시용)
 let teamAIds = [], teamBIds = [];
 let teamAPar = [], teamBPar = []; // 각 선수 PAR 객체 (표시용)
+// 프로필 사진 URL — **유튜브 라이브 썸네일**에 쓴다(그 경기 선수 얼굴이 목록에 뜨게).
+// 백엔드가 리그 매치 응답에서 profile 을 전체 URL 로 내려준다(LeagueMatch.toJSON).
+let teamAPhotos = [], teamBPhotos = [];
 let sets = [{a:0, b:0}];
 let curSet = 0;
 let phase = 'playing'; // 'playing'(점수 입력 중) | 'finish'(2:0 종료 대기)
@@ -979,6 +982,7 @@ async function selectMatch(idx) {
   phase = 'playing';
   // 항상 초기화 — 이전 매치 팀이 남아있으면 hasTeams 판단 오류 발생
   teamA = []; teamB = []; teamAIds = []; teamBIds = []; teamAPar = []; teamBPar = [];
+  teamAPhotos = []; teamBPhotos = [];
 
   const hasTeams = (selectedMatch.teamA || []).length && (selectedMatch.teamB || []).length;
   if (hasTeams) {
@@ -1134,6 +1138,26 @@ function applyTeams(aArr, bArr) {
   teamBIds = (bArr || []).map(psId);
   teamAPar = (aArr || []).map(u => (u && u.par) || null);
   teamBPar = (bArr || []).map(u => (u && u.par) || null);
+  teamAPhotos = (aArr || []).map(psPhoto);
+  teamBPhotos = (bArr || []).map(psPhoto);
+}
+
+// 프로필 사진 URL. 파일 이름만 오던 시절(2026-09 이전 백엔드)에도 안 깨지게 —
+// http 로 시작하지 않으면 사진이 없는 것으로 본다(썸네일이 이니셜로 떨어진다).
+function psPhoto(u) {
+  const v = (u && typeof u === 'object' && u.profile) ? String(u.profile) : '';
+  return /^https?:\/\//.test(v) ? v : '';
+}
+
+// 썸네일용 선수 상세 — 이름·사진·등급을 한 벌로. 이름 배열(teamA)은 **그대로 둔다**:
+// 점수판·Firebase·제목이 전부 그걸 쓰고, 구버전 stream_server 도 이름만 읽는다.
+function rosterOf(names, photos, pars) {
+  return (names || []).map((name, i) => ({
+    name,
+    photo: (photos || [])[i] || '',
+    par: ((pars || [])[i] || {}).score ?? null,
+    tier: ((pars || [])[i] || {}).tier || '',
+  }));
 }
 
 // 백엔드 랜덤 팀 편성 (no-repeat) — POST /:id/matches/:matchId/assign-teams
@@ -1198,7 +1222,7 @@ async function reshuffleTeams() {
 }
 
 // ── Firebase 동기화 (TV 점수판) ─────────────────────────────
-function pushToFirebase() {
+function pushToFirebase(opts) {
   if(typeof window.syncToFirebase !== 'function') return;
   const setsA = sets.slice(0, curSet).map(s => s.a);
   const setsB = sets.slice(0, curSet).map(s => s.b);
@@ -1211,6 +1235,11 @@ function pushToFirebase() {
     nameA: teamA.join(' / ') || 'Team A',
     nameB: teamB.join(' / ') || 'Team B',
     setsA, setsB, gameA, gameB,
+    fresh: !!(opts && opts.fresh),
+    // 리그가 정한 40-40 규칙을 스코어보드로 — 26S2 엔 이 값이 없어서 심판이 기기마다
+    // [Golden] 을 손으로 켰고, 잊으면 TV 에 배너가 안 떴다.
+    deuceLimit: (selectedLeague && typeof selectedLeague.deuceLimit === 'number')
+      ? selectedLeague.deuceLimit : undefined,
   });
   broadcastLiveToApp(title, setsA, setsB, gameA, gameB);
 }
@@ -1470,6 +1499,8 @@ async function replayDifferentPair() {
     teamBIds = (m.teamB || []).map(u => String(u._id || u));
     teamAPar = (m.teamA || []).map(u => (u && u.par) || null);
     teamBPar = (m.teamB || []).map(u => (u && u.par) || null);
+    teamAPhotos = (m.teamA || []).map(psPhoto);
+    teamBPhotos = (m.teamB || []).map(psPhoto);
     // 스코어 초기화 후 팀배정 화면(STEP2)으로
     sets = [{a:0,b:0}]; curSet = 0; curStep = 2;
     const sec = document.getElementById('score-section');
@@ -1592,7 +1623,7 @@ async function goToScore() {
       method: 'PATCH', body: JSON.stringify({ status: 'live' }),
     }).then(() => { selectedMatch.status = 'live'; }).catch(() => {});
   }
-  setTimeout(() => pushToFirebase(), 600);
+  setTimeout(() => pushToFirebase({ fresh: true }), 600);
   startStream(); // 🔴 YouTube 라이브 자동 시작 (서버 있을 때만)
 }
 
@@ -1620,6 +1651,7 @@ function resetAll() {
   hideScoreboard(); // 📴 스코어보드 오버레이 숨김
   curStep=1; selectedMatch=null; selectedLeague=null;
   teamA=[]; teamB=[]; teamAIds=[]; teamBIds=[]; teamAPar=[]; teamBPar=[];
+  teamAPhotos=[]; teamBPhotos=[];
   sets=[{a:0,b:0}]; curSet=0; matchNum=0;
   const sec = document.getElementById('score-section');
   if(sec) sec.innerHTML = '';
@@ -1785,6 +1817,9 @@ async function startStream() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         teamA, teamB,
+        // 썸네일용 상세 — 구버전 stream_server 는 이 두 칸을 그냥 무시한다.
+        rosterA: rosterOf(teamA, teamAPhotos, teamAPar),
+        rosterB: rosterOf(teamB, teamBPhotos, teamBPar),
         league: (selectedLeague && selectedLeague.name) || '',
         category: catShort,
         matchNumber: matchNum,
@@ -2081,7 +2116,24 @@ onValue(connRef, snap => {
   if(el) { el.textContent = ok ? '🟢 연결됨' : '🔴 연결 중...'; el.style.color = ok ? 'var(--green)' : 'var(--text-dim)'; }
 });
 
-window.syncToFirebase = function({ title, nameA, nameB, setsA, setsB, gameA, gameB, visible }) {
+/**
+ * 게임·세트 점수를 스코어보드로 내보낸다.
+ *
+ * ⚠️ **`set` 이 아니라 `update` 다.** `set` 은 scoreboard 노드를 통째로 갈아엎어서
+ *    이 태블릿이 모르는 값까지 지운다 — 심판 콘솔(pwa-scoreboard/index.html)이 정한
+ *    **듀스 규칙(deuceLimit)** 과 **TV 테마(tvTheme)** 가 그 자리에서 사라졌다.
+ *    (TV 테마는 예전부터 그랬고, 클래식으로 켜 둔 TV 가 게임 하나마다 럭셔리로 돌아갔다.)
+ *
+ * 포인트 단위 상태(듀스 회차·연속 득점·결정 포인트 배너)는 **여기서 지운다** — 게임
+ * 점수가 움직였다는 건 그 게임이 끝났다는 뜻이라, 듀스 이력이 다음 게임으로 넘어가면
+ * 결정 포인트가 한 판 일찍 뜬다.
+ *
+ * @param fresh 새 경기를 여는 중이면 true — 경기 단위 기록(게임 타임라인·경기 시계)을 지우고
+ *              **그 리그의 듀스 규칙**을 실어 보낸다.
+ * @param deuceLimit 리그가 정한 40-40 규칙 (0=골든 · 2=2듀스 …). fresh 일 때만 쓴다 —
+ *              매 동기화마다 덮으면 심판이 경기 도중 손으로 바꾼 규칙이 한 점마다 되돌아간다.
+ */
+window.syncToFirebase = function({ title, nameA, nameB, setsA, setsB, gameA, gameB, visible, fresh, deuceLimit }) {
   const el = document.getElementById('fb-status');
   const S = {
     title: title || 'PS i-League',
@@ -2090,8 +2142,13 @@ window.syncToFirebase = function({ title, nameA, nameB, setsA, setsB, gameA, gam
     superTB: false,
     // 경기 중이면 스코어보드 표시(true). 종료 시 setScoreboardVisible(false)로 숨김.
     visible: visible !== false,
+    deuce: 0, starForce: false, starPoint: false, goldenPoint: false, run: null,
   };
-  set(sbRef, S).then(() => {
+  if (fresh) {
+    S.gamelog = []; S.startedAt = 0;
+    if (typeof deuceLimit === 'number') S.deuceLimit = deuceLimit;
+  }
+  update(sbRef, S).then(() => {
     if(el) el.textContent = `🟢 동기화됨 (${gameA ?? 0}–${gameB ?? 0})`;
   }).catch(err => {
     if(el) el.textContent = '🔴 오류: ' + err.message;

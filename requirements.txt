@@ -8,3 +8,5 @@ google-api-python-client>=2.100.0
 google-auth-oauthlib>=1.1.0
 requests>=2.31.0
 imageio-ffmpeg>=0.4.9
+# 라이브 썸네일 합성 (thumbnail.py) — 없으면 썸네일만 조용히 건너뛴다
+Pillow>=10.0.0

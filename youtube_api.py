@@ -139,6 +139,38 @@ class YouTubeAPI:
 
         return broadcast_id, rtmp_url, stream_key
 
+    # ── 썸네일 ────────────────────────────────────────────────────
+    def set_thumbnail(self, broadcast_id: str, image_path: str) -> bool:
+        """
+        방송 썸네일을 올린다. 성공 여부를 bool 로 돌려주고 **예외를 던지지 않는다.**
+
+        ⚠️ 썸네일은 방송의 부속이지 조건이 아니다 — 실패해도 중계는 그대로 간다.
+           그래서 호출부가 try 로 감쌀 필요가 없게 여기서 전부 삼킨다.
+
+        ⚠️ 채널에 **썸네일 업로드 권한이 있어야** 한다(전화번호 인증). 없으면 YouTube 가
+           403 `forbidden` 을 준다 — 코드 문제가 아니라 채널 설정이므로 메시지를 그대로 남긴다.
+
+        쓰는 스코프는 기존 `.../auth/youtube` 그대로라 **재인증이 필요 없다**
+        (`youtube_token.pickle` 을 다시 만들지 않아도 된다).
+        """
+        if not broadcast_id or not image_path or not os.path.exists(image_path):
+            return False
+        size = os.path.getsize(image_path)
+        if size > 2 * 1024 * 1024:                       # YouTube 한도 2MB
+            logger.warning(f"⚠️ 썸네일이 2MB를 넘어 건너뜁니다 ({size // 1024}KB)")
+            return False
+        try:
+            self._ensure_auth()
+            self.youtube.thumbnails().set(
+                videoId=broadcast_id,
+                media_body=image_path,
+            ).execute()
+            logger.info(f"🖼️ 썸네일 업로드 완료 ({size // 1024}KB)")
+            return True
+        except Exception as e:
+            logger.warning(f"⚠️ 썸네일 업로드 실패 (방송은 그대로): {e}")
+            return False
+
     # ── 방송 종료 ─────────────────────────────────────────────────
     def end_broadcast(self, broadcast_id: str):
         """방송을 명시적으로 종료합니다 (enableAutoStop이 있으면 자동으로 되지만 보험용)."""

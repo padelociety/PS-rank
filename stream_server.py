@@ -20,6 +20,7 @@ import os
 import signal
 import socket
 import sys
+import tempfile
 import threading
 import time
 import urllib.request
@@ -40,6 +41,7 @@ def get_lan_ip():
     except Exception:
         return 'localhost'
 
+import thumbnail
 from obs_controller import OBSController
 from youtube_api import YouTubeAPI
 
@@ -241,6 +243,50 @@ def build_title_and_desc(team_a: list, team_b: list, league: str,
 FREE_LIVE_MINUTES = (90, 120, 180)
 
 
+def push_thumbnail(broadcast_id: str, roster_a: list, roster_b: list, *,
+                   league='', category='', match_number=0):
+    """
+    그 경기 선수 얼굴이 들어간 썸네일을 만들어 YouTube 에 올린다.
+
+    ⚠️ **방송을 시작한 뒤 별도 스레드에서** 부른다. 사진 네 장을 받아 합성하는 데
+       1~3초가 걸리는데, 그걸 /start-stream 응답 경로에 넣으면 태블릿의 '스트리밍
+       시작' 버튼이 그만큼 더 멈춰 있는다. 썸네일은 나중에 붙어도 아무 문제가 없다
+       (방송 목록에 뜰 때쯤이면 이미 올라가 있다).
+    ⚠️ 여기서 나는 어떤 예외도 방송에 영향을 주면 안 된다 — thumbnail.build 와
+       youtube.set_thumbnail 둘 다 스스로 삼키지만, 스레드 최상단이라 한 번 더 감싼다.
+    """
+    try:
+        # ⚠️ 파일 이름에 방송 id 를 넣는다. 고정 이름을 쓰면 방송이 이어서 시작될 때
+        #    (자유 라이브 → 리그 경기 넘겨받기) 앞 스레드가 아직 쓰는 파일을 뒤 스레드가
+        #    덮어써서, 엉뚱한 경기 얼굴이 올라간다.
+        safe = ''.join(ch for ch in str(broadcast_id) if ch.isalnum() or ch in '-_')[:40]
+        path = thumbnail.build(
+            roster_a, roster_b,
+            league=shorten_league(league) if league else 'PS i-League',
+            category=category, match_number=match_number,
+            date_str=datetime.now().strftime('%Y.%m.%d'),
+            out_path=os.path.join(tempfile.gettempdir(), f'ps_thumb_{safe or "live"}.jpg'),
+        )
+        if path:
+            youtube.set_thumbnail(broadcast_id, path)
+    except Exception as e:
+        logger.warning(f"⚠️ 썸네일 처리 중 오류 (방송에는 영향 없음): {e}")
+
+
+def merge_roster(names: list, roster: list) -> list:
+    """
+    이름 배열과 (선택) 선수 상세를 합친다.
+
+    태블릿은 예전부터 `teamA: ["김하경", "이준우"]` 만 보냈다. 썸네일에 사진을 넣으려면
+    사진 URL 과 등급이 더 필요한데, **이름 배열을 없애지 않고 `rosterA` 를 옆에 추가**했다 —
+    구버전 태블릿(그리고 자유 라이브)은 이름만 보내고, 그때는 이름만으로 그린다.
+    """
+    detail = thumbnail.normalize(roster)
+    if detail:
+        return detail
+    return thumbnail.normalize(names)
+
+
 def build_free_title_and_desc(team_a: list, team_b: list, minutes: int) -> tuple:
     date_str = datetime.now().strftime('%Y.%m.%d %H:%M')
     names = ''
@@ -301,6 +347,9 @@ def start_stream():
     category = data.get('category', '')
     match_number = int(data.get('matchNumber', 0) or 0)
     minutes = int(data.get('durationMinutes', 0) or 0)
+    # 썸네일용 선수 상세 — 있으면 사진·등급까지 그린다. 없으면 이름만 (구버전 태블릿).
+    roster_a = merge_roster(team_a, data.get('rosterA'))
+    roster_b = merge_roster(team_b, data.get('rosterB'))
 
     # 입력 검증은 **잠그기 전에** — 잘못된 요청이 자리를 차지했다 롤백하는 창을 없앤다.
     if mode == 'league' and (not team_a or not team_b):
@@ -391,6 +440,16 @@ def start_stream():
             logger.info(f"⏱ 자유 라이브 {minutes}분 — {ends.astimezone().strftime('%H:%M')} 에 자동 종료")
 
         logger.info(f"✅ 스트리밍 시작됨! 시청: {watch_url}")
+
+        # 썸네일은 **방송이 뜬 뒤에** 뒤따라 붙인다 — 응답을 붙잡지 않는다.
+        threading.Thread(
+            target=push_thumbnail,
+            args=(broadcast_id, roster_a, roster_b),
+            kwargs={'league': league, 'category': category, 'match_number': match_number},
+            daemon=True,
+            name='thumbnail',
+        ).start()
+
         with state_lock:
             ends_at = stream_state.get('ends_at')
         return jsonify({
