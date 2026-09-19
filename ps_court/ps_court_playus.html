@@ -291,6 +291,70 @@ body {
 }
 .pair-used b { color: var(--bronze); font-weight: 800; }
 
+/* ── STEP 2: 이 경기를 PAR 에 반영할까 ──
+   ⚠️ '경쟁' 이라는 말을 쓰지 않는다(사용자 결정 2026-09-19). 코트에 선 사람에게
+      '경쟁' 은 무슨 뜻인지 알 수 없고, 정작 알아야 할 것은 **내 등급이 움직이나** 다. */
+.par-toggle {
+  max-width: min(680px, 100%);
+  display: flex;
+  align-items: center;
+  gap: clamp(10px,2vw,16px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: clamp(12px,2vh,18px) clamp(12px,2vw,20px);
+  margin-bottom: clamp(12px,2vh,18px);
+  cursor: pointer;
+  user-select: none;
+}
+.par-toggle.on  { border-color: rgba(46,204,113,0.45); background: rgba(46,204,113,0.06); }
+.par-toggle.off { border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.05); }
+.par-toggle.busy { opacity: .55; pointer-events: none; }
+.par-toggle-text { flex: 1; min-width: 0; }
+.par-toggle-title {
+  font-size: clamp(14px,2vw,18px);
+  font-weight: 800;
+  line-height: 1.3;
+}
+.par-toggle.on  .par-toggle-title { color: var(--green); }
+.par-toggle.off .par-toggle-title { color: var(--red); }
+.par-toggle-sub {
+  margin-top: 4px;
+  font-size: clamp(11px,1.5vw,14px);
+  font-weight: 600;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+/* 스위치 — 큰 손가락으로 코트에서 누른다. 44px 아래로 내리지 말 것. */
+.par-switch {
+  flex: 0 0 auto;
+  width: clamp(56px,7vw,72px);
+  height: clamp(32px,4vw,40px);
+  border-radius: 999px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  position: relative;
+  transition: background .15s, border-color .15s;
+}
+.par-toggle.on .par-switch { background: rgba(46,204,113,0.35); border-color: rgba(46,204,113,0.6); }
+.par-switch-knob {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  transform: translateY(-50%);
+  width: calc(clamp(32px,4vw,40px) - 10px);
+  height: calc(clamp(32px,4vw,40px) - 10px);
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: left .15s, background .15s;
+}
+.par-toggle.on .par-switch-knob {
+  left: calc(100% - (clamp(32px,4vw,40px) - 10px) - 3px);
+  background: var(--green);
+}
+/* 점수가 들어간 뒤에는 못 바꾼다 — 잠긴 이유를 화면에 적는다. */
+.par-toggle.locked { cursor: default; opacity: .7; }
+
 .no-combo-msg {
   text-align: center;
   padding: 40px 20px;
@@ -616,7 +680,7 @@ body {
       <div id="fb-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:4px">🔴 Firebase 연결 중...</div>
       <!-- 빌드 표시 — 태블릿이 최신 파일을 받았는지 눈으로 확인하는 용도.
            배포할 때마다 아래 COURTBUILD 와 스크립트의 BUILD 를 함께 올린다. -->
-      <!--COURTBUILD:c3--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c3</div>
+      <!--COURTBUILD:c4--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c4</div>
       <div class="step-indicator" id="step-label">STEP 1 / 3</div>
       <div class="step-dots">
         <div class="step-dot active" id="dot-1"></div>
@@ -656,6 +720,8 @@ body {
     <div class="screen-title">팀 배정</div>
     <div class="screen-sub" id="team-sub">랜덤 팀이 배정됐어요</div>
     <div id="team-display"></div>
+    <!-- 이 경기를 PAR 에 반영할까 — 경기 시작 전에만 바꿀 수 있다 -->
+    <div id="par-toggle-wrap"></div>
     <!-- 이 네 명의 대진 3개 + 이미 짝이었던 페어 -->
     <div id="pair-info"></div>
   </div>
@@ -991,12 +1057,14 @@ async function selectMatch(idx) {
     curStep = 2;
     renderStep();
     renderTeamDisplay(false);
+    renderParToggle();
   } else {
     // 모집 매치 — 팀 미배정 상태, 버튼으로 수동 생성
     curStep = 2;
     renderStep();
     document.getElementById('team-display').innerHTML =
       '<div class="no-combo-msg" style="color:var(--text-dim)">👥 아래 버튼으로 팀을 랜덤 생성해주세요.</div>';
+    renderParToggle(); // 팀이 없으면 비운다 — 이전 매치 값이 남으면 안 된다
     renderPairInfo(); // 배정 전에도 '뭐가 남았나'가 보여야 한다
   }
   // 기록은 목록 로드 시점 스냅샷이라 방금 끝난 매치가 빠질 수 있다 — 뒤늦게라도 갱신.
@@ -1160,6 +1228,79 @@ function rosterOf(names, photos, pars) {
   }));
 }
 
+// ── 이 경기를 PAR 에 반영할까 — POST /:id/matches/:matchId/par-apply ──
+//
+// 사용자 결정 2026-09-19: "경쟁경기를 매치생성때 정하는게 아니라 태블릿에서 경기 시작 전
+// 정하면 어떨까? **경쟁이라고 칭하지 말고 Par 반영할껀지** 선택하고 랜덤 팀 선택을 하는거지."
+//
+// ⚠️ **앱이 정한 값이 기본으로 들어와 있다**(리그 매치 만들 때 고른 값). 여기서는 코트의
+//    실제 상황에 맞게 **뒤집기만** 한다 — 참가자는 신청할 때 상세에서 그 값을 보고 들어왔다.
+// ⚠️ **'경쟁' 이라고 쓰지 않는다.** 코트에 선 사람에게 필요한 말은 '내 등급이 움직이나' 다.
+// ⚠️ **순위 추가점수도 같이 움직인다** — 서버가 값 하나(matchType)로 둘을 정하기 때문이다.
+//    그래서 아래 설명 줄에 둘을 **같이** 적는다. 하나만 적으면 나머지가 조용히 따라간다.
+// ⚠️ **점수가 들어간 뒤에는 못 바꾼다**(서버도 막는다). 선수는 시작할 때의 규칙으로 뛴다.
+
+// 이 매치가 지금 PAR 반영인가. ⚠️ 값이 비어 있으면(옛 매치·구버전 서버) **반영**이다 —
+// 백엔드 countsForPar 와 같은 규칙이고, 반대로 읽으면 PAR 에 들어간 경기를 안 들어갔다고 그린다.
+function parApplyOn() {
+  return !(selectedMatch && selectedMatch.matchType === 'Friendly');
+}
+
+// 점수가 하나라도 들어갔으면 잠긴다 — 서버 판정과 같은 모양.
+function parApplyLocked() {
+  if (!selectedMatch) return true;
+  if (selectedMatch.status === 'completed' || selectedMatch.parApplied) return true;
+  return (selectedMatch.sets || []).some(x => (x.a || 0) + (x.b || 0) > 0);
+}
+
+function renderParToggle(busy) {
+  const wrap = document.getElementById('par-toggle-wrap');
+  if (!wrap) return;
+  // 팀이 아직 없으면 그리지 않는다 — 먼저 할 일은 팀 배정이고, 화면에 고를 것이 둘이면
+  // 코트에서 무엇부터 눌러야 하는지 흐려진다.
+  if (!(teamA.length && teamB.length)) { wrap.innerHTML = ''; return; }
+  const on = parApplyOn();
+  const locked = parApplyLocked();
+  const cls = ['par-toggle', on ? 'on' : 'off'];
+  if (busy) cls.push('busy');
+  if (locked) cls.push('locked');
+  const sub = locked
+    ? '점수가 들어가서 더는 바꿀 수 없어요.'
+    : (on
+        ? '이 경기 결과가 등급(PAR)에 반영되고 순위 추가점수를 받아요.'
+        : '이 경기 결과가 등급(PAR)에 반영되지 않고 순위 추가점수도 없어요.');
+  wrap.innerHTML =
+    `<div class="${cls.join(' ')}"${locked ? '' : ' onclick="toggleParApply()"'}>`
+    + '<div class="par-toggle-text">'
+    + `<div class="par-toggle-title">${on ? '등급(PAR) 반영' : '등급(PAR) 반영 안 함'}</div>`
+    + `<div class="par-toggle-sub">${sub}</div>`
+    + '</div>'
+    + '<div class="par-switch"><div class="par-switch-knob"></div></div>'
+    + '</div>';
+}
+
+async function toggleParApply() {
+  if (!psToken) { showToast('운영자 로그인이 필요해요 (⚙ 설정)'); openSettings(); return; }
+  if (!selectedMatch || !selectedLeague) return;
+  const next = !parApplyOn();
+  renderParToggle(true);
+  try {
+    const res = await psFetch(
+      `/league/${selectedLeague._id}/matches/${selectedMatch._id}/par-apply`,
+      { method: 'POST', body: JSON.stringify({ apply: next }) }
+    );
+    // 서버가 돌려준 매치로 갈아 끼운다 — 화면 값을 손으로 맞추면 서버와 갈라진다.
+    if (res && res.data) selectedMatch = res.data;
+    showToast(next ? '✅ 등급(PAR)에 반영돼요' : '🚫 등급(PAR)에 반영하지 않아요');
+  } catch (e) {
+    // ⚠️ 실패하면 **되돌린다.** 켜진 것처럼 두면 운영자는 정한 줄 알고 경기를 시작한다.
+    showToast(e.status === 401 || e.status === 403
+      ? '권한이 없어요 — 다시 로그인해 주세요 (⚙ 설정)'
+      : ((e && e.message) || 'PAR 반영을 바꾸지 못했어요'));
+  }
+  renderParToggle(false);
+}
+
 // 백엔드 랜덤 팀 편성 (no-repeat) — POST /:id/matches/:matchId/assign-teams
 async function doAssignTeams() {
   if (!psToken) { showToast('운영자 로그인이 필요해요 (⚙ 설정)'); openSettings(); return; }
@@ -1172,6 +1313,7 @@ async function doAssignTeams() {
     selectedMatch = m;
     applyTeams(m.teamA, m.teamB);
     renderTeamDisplay(true);
+    renderParToggle(); // 팀이 생겼으니 PAR 스위치도 같이 뜬다
     renderStep(); // footer 갱신 — 팀 배정됐으니 '매치 시작하기' 버튼으로
   } catch (e) {
     // ⚠️ 예전엔 무슨 에러든 '가능한 조합을 모두 사용했거나...'를 붙였다. 그래서 토큰이
@@ -2059,7 +2201,7 @@ if ('serviceWorker' in navigator) {
 -->
 <script>
 (function () {
-  var BUILD = "c3";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
+  var BUILD = "c4";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
   var el = document.getElementById('app-build');
   if (el) el.textContent = '앱 ' + BUILD;
 
