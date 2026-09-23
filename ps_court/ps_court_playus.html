@@ -7,26 +7,35 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="PS Court">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#080C10">
+<meta name="theme-color" content="#0F1B2D">
 <link rel="manifest" href="ps_court_playus_manifest.json">
 <link rel="apple-touch-icon" href="https://padelociety.github.io/PS-rank/icon-court-192.png">
 <title>PS Court</title>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Pretendard:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Pretendard:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 :root {
-  --gold: #F5C842;
-  --bronze: #e8a060;
-  --silver: #A8C0D6;
-  --green: #2ECC71;
-  --bg: #080C10;
-  --surface: #0E1318;
-  --surface2: #141A22;
-  --surface3: #1C2430;
-  --border: rgba(255,255,255,0.08);
-  --text: #F0F4F8;
-  --text-dim: #7A8FA0;
-  --red: #f87171;
-  --radius: clamp(12px, 2vw, 20px);
+  /* ── Playus 앱 '클래식 다크' 팔레트 (2026-09-23 사용자 지시: "디자인도 playus 디자인으로") ──
+     값은 flutter/lib/app/utils/constants/app_colors.dart 의 _p(light, **dark**) 두 번째 인자와 같다.
+     TV 스코어보드 클래식 테마와도 같은 계열이다(DESIGN_SYSTEM.md ③).
+     ⚠️ 이름(--gold·--green)은 호출부 36곳이 쓰고 있어 남겼다 — 값만 앱 색이다:
+        --gold  = 앱 primary(틸, 버튼·강조) · --green = 앱 accent(켜짐·A팀) · --warm = B팀.
+     알파를 섞는 색은 *-rgb 로 두고 rgba(var(--x-rgb), .3) 로 쓴다(리터럴 rgba 를 다시 적지 말 것). */
+  --gold: #4CBEAA;          --gold-rgb: 76,190,170;
+  --primary-light: #3E8E9E;
+  --green: #34B39F;         --green-rgb: 52,179,159;
+  --warm: #F2A562;          --warm-rgb: 242,165,98;
+  --bronze: #CD7F32;
+  --silver: #B0BEC5;
+  --bg: #0F1B2D;
+  --surface: #16233A;
+  --surface2: #1B2A41;
+  --surface3: #24364F;
+  --border: #2A3D57;
+  --text: #F1F5F9;
+  --text-dim: #93A4B3;
+  --on-primary: #0F1B2D;
+  --red: #E53E3E;           --red-rgb: 229,62,62;
+  --radius: clamp(12px, 2vw, 16px);
   --radius-sm: clamp(8px, 1.5vw, 12px);
 }
 * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -51,11 +60,13 @@ body {
   flex-shrink: 0;
 }
 .header-logo {
-  font-family: 'Bebas Neue', sans-serif;
-  font-size: clamp(22px,4vw,36px);
-  letter-spacing: 3px;
-  color: var(--gold);
+  font-family: 'Pretendard', sans-serif;
+  font-weight: 900;
+  font-size: clamp(22px,4vw,34px);
+  letter-spacing: -0.5px;
+  color: var(--text);
 }
+.header-logo-court { color: var(--gold); font-weight: 800; letter-spacing: 1px; font-size: .72em; }
 .header-sub { font-size: clamp(11px,1.5vw,15px); color: var(--text-dim); font-weight: 600; letter-spacing: 1px; }
 .header-right { text-align: right; display:flex; align-items:flex-start; gap:12px; }
 .gear-btn {
@@ -105,7 +116,7 @@ body {
 
 /* ── 타이틀 ── */
 .screen-title {
-  font-family: 'Bebas Neue', sans-serif;
+  font-family: 'Barlow Condensed', sans-serif;
   font-size: clamp(32px,6vw,56px);
   letter-spacing: 2px;
   margin-bottom: 8px;
@@ -134,7 +145,7 @@ body {
   text-align: left;
 }
 .match-card:active { transform: scale(0.98); }
-.match-card:hover { border-color: var(--gold); background: rgba(245,200,66,0.04); }
+.match-card:hover { border-color: var(--gold); background: rgba(var(--gold-rgb),0.04); }
 .match-card-top {
   display: flex;
   align-items: center;
@@ -147,9 +158,9 @@ body {
   font-weight: 800;
   padding: 4px 12px;
   border-radius: 20px;
-  background: rgba(245,200,66,0.12);
+  background: rgba(var(--gold-rgb),0.12);
   color: var(--gold);
-  border: 1px solid rgba(245,200,66,0.3);
+  border: 1px solid rgba(var(--gold-rgb),0.3);
 }
 .div-badge {
   font-size: clamp(11px,1.5vw,13px);
@@ -159,10 +170,10 @@ body {
   background: var(--surface3);
   color: var(--text-dim);
 }
-.match-no { margin-left: auto; font-family:'Bebas Neue',sans-serif; font-size: clamp(16px,2.5vw,22px); color: var(--text-dim); letter-spacing:1px; }
+.match-no { margin-left: auto; font-family:'Barlow Condensed',sans-serif; font-size: clamp(16px,2.5vw,22px); color: var(--text-dim); letter-spacing:1px; }
 .status-tag { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 12px; }
 .status-tag.scheduled { background: rgba(168,192,214,0.12); color: var(--silver); }
-.status-tag.live { background: rgba(255,0,0,0.15); color: #FF5252; }
+.status-tag.live { background: rgba(var(--red-rgb),0.15); color: var(--red); }
 .match-players {
   display: flex; flex-wrap: wrap; gap: 8px;
 }
@@ -193,17 +204,17 @@ body {
   padding: clamp(16px,2.5vh,28px) clamp(12px,2vw,20px);
   text-align: center;
 }
-.team-box.team-a { border-color: rgba(46,204,113,0.4); background: rgba(46,204,113,0.05); }
-.team-box.team-b { border-color: rgba(245,200,66,0.3); background: rgba(245,200,66,0.04); }
+.team-box.team-a { border-color: rgba(var(--gold-rgb),0.5); background: rgba(var(--gold-rgb),0.05); }
+.team-box.team-b { border-color: rgba(var(--warm-rgb),0.45); background: rgba(var(--warm-rgb),0.05); }
 .team-label {
-  font-family: 'Bebas Neue', sans-serif;
+  font-family: 'Barlow Condensed', sans-serif;
   font-size: clamp(14px,2.5vw,20px);
   letter-spacing: 2px;
   margin-bottom: clamp(10px,1.5vh,16px);
   color: var(--text-dim);
 }
-.team-box.team-a .team-label { color: var(--green); }
-.team-box.team-b .team-label { color: var(--gold); }
+.team-box.team-a .team-label { color: var(--gold); }
+.team-box.team-b .team-label { color: var(--warm); }
 .team-player {
   font-size: clamp(15px,2.5vw,22px);
   font-weight: 800;
@@ -212,7 +223,7 @@ body {
   line-height: 1.3;
 }
 .vs-box {
-  font-family: 'Bebas Neue', sans-serif;
+  font-family: 'Barlow Condensed', sans-serif;
   font-size: clamp(24px,4vw,36px);
   color: var(--text-dim);
   letter-spacing: 2px;
@@ -224,9 +235,9 @@ body {
   font-weight: 700;
   padding: 4px 12px;
   border-radius: 20px;
-  background: rgba(248,113,113,0.12);
+  background: rgba(var(--red-rgb),0.12);
   color: var(--red);
-  border: 1px solid rgba(248,113,113,0.3);
+  border: 1px solid rgba(var(--red-rgb),0.3);
   margin-bottom: 12px;
 }
 .ok-badge {
@@ -235,9 +246,9 @@ body {
   font-weight: 700;
   padding: 4px 12px;
   border-radius: 20px;
-  background: rgba(46,204,113,0.12);
+  background: rgba(var(--green-rgb),0.12);
   color: var(--green);
-  border: 1px solid rgba(46,204,113,0.3);
+  border: 1px solid rgba(var(--green-rgb),0.3);
   margin-bottom: 12px;
 }
 
@@ -277,8 +288,8 @@ body {
   border-radius: 20px;
   white-space: nowrap;
 }
-.combo-state.done { background: rgba(248,113,113,0.12); color: var(--red); border: 1px solid rgba(248,113,113,0.28); }
-.combo-state.now  { background: rgba(46,204,113,0.14); color: var(--green); border: 1px solid rgba(46,204,113,0.35); }
+.combo-state.done { background: rgba(var(--red-rgb),0.12); color: var(--red); border: 1px solid rgba(var(--red-rgb),0.28); }
+.combo-state.now  { background: rgba(var(--green-rgb),0.14); color: var(--green); border: 1px solid rgba(var(--green-rgb),0.35); }
 .combo-state.open { background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); }
 .pair-used {
   margin-top: 10px;
@@ -307,8 +318,9 @@ body {
   cursor: pointer;
   user-select: none;
 }
-.par-toggle.on  { border-color: rgba(46,204,113,0.45); background: rgba(46,204,113,0.06); }
-.par-toggle.off { border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.05); }
+.par-toggle.on  { border-color: rgba(var(--green-rgb),0.45); background: rgba(var(--green-rgb),0.06); }
+/* 꺼짐 = **기본값**(2026-09-23 — 새 매치는 PAR 미반영으로 시작한다). 빨강이면 매 경기 오류처럼 보인다. */
+.par-toggle.off { border-color: var(--border); background: var(--surface2); }
 .par-toggle.busy { opacity: .55; pointer-events: none; }
 .par-toggle-text { flex: 1; min-width: 0; }
 .par-toggle-title {
@@ -317,7 +329,7 @@ body {
   line-height: 1.3;
 }
 .par-toggle.on  .par-toggle-title { color: var(--green); }
-.par-toggle.off .par-toggle-title { color: var(--red); }
+.par-toggle.off .par-toggle-title { color: var(--text); }
 .par-toggle-sub {
   margin-top: 4px;
   font-size: clamp(11px,1.5vw,14px);
@@ -336,7 +348,7 @@ body {
   position: relative;
   transition: background .15s, border-color .15s;
 }
-.par-toggle.on .par-switch { background: rgba(46,204,113,0.35); border-color: rgba(46,204,113,0.6); }
+.par-toggle.on .par-switch { background: rgba(var(--green-rgb),0.35); border-color: rgba(var(--green-rgb),0.6); }
 .par-switch-knob {
   position: absolute;
   top: 50%;
@@ -426,8 +438,8 @@ body {
   gap: clamp(12px,2vh,24px);
   padding: clamp(16px,2.5vh,32px) clamp(12px,2vw,20px);
 }
-.score-side.side-a { border-color: rgba(46,204,113,0.3); }
-.score-side.side-b { border-color: rgba(245,200,66,0.25); }
+.score-side.side-a { border-color: rgba(var(--gold-rgb),0.4); }
+.score-side.side-b { border-color: rgba(var(--warm-rgb),0.35); }
 .score-side-name {
   font-size: clamp(14px,2.5vw,22px);
   font-weight: 800;
@@ -437,7 +449,7 @@ body {
 .score-side.side-a .score-side-name { color: var(--green); }
 .score-side.side-b .score-side-name { color: var(--gold); }
 .score-big {
-  font-family: 'Bebas Neue', sans-serif;
+  font-family: 'Barlow Condensed', sans-serif;
   font-size: clamp(72px,15vw,160px);
   line-height: 1;
   color: var(--text);
@@ -473,7 +485,7 @@ body {
   display: flex;
   gap: clamp(8px,1.5vw,16px);
   flex-shrink: 0;
-  background: rgba(8,12,16,0.95);
+  background: rgba(15,27,45,0.95);
   align-items: stretch;
 }
 .btn {
@@ -498,7 +510,7 @@ body {
 }
 .btn-primary {
   background: var(--gold);
-  color: #000;
+  color: var(--on-primary);
 }
 .btn-primary:disabled {
   opacity: 0.3;
@@ -506,7 +518,7 @@ body {
 }
 .btn-green {
   background: var(--green);
-  color: #000;
+  color: var(--on-primary);
 }
 .btn-shuffle {
   background: var(--surface2);
@@ -521,7 +533,7 @@ body {
 }
 .done-icon { font-size: clamp(48px,8vw,72px); margin-bottom: clamp(12px,2vh,20px); }
 .done-title {
-  font-family: 'Bebas Neue', sans-serif;
+  font-family: 'Barlow Condensed', sans-serif;
   font-size: clamp(32px,5vw,48px);
   letter-spacing: 2px;
   color: var(--green);
@@ -588,9 +600,9 @@ body {
 .hl-rail-title span { display:block; font-size:30px; margin-bottom:6px; }
 .hl-rail-sub { font-size:11px; font-weight:700; color:var(--text-dim); line-height:1.45; margin-bottom:4px; }
 .hl-rail-btn {
-  border:none; border-radius:var(--radius-sm); cursor:pointer; width:100%; padding:22px 0;
+  border:none; border-radius:var(--radius-sm); cursor:pointer; width:100%; padding:18px 0;
   font-family:'Pretendard',sans-serif; font-weight:900; font-size:20px;
-  background:linear-gradient(135deg,#E6C36B,#C9A227); color:#1a1408; transition: transform .15s, opacity .2s;
+  background:linear-gradient(135deg,var(--primary-light),var(--gold)); color:var(--on-primary); transition: transform .15s, opacity .2s;
 }
 .hl-rail-btn:active { transform:scale(.97); }
 .hl-rail-btn small { display:block; font-size:11px; font-weight:800; opacity:.75; margin-top:3px; }
@@ -604,23 +616,23 @@ body {
 /* ── 자유 라이브 카드 (STEP 1 상단) — 리그 매치가 없어도 방송·하이라이트 ── */
 .free-live {
   background: var(--surface);
-  border: 2px solid rgba(255,82,82,0.35);
+  border: 2px solid rgba(var(--red-rgb),0.35);
   border-radius: var(--radius);
   padding: clamp(14px,2vh,20px) clamp(16px,2.5vw,24px);
   margin-bottom: clamp(12px,2vw,20px);
 }
-.free-live.on { border-color: #FF5252; background: rgba(255,82,82,0.06); }
+.free-live.on { border-color: var(--red); background: rgba(var(--red-rgb),0.06); }
 .free-live.off { opacity: 0.55; }
 .free-live-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
-.free-live-title { font-family:'Bebas Neue',sans-serif; font-size: clamp(22px,3.5vw,30px); letter-spacing:2px; }
+.free-live-title { font-family:'Barlow Condensed',sans-serif; font-size: clamp(22px,3.5vw,30px); letter-spacing:2px; }
 .free-live-state { font-size: clamp(12px,1.7vw,15px); font-weight: 800; color: var(--text-dim); white-space:nowrap; }
-.free-live.on .free-live-state { color: #FF5252; }
-.free-live-timer { font-family:'Bebas Neue',sans-serif; font-size: clamp(26px,4.5vw,40px); letter-spacing:2px; color: var(--gold); line-height:1; }
+.free-live.on .free-live-state { color: var(--red); }
+.free-live-timer { font-family:'Barlow Condensed',sans-serif; font-size: clamp(26px,4.5vw,40px); letter-spacing:2px; color: var(--gold); line-height:1; }
 .free-live-sub { font-size: clamp(12px,1.7vw,15px); color: var(--text-dim); font-weight:600; margin-top:8px; line-height:1.5; }
 .free-live-sub b { color: var(--text); }
 .free-live-actions { display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; }
 .free-live-actions .btn { flex: 0 0 auto; padding: clamp(10px,1.4vh,16px) clamp(18px,2.5vw,28px); font-size: clamp(14px,2vw,18px); }
-.btn-red { background: #FF5252; color: #fff; }
+.btn-red { background: var(--red); color: #fff; }
 .free-live-link { font-size: 12px; color: var(--text-dim); word-break: break-all; margin-top: 8px; }
 .dur-row { display:flex; gap:10px; }
 .dur-chip {
@@ -628,7 +640,7 @@ body {
   background: var(--surface2); color: var(--text); border: 2px solid var(--border);
   font-family:'Pretendard',sans-serif; font-size: 17px; font-weight: 800;
 }
-.dur-chip.on { background: rgba(245,200,66,0.15); border-color: var(--gold); color: var(--gold); }
+.dur-chip.on { background: rgba(var(--gold-rgb),0.15); border-color: var(--gold); color: var(--gold); }
 
 /* ── 설정/로그인 모달 ── */
 .modal-overlay {
@@ -649,7 +661,7 @@ body {
   max-height: 90vh;
   overflow-y: auto;
 }
-.modal h3 { font-family:'Bebas Neue',sans-serif; font-size: 28px; letter-spacing: 1px; margin-bottom: 16px; }
+.modal h3 { font-family:'Barlow Condensed',sans-serif; font-size: 28px; letter-spacing: 1px; margin-bottom: 16px; }
 .modal label { display:block; font-size: 13px; font-weight: 700; color: var(--text-dim); margin: 14px 0 6px; }
 .modal input {
   width: 100%;
@@ -671,7 +683,7 @@ body {
 <!-- 헤더 -->
 <div class="header">
   <div>
-    <div class="header-logo">PS COURT</div>
+    <div class="header-logo">Playus <span class="header-logo-court">COURT</span></div>
     <div class="header-sub">LEAGUE MATCH</div>
   </div>
   <div class="header-right">
@@ -680,7 +692,7 @@ body {
       <div id="fb-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:4px">🔴 Firebase 연결 중...</div>
       <!-- 빌드 표시 — 태블릿이 최신 파일을 받았는지 눈으로 확인하는 용도.
            배포할 때마다 아래 COURTBUILD 와 스크립트의 BUILD 를 함께 올린다. -->
-      <!--COURTBUILD:c4--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c4</div>
+      <!--COURTBUILD:c5--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c5</div>
       <div class="step-indicator" id="step-label">STEP 1 / 3</div>
       <div class="step-dots">
         <div class="step-dot active" id="dot-1"></div>
@@ -743,11 +755,12 @@ body {
 
 </div>
 
-<!-- 🎬 하이라이트 — 누른 시점 직전 60초/90초를 클립으로. 라이브가 아니어도 된다(OBS 리플레이 버퍼 상시).
-     OBS 버퍼는 90초로 설정 — 60초 버튼은 뒤쪽 60초만 잘라 업로드. 상태 그리기는 renderHlRail() 하나. -->
+<!-- 🎬 하이라이트 — 누른 시점 직전 30초/60초/90초를 클립으로(30초는 2026-09-23 추가 — 서버는 15~300초를 받는다). 라이브가 아니어도 된다(OBS 리플레이 버퍼 상시).
+     OBS 버퍼는 90초로 설정 — 30·60초 버튼은 뒤쪽 N초만 잘라 업로드. 상태 그리기는 renderHlRail() 하나. -->
 <aside class="hl-rail off" id="hl-rail">
   <div class="hl-rail-title"><span>🎬</span>하이라이트</div>
   <div class="hl-rail-sub">방금 그 장면을 클립으로.<br>라이브가 아니어도 돼요.</div>
+  <button class="hl-rail-btn" onclick="saveHighlight(30, this)">30초<small>직전 30초</small></button>
   <button class="hl-rail-btn" onclick="saveHighlight(60, this)">60초<small>직전 1분</small></button>
   <button class="hl-rail-btn" onclick="saveHighlight(90, this)">90초<small>직전 1분 30초</small></button>
   <div class="hl-rail-state" id="hl-rail-state">📡 스트리밍 서버 확인 중...</div>
@@ -1233,8 +1246,9 @@ function rosterOf(names, photos, pars) {
 // 사용자 결정 2026-09-19: "경쟁경기를 매치생성때 정하는게 아니라 태블릿에서 경기 시작 전
 // 정하면 어떨까? **경쟁이라고 칭하지 말고 Par 반영할껀지** 선택하고 랜덤 팀 선택을 하는거지."
 //
-// ⚠️ **앱이 정한 값이 기본으로 들어와 있다**(리그 매치 만들 때 고른 값). 여기서는 코트의
-//    실제 상황에 맞게 **뒤집기만** 한다 — 참가자는 신청할 때 상세에서 그 값을 보고 들어왔다.
+// ⚠️ **새 매치는 '반영 안 함' 으로 들어온다**(사용자 결정 2026-09-23 — 서버
+//    `utils/leagueMatchType.NEW_MATCH_DEFAULT`). 반영할 경기만 여기서 **켠다**.
+//    화면에서만 끄지 않는다 — 서버 값을 그대로 그린다(갈라지면 끈 줄 알았던 경기가 PAR 에 들어간다).
 // ⚠️ **'경쟁' 이라고 쓰지 않는다.** 코트에 선 사람에게 필요한 말은 '내 등급이 움직이나' 다.
 // ⚠️ **순위 추가점수도 같이 움직인다** — 서버가 값 하나(matchType)로 둘을 정하기 때문이다.
 //    그래서 아래 설명 줄에 둘을 **같이** 적는다. 하나만 적으면 나머지가 조용히 따라간다.
@@ -1667,7 +1681,7 @@ function showDone(date, scoreStr) {
   document.getElementById('done-sub').textContent = `${date} · ${lgName}${divStr}`;
   document.getElementById('done-result').innerHTML = `
     <div style="margin-bottom:12px">${teamA.join(' / ')} <span style="color:var(--text-dim);font-size:14px">vs</span> ${teamB.join(' / ')}</div>
-    <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--gold);letter-spacing:2px;margin-bottom:12px">${scoreStr}</div>
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:32px;color:var(--gold);letter-spacing:2px;margin-bottom:12px">${scoreStr}</div>
     <div style="color:var(--green)">${winner}</div>`;
 
   curStep = 4;
@@ -1698,7 +1712,7 @@ function renderStep() {
     const assignBtn = !hasTeams
       ? `<button class="btn btn-primary" style="flex:1" onclick="doAssignTeams()">🎲 팀 랜덤생성하기</button>`
       : (isBridge
-          ? `<button class="btn" style="flex:0 0 auto;padding:0 14px;background:rgba(46,158,143,0.15);color:var(--green);border:1px solid var(--green)" onclick="doAssignTeams()">🎲 다시뽑기</button>`
+          ? `<button class="btn" style="flex:0 0 auto;padding:0 14px;background:rgba(var(--green-rgb),0.15);color:var(--green);border:1px solid var(--green)" onclick="doAssignTeams()">🎲 다시뽑기</button>`
           : '');
     const startBtn = hasTeams
       ? `<button class="btn btn-primary" style="flex:1" onclick="goToScore()">▶️ 매치 시작하기</button>`
@@ -1706,7 +1720,7 @@ function renderStep() {
     footer.innerHTML=`<button class="btn btn-back" style="flex:0 0 auto" onclick="goBack()">← 뒤로</button>${assignBtn}${startBtn}`;
   } else if(curStep===3){
     // 매치 취소 — 항상 왼쪽 아래 작게 (cancelMatch 내부에 확인 다이얼로그)
-    const cancelBtn = `<button class="btn" style="flex:0 0 auto;padding:0 12px;font-size:13px;background:rgba(255,80,80,0.12);color:#FF5252;border:1px solid rgba(255,80,80,0.35);border-radius:12px;" onclick="cancelMatch()">매치 취소</button>`;
+    const cancelBtn = `<button class="btn" style="flex:0 0 auto;padding:0 12px;font-size:13px;background:rgba(var(--red-rgb),0.12);color:var(--red);border:1px solid rgba(var(--red-rgb),0.35);border-radius:12px;" onclick="cancelMatch()">매치 취소</button>`;
     // 뒤로 — 세트 단위(3→2→1), 1세트에선 팀배정으로
     const backBtn = `<button class="btn btn-back" style="flex:0 0 auto" onclick="goBackSet()">← 뒤로</button>`;
     let mainBtn;
@@ -1843,7 +1857,7 @@ function _updateStreamStatus(state) {
   const map = {
     offline:  { text: '📡 스트리밍 서버 꺼짐', color: 'var(--text-dim)' },
     online:   { text: '📡 스트리밍 대기 중', color: 'var(--silver)' },
-    live:     { text: '🔴 LIVE', color: '#FF0000' },
+    live:     { text: '🔴 LIVE', color: '#E53E3E' },
     starting: { text: '⏳ 라이브 시작 중...', color: 'var(--gold)' },
     error:    { text: '⚠️ 스트리밍 오류', color: 'var(--red)' },
   };
@@ -2201,14 +2215,14 @@ if ('serviceWorker' in navigator) {
 -->
 <script>
 (function () {
-  var BUILD = "c4";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
+  var BUILD = "c5";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
   var el = document.getElementById('app-build');
   if (el) el.textContent = '앱 ' + BUILD;
 
   function announce(newBuild) {
     if (!el) return;
     el.textContent = '새 버전 ' + newBuild + ' · 탭하여 갱신';
-    el.style.color = 'var(--gold, #E6C36B)';
+    el.style.color = 'var(--gold, #4CBEAA)';
     el.style.cursor = 'pointer';
     el.onclick = function () { location.reload(); };
   }
