@@ -21,6 +21,20 @@ class OBSController:
         self.host = obs_cfg.get('host', 'localhost')
         self.port = obs_cfg.get('port', 4455)
         self.password = obs_cfg.get('password', '')
+        # 소리 싱크 — OBS 가 소리를 화면보다 늦게 녹화·송출한다(2026-09 측정: 하이라이트·라이브
+        # 둘 다 타구음이 0.64~0.65초 늦음). 사람이 OBS 고급 오디오 속성에 숫자를 넣는 대신,
+        # 연결할 때마다 여기서 넣는다 — OBS 를 새로 깔거나 장치를 다시 추가해도 되돌아가지 않는다.
+        #   audio_sync_offset_ms : 음수 = 소리를 앞당김. 없으면(None) 건드리지 않는다.
+        #   audio_sync_inputs    : 이 이름의 입력에만. 비우면 소리가 있는 입력 전부.
+        raw = obs_cfg.get('audio_sync_offset_ms', None)
+        try:
+            self.audio_sync_offset_ms = None if raw is None or raw == '' else int(raw)
+        except (TypeError, ValueError):
+            logger.warning(f"⚠️ audio_sync_offset_ms 값이 숫자가 아니라 무시합니다: {raw!r}")
+            self.audio_sync_offset_ms = None
+        self.audio_sync_inputs = [str(x) for x in (obs_cfg.get('audio_sync_inputs') or []) if str(x).strip()]
+        # /health 가 보여 줄 마지막 적용 결과 — 원격에서 '맞춰졌나' 를 확인하는 유일한 창.
+        self.audio_sync_status = {'target_ms': self.audio_sync_offset_ms, 'applied': [], 'error': ''}
         self.client = None
         # OBS WebSocket(ReqClient)은 스레드 안전하지 않음 — 키프알라이브 스레드와
         # 하이라이트 요청이 동시에 접근하면 응답이 꼬여 엉뚱한 예외가 남(예: 버퍼가
@@ -50,6 +64,7 @@ class OBSController:
                     )
                     version = self.client.get_version()
                     logger.info(f"✅ OBS 연결됨 (v{version.obs_version})")
+                    self.apply_audio_sync()
                     return
                 except Exception as e:
                     last_error = e
@@ -63,6 +78,79 @@ class OBSController:
             "OBS Studio가 실행 중인지, WebSocket 서버가 활성화됐는지 확인해주세요.\n"
             "OBS → 도구 → WebSocket 서버 설정"
         )
+
+    # ── 소리 싱크 ─────────────────────────────────────────────────
+    # OBS 가 허용하는 범위(obs-websocket SetInputAudioSyncOffset): -950 ~ 20000 ms.
+    SYNC_MIN_MS, SYNC_MAX_MS = -950, 20000
+
+    @staticmethod
+    def _input_names(resp):
+        """GetInputList 응답에서 입력 이름만 — obsws-python 버전에 따라 키 모양이 다르다."""
+        out = []
+        for it in (getattr(resp, 'inputs', None) or []):
+            if isinstance(it, dict):
+                name = it.get('inputName') or it.get('input_name')
+            else:
+                name = getattr(it, 'inputName', None) or getattr(it, 'input_name', None)
+            if name:
+                out.append(str(name))
+        return out
+
+    def apply_audio_sync(self):
+        """
+        설정된 소리 싱크 값을 OBS 입력에 넣는다. **연결될 때마다** 부른다(connect 안).
+
+        ⚠️ 방송을 막지 않는다 — 여기서 나는 오류는 전부 로그와 audio_sync_status 로만 남긴다.
+           싱크가 0.6초 어긋난 방송이 안 켜진 방송보다 낫다.
+        ⚠️ 이미 같은 값이면 다시 쓰지 않는다(키프알라이브가 재연결할 때마다 로그가 쌓이지 않게).
+        ⚠️ 소리가 없는 입력(이미지·텍스트·브라우저 소스 등)은 OBS 가 조회부터 거절한다 — 건너뛴다.
+        """
+        target = self.audio_sync_offset_ms
+        status = {'target_ms': target, 'applied': [], 'error': ''}
+        if target is None:
+            self.audio_sync_status = status
+            return status
+        clamped = max(self.SYNC_MIN_MS, min(self.SYNC_MAX_MS, target))
+        if clamped != target:
+            logger.warning(f"⚠️ 소리 싱크 {target}ms 는 OBS 범위 밖이라 {clamped}ms 로 넣습니다")
+        with self._lock:
+            if not self.client:
+                status['error'] = 'OBS 미연결'
+                self.audio_sync_status = status
+                return status
+            try:
+                names = self._input_names(self.client.get_input_list())
+            except Exception as e:
+                status['error'] = f'입력 목록을 못 읽음: {e}'
+                logger.warning(f"⚠️ 소리 싱크 — {status['error']}")
+                self.audio_sync_status = status
+                return status
+            wanted = set(self.audio_sync_inputs)
+            if wanted:
+                missing = sorted(wanted - set(names))
+                if missing:
+                    status['error'] = f"OBS 에 없는 입력: {', '.join(missing)}"
+                    logger.warning(f"⚠️ 소리 싱크 — {status['error']} (config.json 의 audio_sync_inputs 이름 확인)")
+                names = [n for n in names if n in wanted]
+            for name in names:
+                try:
+                    before = int(getattr(self.client.get_input_audio_sync_offset(name),
+                                         'input_audio_sync_offset', 0) or 0)
+                except Exception:
+                    continue  # 소리가 없는 입력
+                try:
+                    if before != clamped:
+                        self.client.set_input_audio_sync_offset(name, clamped)
+                        logger.info(f"🔈 소리 싱크 '{name}': {before}ms → {clamped}ms")
+                    status['applied'].append({'input': name, 'before_ms': before, 'ms': clamped})
+                except Exception as e:
+                    status['error'] = f"'{name}' 적용 실패: {e}"
+                    logger.warning(f"⚠️ 소리 싱크 — {status['error']}")
+            if not status['applied'] and not status['error']:
+                status['error'] = '소리가 있는 입력을 못 찾음'
+                logger.warning("⚠️ 소리 싱크 — 소리가 있는 OBS 입력이 없습니다(카메라 소리 소스 확인)")
+        self.audio_sync_status = status
+        return status
 
     def disconnect(self):
         """연결을 끊습니다."""

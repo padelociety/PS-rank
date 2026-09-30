@@ -62,7 +62,7 @@ if not os.path.exists(CONFIG_PATH):
     logger.error("config.json.example 파일을 복사해서 config.json으로 저장하세요.")
     exit(1)
 
-with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+with open(CONFIG_PATH, 'r', encoding='utf-8-sig') as f:  # 메모장·PowerShell 이 붙인 BOM 도 읽는다
     config = json.load(f)
 
 # ── 컨트롤러 초기화 ────────────────────────────────────────────
@@ -329,6 +329,8 @@ def health():
         'duration_minutes': st.get('duration_minutes') or 0,
         'team_a': st.get('team_a') or [],
         'team_b': st.get('team_b') or [],
+        # 소리 싱크(OBS 연결 때마다 넣는 값) — 원격에서 맞춰졌는지 본다. config 에 없으면 target_ms: null.
+        'audio_sync': getattr(obs, 'audio_sync_status', None),
     })
 
 
