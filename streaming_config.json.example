@@ -8,7 +8,10 @@
     "_설명": "OBS Studio → 도구 → WebSocket 서버 설정에서 확인",
     "host": "localhost",
     "port": 4455,
-    "password": "여기에_OBS_비밀번호"
+    "password": "여기에_OBS_비밀번호",
+    "_audio_sync_설명": "소리 싱크(ms). 음수 = 소리를 앞당김. 타구음이 화면보다 늦으면 그만큼 음수로(2026-09 측정 0.64초 → -640). 범위 -950~20000. 빼면 OBS 값을 건드리지 않는다. audio_sync_inputs 를 비우면 소리가 있는 입력 전부에 넣는다.",
+    "audio_sync_offset_ms": -640,
+    "audio_sync_inputs": []
   },
   "youtube": {
     "_설명": "방송 공개 설정: public(공개) / unlisted(링크 공유) / private(비공개)",
