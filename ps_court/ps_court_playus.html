@@ -705,7 +705,7 @@ body {
       <div id="fb-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:4px">🔴 Firebase 연결 중...</div>
       <!-- 빌드 표시 — 태블릿이 최신 파일을 받았는지 눈으로 확인하는 용도.
            배포할 때마다 아래 COURTBUILD 와 스크립트의 BUILD 를 함께 올린다. -->
-      <!--COURTBUILD:c7--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c7</div>
+      <!--COURTBUILD:c8--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c8</div>
       <div class="step-indicator" id="step-label">STEP 1 / 3</div>
       <div class="step-dots">
         <div class="step-dot active" id="dot-1"></div>
@@ -1629,9 +1629,9 @@ async function cancelScore() {
 async function cancelMatch() {
   if (!psToken) { showToast('운영자 로그인이 필요해요 (⚙ 설정)'); openSettings(); return; }
   if (!selectedMatch || !selectedLeague) return;
-  const confirmed = confirm('이 매치를 완전히 취소(삭제)할까요?\n\n시간 내 종료 못 한 매치를 정리할 때 사용해요.\n삭제하면 목록에서 사라지고 되돌릴 수 없어요.');
+  const confirmed = confirm('이 매치를 완전히 취소(삭제)할까요?\n\n시간 내 종료 못 한 매치를 정리할 때 사용해요.\n순위·PAR·전적에서 빠지고 되돌릴 수 없어요.\n유튜브 영상은 지우지 않고 제목·설명에 [무효] 를 붙여요.');
   if (!confirmed) return;
-  stopStream(); // 스트리밍 중이었으면 종료
+  voidStreamOf(selectedMatch._id); // 방송 중이면 끄면서, 이미 끝났으면 그 영상에 [무효]
   hideScoreboard(); // 📴 스코어보드 오버레이 숨김
   try {
     await psFetch(`/league/${selectedLeague._id}/matches/${selectedMatch._id}`, {
@@ -1641,6 +1641,35 @@ async function cancelMatch() {
     resetAll(); // 매치 목록으로 (목록 새로고침 포함)
   } catch(e) {
     showToast('⚠️ 취소 실패: ' + e.message);
+  }
+}
+
+// ── 끝까지 못 친 경기의 영상 — 지우지 않고 [무효] (2026-10-01 사용자 지시) ──
+// 매치는 지워져 순위·PAR·전적에서 빠지고, 영상만 채널에 남는다. 정식 경기처럼 보이면 안 된다.
+// ⚠️ 옛 stream_server 는 void 를 모른다 — 응답에 voided 가 없으면 직접 붙이라고 말한다
+//    (조용히 넘어가면 그 영상이 정식 경기로 남는다).
+async function voidStreamOf(matchId) {
+  let data = null;
+  if (_streamActive) {
+    data = await stopStream({ void: true });
+  } else {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem('ps_stream_of') || 'null'); } catch(_) {}
+    if (!saved || saved.matchId !== matchId || !saved.watchUrl) return; // 이 매치는 방송을 안 했다
+    try {
+      const res = await fetch(`${STREAM_SERVER}/void-video`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ watchUrl: saved.watchUrl }),
+        signal: AbortSignal.timeout(10000),
+      });
+      data = await res.json();
+    } catch(_) { data = null; }
+  }
+  if (data && data.voided) {
+    try { localStorage.removeItem('ps_stream_of'); } catch(_) {}
+    setTimeout(() => showToast('🚫 유튜브 영상에 [무효] 를 붙여요'), 1500);
+  } else {
+    setTimeout(() => showToast('⚠️ 영상에 [무효] 를 못 붙였어요 — 유튜브 스튜디오에서 직접 붙여 주세요'), 1500);
   }
 }
 
@@ -2015,6 +2044,10 @@ async function startStream() {
       _liveMode = 'league'; _liveEndsAt = null;
       _updateStreamStatus('live');
       showToast('▶️ YouTube 라이브 시작됨!');
+      // 이 매치의 영상 — 방송을 먼저 끄고 나중에 '매치 취소' 를 눌러도 [무효] 를 붙이려고.
+      if (selectedMatch && data.watch_url) {
+        try { localStorage.setItem('ps_stream_of', JSON.stringify({ matchId: selectedMatch._id, watchUrl: data.watch_url })); } catch(_) {}
+      }
       // 앱에서 유튜브 라이브 배너가 뜨도록 리그 youtubeUrl 업데이트
       if (psToken && selectedLeague && data.watch_url) {
         psFetch(`/league/update/${selectedLeague._id}`, {
@@ -2034,13 +2067,18 @@ async function startStream() {
   }
 }
 
-async function stopStream() {
-  if (!_streamActive) return;
+async function stopStream(opts) {
+  if (!_streamActive) return null;
+  const voidIt = !!(opts && opts.void);
   try {
-    await fetch(`${STREAM_SERVER}/stop-stream`, {
+    const res = await fetch(`${STREAM_SERVER}/stop-stream`, {
       method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(voidIt ? { void: true } : {}),
       signal: AbortSignal.timeout(10000),
     });
+    let data = null;
+    try { data = await res.json(); } catch(_) {}
     _streamActive = false;
     _watchUrl = null;
     _liveMode = ''; _liveEndsAt = null;
@@ -2054,6 +2092,7 @@ async function stopStream() {
         body: JSON.stringify({ isLive: false }),
       }).catch(() => {});
     }
+    return data;
   } catch(e) {
     console.log('스트리밍 종료 오류:', e.message);
     _streamActive = false;
@@ -2295,7 +2334,7 @@ if ('serviceWorker' in navigator) {
 -->
 <script>
 (function () {
-  var BUILD = "c7";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
+  var BUILD = "c8";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
   var el = document.getElementById('app-build');
   if (el) el.textContent = '앱 ' + BUILD;
 

@@ -186,7 +186,71 @@ class YouTubeAPI:
         except Exception as e:
             logger.warning(f"방송 종료 중 오류 (무시): {e}")
 
+    # ── 무효 표시 ─────────────────────────────────────────────────
+    def mark_void(self, video_id: str) -> bool:
+        """끝까지 못 친 경기의 영상 제목·설명 앞에 [무효] 를 붙인다. **예외를 던지지 않는다.**
+
+        매치는 태블릿에서 지워지고(순위·PAR·전적에서 빠진다) 영상만 채널에 남는다 —
+        그 영상이 정식 경기처럼 보이면 안 된다(사용자 지시 2026-10-01).
+        라이브 방송의 영상 id 는 broadcast id 와 같다. 쓰는 스코프(`.../auth/youtube`)는
+        그대로라 재인증이 필요 없다."""
+        if not video_id:
+            return False
+        try:
+            self._ensure_auth()
+            res = self.youtube.videos().list(part='snippet', id=video_id).execute()
+            items = res.get('items') or []
+            if not items:
+                logger.warning(f"⚠️ [무효] 표시: 영상을 못 찾음 ({video_id})")
+                return False
+            snippet = void_snippet(items[0].get('snippet') or {})
+            if snippet is None:
+                logger.info(f"[무효] 이미 붙어 있음 ({video_id})")
+                return True
+            self.youtube.videos().update(
+                part='snippet', body={'id': video_id, 'snippet': snippet},
+            ).execute()
+            logger.info(f"🚫 영상에 [무효] 표시 ({video_id}) — {snippet['title']}")
+            return True
+        except Exception as e:
+            logger.warning(f"⚠️ [무효] 표시 실패 ({video_id}): {e}")
+            return False
+
     # ── 방송 URL ──────────────────────────────────────────────────
     @staticmethod
     def get_watch_url(broadcast_id: str) -> str:
         return f"https://www.youtube.com/watch?v={broadcast_id}"
+
+
+VOID_TAG = '[무효]'
+VOID_NOTE = ('[무효] 시간이 모자라 끝까지 치르지 못한 경기예요. '
+             '순위·PAR·전적에 반영되지 않았어요.')
+
+
+def void_snippet(snippet: dict):
+    """videos.update 에 보낼 snippet — 제목·설명 앞에 [무효]. 이미 붙어 있으면 None.
+
+    ⚠️ update 는 **보낸 칸으로 통째로 갈아끼운다** — categoryId 는 필수고, 태그·언어를
+    빼먹으면 지워진다. 그래서 읽은 값을 그대로 싣고, 읽기 전용 칸(thumbnails·channelId·
+    publishedAt·localized …)만 뺀다.
+    ⚠️ YouTube 한도: 제목 100자 · 설명 5000바이트. 넘으면 400 이라 잘라서 보낸다."""
+    title = str(snippet.get('title') or '')
+    desc = str(snippet.get('description') or '')
+    if title.startswith(VOID_TAG):
+        return None
+    out = {
+        'title': (VOID_TAG + ' ' + title)[:100],
+        'description': _cut_bytes(VOID_NOTE + ('\n\n' + desc if desc else ''), 5000),
+        'categoryId': snippet.get('categoryId') or '17',   # 읽은 값이 없을 때만 — 17 = Sports
+    }
+    for k in ('tags', 'defaultLanguage', 'defaultAudioLanguage'):
+        if snippet.get(k):
+            out[k] = snippet[k]
+    return out
+
+
+def _cut_bytes(s: str, limit: int) -> str:
+    b = s.encode('utf-8')
+    if len(b) <= limit:
+        return s
+    return b[:limit].decode('utf-8', errors='ignore')

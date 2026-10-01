@@ -52,10 +52,10 @@ t('사용자 값은 textContent — innerHTML 에 이름을 싣지 않는다', (
   if (r.includes('innerHTML')) throw new Error('innerHTML 을 쓴다');
 });
 
-t('빌드 배지 · BUILD · SW 같이(c7 · v41)', () => {
-  has(src, '<!--COURTBUILD:c7-->');
-  has(src, 'var BUILD = "c7";');
-  has(sw, "const CACHE = 'ps-court-v41';");
+t('빌드 배지 · BUILD · SW 같이(c8 · v42)', () => {
+  has(src, '<!--COURTBUILD:c8-->');
+  has(src, 'var BUILD = "c8";');
+  has(sw, "const CACHE = 'ps-court-v42';");
 });
 
 console.log(fail ? `\n${fail}개 실패` : '\n전부 통과');
