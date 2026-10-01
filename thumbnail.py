@@ -64,7 +64,11 @@ def _muted(color):
 # ⚠️ 한글이 나온다. 한글 글리프가 없는 폰트를 집으면 이름이 전부 □□□ 로 나가고,
 #    그건 썸네일이 아예 없는 것보다 나쁘다(경기 정보가 틀린 것처럼 보인다).
 #    맑은 고딕은 Windows 기본 폰트라 OBS PC 에 반드시 있다.
+# 1순위는 이 repo 의 IBM Plex Sans KR(앱·스코어보드와 같은 서체 — 2026-10-01 "전부 통일", OFL).
+# git pull 로 같이 내려오므로 OBS PC 에 따로 설치할 필요가 없다. 없으면 예전 순서로 떨어진다.
+_FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fonts')
 _FONT_BOLD = [
+    os.path.join(_FONT_DIR, 'IBMPlexSansKR-Bold.ttf'),
     r'C:\Windows\Fonts\malgunbd.ttf',      # 맑은 고딕 Bold
     r'C:\Windows\Fonts\malgun.ttf',
     '/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf',
@@ -73,6 +77,7 @@ _FONT_BOLD = [
     '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',   # 리눅스 최후 폴백 (한글 글리프 포함)
 ]
 _FONT_REG = [
+    os.path.join(_FONT_DIR, 'IBMPlexSansKR-Regular.ttf'),
     r'C:\Windows\Fonts\malgun.ttf',
     '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',
     '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',

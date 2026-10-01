@@ -12,7 +12,8 @@
 <link rel="apple-touch-icon" href="/PS-rank/icon-192.png">
 <title>PS i-League 2026</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Pretendard:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
   --gold: #F5C842; --gold-dim: #c49a1a;
@@ -25,12 +26,12 @@
   --nav-h: 68px; --header-h: 60px; --radius: 16px; --radius-sm: 10px;
 }
 * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-serif; min-height:100vh; overflow-x:hidden; padding-bottom:var(--nav-h); }
+body { background:var(--bg); color:var(--text); font-family:'IBM Plex Sans KR',system-ui,sans-serif; min-height:100vh; overflow-x:hidden; padding-bottom:var(--nav-h); }
 
 /* ── 헤더 ── */
 .app-header { position:sticky; top:0; z-index:100; height:var(--header-h); background:rgba(8,12,16,0.92); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; padding:0 20px; }
 .app-logo { display:flex; align-items:baseline; gap:6px; }
-.app-logo .league { font-family:'Bebas Neue',sans-serif; font-size:22px; letter-spacing:2px; color:var(--gold); line-height:1; }
+.app-logo .league { font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-size:22px; letter-spacing:2px; color:var(--gold); line-height:1; }
 .app-logo .season { font-size:11px; font-weight:600; color:var(--text-dim); letter-spacing:1px; text-transform:uppercase; }
 .app-logo .version { font-size:10px; font-weight:600; color:var(--text-dim); letter-spacing:0.5px; padding:2px 6px; border:1px solid var(--border); border-radius:999px; background:var(--surface2); }
 .header-refresh { width:36px; height:36px; border-radius:50%; border:1px solid var(--border); background:var(--surface2); color:var(--text-dim); font-size:16px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.2s; }
@@ -56,7 +57,7 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
 
 /* ── 랭킹 탭 ── */
 .rank-tabs { display:flex; margin:16px 20px; background:var(--surface2); border-radius:var(--radius-sm); padding:4px; gap:4px; }
-.rank-tab { flex:1; padding:9px; border-radius:7px; border:none; background:transparent; color:var(--text-dim); font-family:'Pretendard',sans-serif; font-size:13px; font-weight:700; cursor:pointer; transition:all 0.2s; letter-spacing:0.5px; }
+.rank-tab { flex:1; padding:9px; border-radius:7px; border:none; background:transparent; color:var(--text-dim); font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-size:13px; font-weight:700; cursor:pointer; transition:all 0.2s; letter-spacing:0.5px; }
 .rank-tab.active-gold { background:var(--green-dark); color:var(--gold); border:1px solid rgba(245,200,66,0.2); }
 .rank-tab.active-bs { background:var(--bronze-dark); color:var(--bronze-light); border:1px solid rgba(205,127,50,0.2); }
 
@@ -68,7 +69,7 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
 .rank-card.rank-1 { border-color:rgba(245,200,66,0.35); background:linear-gradient(135deg,rgba(245,200,66,0.08),var(--surface)); }
 .rank-card.rank-2 { border-color:rgba(192,192,192,0.25); background:linear-gradient(135deg,rgba(192,192,192,0.05),var(--surface)); }
 .rank-card.rank-3 { border-color:rgba(205,127,50,0.3); background:linear-gradient(135deg,rgba(205,127,50,0.07),var(--surface)); }
-.rank-num { font-family:'Bebas Neue',sans-serif; font-size:28px; line-height:1; min-width:32px; text-align:center; color:var(--text-dim); }
+.rank-num { font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-size:28px; line-height:1; min-width:32px; text-align:center; color:var(--text-dim); }
 .rank-num.r1 { color:var(--gold); font-size:32px; }
 .rank-num.r2 { color:#C0C0C0; }
 .rank-num.r3 { color:var(--bronze-light); }
@@ -79,7 +80,7 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
 .rank-stat { font-size:11px; color:var(--text-dim); font-weight:500; }
 .rank-stat span { color:var(--text); font-weight:600; }
 .rank-pts { text-align:right; flex-shrink:0; }
-.pts-value { font-family:'Bebas Neue',sans-serif; font-size:22px; line-height:1; color:var(--green); }
+.pts-value { font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-size:22px; line-height:1; color:var(--green); }
 .pts-value.bs-pts { color:var(--bronze-light); }
 .pts-label { font-size:9px; color:var(--text-dim); font-weight:600; letter-spacing:1px; text-transform:uppercase; }
 .pts-min { font-size:10px; color:var(--text-dim); background:var(--surface2); padding:3px 8px; border-radius:10px; }
@@ -98,10 +99,10 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
 .formula-box-arrow.open { transform:rotate(180deg); }
 .formula-box-body { padding:0 16px 14px; display:none; }
 .formula-box-body.open { display:block; }
-.formula-main { font-family:'Pretendard',sans-serif; font-size:13px; font-weight:700; color:var(--gold); background:var(--surface2); padding:10px 14px; border-radius:var(--radius-sm); margin-bottom:12px; line-height:1.6; }
+.formula-main { font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-size:13px; font-weight:700; color:var(--gold); background:var(--surface2); padding:10px 14px; border-radius:var(--radius-sm); margin-bottom:12px; line-height:1.6; }
 .formula-vars { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:10px; }
 .formula-var { font-size:11px; color:var(--text-dim); display:flex; gap:6px; align-items:center; }
-.formula-var span { font-family:'Bebas Neue',sans-serif; font-size:14px; color:var(--text); min-width:36px; }
+.formula-var span { font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-size:14px; color:var(--text); min-width:36px; }
 .formula-tier { display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap; }
 .formula-tier-item { font-size:11px; font-weight:700; padding:4px 10px; border-radius:20px; }
 .formula-tier-item.bronze { background:rgba(232,160,96,0.15); color:var(--bronze-light); border:1px solid rgba(232,160,96,0.3); }
@@ -120,21 +121,21 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
 .sim-panel { position:fixed;bottom:0;left:0;right:0;z-index:401;background:var(--surface);border-radius:20px 20px 0 0;border-top:1px solid var(--border);padding:20px 20px calc(var(--nav-h) + 16px);transform:translateY(100%);transition:transform 0.3s cubic-bezier(0.4,0,0.2,1); }
 .sim-panel.show { transform:translateY(0); }
 .sim-handle { width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px; }
-.sim-title { font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:var(--text);margin-bottom:4px; }
+.sim-title { font-family:'IBM Plex Sans KR',system-ui,sans-serif;font-size:22px;letter-spacing:1px;color:var(--text);margin-bottom:4px; }
 .sim-sub { font-size:12px;color:var(--text-dim);margin-bottom:20px; }
 .sim-slider-row { display:flex;align-items:center;gap:12px;margin-bottom:20px; }
 .sim-slider-label { font-size:13px;color:var(--text-dim);white-space:nowrap; }
-.sim-slider-val { font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--gold);min-width:40px;text-align:center; }
+.sim-slider-val { font-family:'IBM Plex Sans KR',system-ui,sans-serif;font-size:24px;color:var(--gold);min-width:40px;text-align:center; }
 .sim-results { display:flex;flex-direction:column;gap:8px; }
 .sim-result-item { display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border-radius:var(--radius-sm);padding:12px 14px;border:1px solid var(--border); }
 .sim-result-item.overtake { border-color:rgba(46,204,113,0.4);background:rgba(46,204,113,0.06); }
 .sim-result-item.current { border-color:rgba(245,200,66,0.3);background:rgba(245,200,66,0.05); }
 .sim-result-left { display:flex;align-items:center;gap:10px; }
-.sim-result-rank { font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--text-dim);min-width:28px; }
+.sim-result-rank { font-family:'IBM Plex Sans KR',system-ui,sans-serif;font-size:20px;color:var(--text-dim);min-width:28px; }
 .sim-result-name { font-size:14px;font-weight:700;color:var(--text); }
 .sim-result-pts { font-size:12px;color:var(--text-dim);margin-top:2px; }
 .sim-result-right { text-align:right; }
-.sim-result-new-pts { font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--green); }
+.sim-result-new-pts { font-family:'IBM Plex Sans KR',system-ui,sans-serif;font-size:18px;color:var(--green); }
 .sim-result-tag { font-size:10px;font-weight:800;padding:3px 8px;border-radius:10px;margin-top:3px;display:inline-block; }
 .sim-result-tag.overtake { background:rgba(46,204,113,0.15);color:#4ade80;border:1px solid rgba(46,204,113,0.3); }
 .sim-result-tag.behind { background:var(--surface3);color:var(--text-dim); }
@@ -142,7 +143,7 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
 .sim-btn:active { transform:scale(0.94); }
 .changelog-header { margin-bottom:20px; }
 .changelog-badge { display:inline-block;font-size:10px;font-weight:800;letter-spacing:2px;color:var(--gold);border:1px solid rgba(245,200,66,0.3);padding:3px 10px;border-radius:20px;background:rgba(245,200,66,0.06);margin-bottom:10px; }
-.changelog-title { font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:var(--text);line-height:1; }
+.changelog-title { font-family:'IBM Plex Sans KR',system-ui,sans-serif;font-size:28px;letter-spacing:2px;color:var(--text);line-height:1; }
 .changelog-version { font-size:11px;color:var(--text-dim);margin-top:4px; }
 .changelog-body { display:flex;flex-direction:column;gap:12px;margin-bottom:24px; }
 .changelog-item { display:flex;gap:12px;align-items:flex-start; }
@@ -151,14 +152,14 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
 .changelog-item:not(.new) .changelog-item-icon { color:var(--text-dim); }
 .changelog-item-title { font-size:14px;font-weight:700;color:var(--text);margin-bottom:3px; }
 .changelog-item-desc { font-size:12px;color:var(--text-dim);line-height:1.6; }
-.changelog-close { width:100%;padding:14px;background:var(--gold);color:#000;border:none;border-radius:var(--radius-sm);font-size:15px;font-weight:800;cursor:pointer;font-family:'Pretendard',sans-serif;letter-spacing:0.5px; }
+.changelog-close { width:100%;padding:14px;background:var(--gold);color:#000;border:none;border-radius:var(--radius-sm);font-size:15px;font-weight:800;cursor:pointer;font-family:'IBM Plex Sans KR',system-ui,sans-serif;letter-spacing:0.5px; }
 .stat-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); padding:14px; }
 .stat-card-label { font-size:10px; color:var(--text-dim); font-weight:700; letter-spacing:1px; text-transform:uppercase; margin-bottom:6px; }
 .stat-card-value { font-size:14px; font-weight:700; color:var(--text); line-height:1.4; }
 
 /* ── 최근 경기 ── */
 .recent-header { padding:20px 20px 16px; display:flex; align-items:center; justify-content:space-between; }
-.section-title { font-family:'Bebas Neue',sans-serif; font-size:28px; letter-spacing:2px; line-height:1; }
+.section-title { font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-size:28px; letter-spacing:2px; line-height:1; }
 .section-title.gold { color:var(--gold); }
 .section-subtitle { font-size:11px; color:var(--text-dim); font-weight:500; margin-top:2px; }
 .match-list { padding:0 16px; display:flex; flex-direction:column; gap:10px; }
@@ -176,18 +177,18 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
 .match-team.right { text-align:right; align-items:flex-end; }
 .player-name { font-size:13px; font-weight:700; color:var(--text); line-height:1.3; }
 .match-score-box { background:var(--surface2); border-radius:var(--radius-sm); padding:8px 12px; text-align:center; border:1px solid var(--border); }
-.score-sets { font-family:'Bebas Neue',sans-serif; font-size:14px; color:var(--gold); letter-spacing:1px; line-height:1.2; }
+.score-sets { font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-size:14px; color:var(--gold); letter-spacing:1px; line-height:1.2; }
 
 /* ── Pair Checker ── */
 .pair-header { padding:20px 20px 16px; }
 .pair-league-tabs { display:flex; margin:0 16px 16px; background:var(--surface2); border-radius:var(--radius-sm); padding:4px; gap:4px; }
-.pair-league-tab { flex:1; padding:9px; border-radius:7px; border:none; background:transparent; color:var(--text-dim); font-family:'Pretendard',sans-serif; font-size:13px; font-weight:700; cursor:pointer; transition:all 0.2s; }
+.pair-league-tab { flex:1; padding:9px; border-radius:7px; border:none; background:transparent; color:var(--text-dim); font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-size:13px; font-weight:700; cursor:pointer; transition:all 0.2s; }
 .pair-league-tab.pg-on { background:var(--green-dark); color:var(--gold); border:1px solid rgba(245,200,66,0.2); }
 .pair-league-tab.pb-on { background:var(--bronze-dark); color:var(--bronze-light); border:1px solid rgba(205,127,50,0.2); }
 .sel-hint { margin:0 16px 14px; font-size:13px; color:var(--text-dim); font-weight:500; }
 .sel-hint em { color:var(--gold); font-style:normal; font-weight:700; }
 .player-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:8px; padding:0 16px 20px; }
-.player-chip { padding:10px 8px; border-radius:var(--radius-sm); border:1px solid var(--border); background:var(--surface); color:var(--text-dim); font-size:13px; font-weight:600; cursor:pointer; transition:all 0.18s; text-align:center; user-select:none; font-family:'Pretendard',sans-serif; }
+.player-chip { padding:10px 8px; border-radius:var(--radius-sm); border:1px solid var(--border); background:var(--surface); color:var(--text-dim); font-size:13px; font-weight:600; cursor:pointer; transition:all 0.18s; text-align:center; user-select:none; font-family:'IBM Plex Sans KR',system-ui,sans-serif; }
 .player-chip:active { transform:scale(0.94); }
 .player-chip.on { background:rgba(46,204,113,0.12); border-color:var(--green); color:var(--green); font-weight:800; }
 .player-chip.off { opacity:0.25; pointer-events:none; }
@@ -250,7 +251,7 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
 }
 .profile-league-badge.gold { background:var(--green-dark); color:var(--gold); border:1px solid rgba(245,200,66,0.3); }
 .profile-league-badge.bs { background:var(--bronze-dark); color:var(--bronze-light); border:1px solid rgba(205,127,50,0.3); }
-.profile-name { font-family:'Bebas Neue',sans-serif; font-size:36px; letter-spacing:2px; color:var(--text); line-height:1; }
+.profile-name { font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-size:36px; letter-spacing:2px; color:var(--text); line-height:1; }
 .profile-rank-line { font-size:12px; color:var(--text-dim); font-weight:600; margin-top:4px; }
 .profile-rank-line em { color:var(--gold); font-style:normal; font-weight:800; }
 .profile-close {
@@ -272,7 +273,7 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
   border-radius:var(--radius-sm); padding:12px 8px; text-align:center;
 }
 .core-stat-val {
-  font-family:'Bebas Neue',sans-serif; font-size:26px; line-height:1;
+  font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-size:26px; line-height:1;
   color:var(--text);
 }
 .core-stat-val.green { color:var(--green); }
@@ -306,7 +307,7 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
   display:flex; align-items:center; gap:12px; margin-bottom:8px;
 }
 .profile-row:last-child { margin-bottom:0; }
-.prow-rank { font-family:'Bebas Neue',sans-serif; font-size:18px; color:var(--text-dim); min-width:20px; text-align:center; }
+.prow-rank { font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-size:18px; color:var(--text-dim); min-width:20px; text-align:center; }
 .prow-name { font-size:14px; font-weight:700; color:var(--text); flex:1; }
 .prow-detail { font-size:11px; color:var(--text-dim); font-weight:500; text-align:right; }
 .prow-detail strong { color:var(--text); font-weight:700; display:block; font-size:13px; }
@@ -315,7 +316,7 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
 .prow-badge.bad { background:rgba(248,113,113,0.1); color:var(--red); border:1px solid rgba(248,113,113,0.2); }
 .prow-badge.neutral { background:var(--surface3); color:var(--text-dim); border:1px solid var(--border); }
 .stat-item { background:var(--surface2);border-radius:var(--radius-sm);padding:12px;border:1px solid var(--border);text-align:center; }
-.stat-item-val { font-family:"Bebas Neue",sans-serif;font-size:26px;line-height:1;color:var(--text); }
+.stat-item-val { font-family:'IBM Plex Sans KR',system-ui,sans-serif;font-size:26px;line-height:1;color:var(--text); }
 .stat-item-label { font-size:10px;color:var(--text-dim);font-weight:700;letter-spacing:0.5px;margin-top:4px; }
 .pmatch-list { padding:0 16px;display:flex;flex-direction:column;gap:8px; }
 .pmatch-card { background:var(--surface2);border-radius:var(--radius-sm);padding:12px 14px;border:1px solid var(--border);border-left:3px solid var(--border); }
@@ -333,7 +334,7 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
 .pmatch-pname { font-size:12px;font-weight:700;color:var(--text);line-height:1.3; }
 .pmatch-pname.me { color:var(--gold); }
 .pmatch-score { background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 10px;text-align:center; }
-.pmatch-sets { font-family:"Bebas Neue",sans-serif;font-size:13px;color:var(--gold);letter-spacing:1px;line-height:1.2; }
+.pmatch-sets { font-family:'IBM Plex Sans KR',system-ui,sans-serif;font-size:13px;color:var(--gold);letter-spacing:1px;line-height:1.2; }
 
 /* ── 스트릭 배지 ── */
 .streak-badge {
@@ -346,7 +347,7 @@ body { background:var(--bg); color:var(--text); font-family:'Pretendard',sans-se
 
 /* ── 세트 득실 ── */
 .set-diff-row { display:flex; align-items:center; gap:10px; }
-.set-num { font-family:'Bebas Neue',sans-serif; font-size:22px; }
+.set-num { font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-size:22px; }
 .set-num.pos { color:var(--green); }
 .set-num.neg { color:var(--red); }
 
@@ -837,7 +838,7 @@ async function loadData() {
     renderRank(); renderRecent(); renderGrid();
   } catch(e) {
     console.error('loadData error:',e);
-    document.getElementById('rank-status').innerHTML=`<div style="color:#f87171;font-size:14px">⚠️ 데이터를 불러올 수 없어요<br><br><span style="font-size:12px;color:var(--text-dim)">${e.message}</span><br><br></div><button onclick="loadData()" style="padding:10px 24px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:10px;font-size:13px;cursor:pointer;font-family:Pretendard,sans-serif;">다시 시도</button>`;
+    document.getElementById('rank-status').innerHTML=`<div style="color:#f87171;font-size:14px">⚠️ 데이터를 불러올 수 없어요<br><br><span style="font-size:12px;color:var(--text-dim)">${e.message}</span><br><br></div><button onclick="loadData()" style="padding:10px 24px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:10px;font-size:13px;cursor:pointer;font-family:'IBM Plex Sans KR',system-ui,sans-serif;">다시 시도</button>`;
   } finally {
     btn.classList.remove('spinning');
   }
@@ -1054,7 +1055,7 @@ function openProfile(name, league, rank) {
           <div class="prow-name">${stats.bestChem.name}</div>
           <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${stats.bestChem.m}경기 · 승률 ${Math.round(stats.bestChem.wr*100)}% · 세트 ${stats.bestChem.setsW}:${stats.bestChem.setsL}</div>
         </div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--green)">${stats.bestChem.chem}</div>
+        <div style="font-family:'IBM Plex Sans KR',system-ui,sans-serif;font-size:32px;color:var(--green)">${stats.bestChem.chem}</div>
       </div>`;
     }
     if (stats.worstChem && stats.worstChem.name !== stats.bestChem?.name) {
@@ -1064,7 +1065,7 @@ function openProfile(name, league, rank) {
           <div class="prow-name">${stats.worstChem.name}</div>
           <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${stats.worstChem.m}경기 · 승률 ${Math.round(stats.worstChem.wr*100)}% · 세트 ${stats.worstChem.setsW}:${stats.worstChem.setsL}</div>
         </div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--red)">${stats.worstChem.chem}</div>
+        <div style="font-family:'IBM Plex Sans KR',system-ui,sans-serif;font-size:32px;color:var(--red)">${stats.worstChem.chem}</div>
       </div>`;
     }
     if (chemHighlight) body.innerHTML += `<div><div class="section-label">파트너 케미</div>${chemHighlight}</div>`;
