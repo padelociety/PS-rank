@@ -212,7 +212,7 @@ def build_title_and_desc(team_a: list, team_b: list, league: str,
                           category: str = '', match_number: int = 0) -> tuple:
     # 리그 축약명: PS iLeague 26S2 → PSiL 26S2
     league_short = shorten_league(league) if league else 'PSiL'
-    # 카테고리: B&S | G&P | Bridge (ps_court에서 넘어옴, 없으면 폴백)
+    # 카테고리: 리그 부문 이름(Bronze·Silver·Gold+ …) | Bridge — ps_court 가 정해 넘긴다(옛 부문만 B&S·G&P), 없으면 폴백
     cat = category if category else 'Bridge'
     match_str = f"Match{match_number}" if match_number else 'Match'
 
@@ -230,7 +230,7 @@ def build_title_and_desc(team_a: list, team_b: list, league: str,
         f"🔢 {match_str}\n"
         f"🟢 Team A: {a_str}\n"
         f"🟡 Team B: {b_str}\n\n"
-        f"#빠델 #빠델소사이어티 #빠소 #빠델리그 #빠소리그 #PSL"
+        f"#빠델 #파델 #빠델소사이어티 #빠소 #빠델리그 #빠소리그 #PSL"
     )
     return title, description
 
@@ -301,7 +301,7 @@ def build_free_title_and_desc(team_a: list, team_b: list, minutes: int) -> tuple
         f"⏱ {minutes}분\n"
         + (f"🟢 Team A: {' / '.join(team_a)}\n" if team_a else '')
         + (f"🟡 Team B: {' / '.join(team_b)}\n" if team_b else '')
-        + "\n#빠델 #빠델소사이어티 #빠소 #PSL"
+        + "\n#빠델 #파델 #빠델소사이어티 #빠소 #PSL"
     )
     return title, description
 

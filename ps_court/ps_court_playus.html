@@ -705,7 +705,7 @@ body {
       <div id="fb-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:4px">🔴 Firebase 연결 중...</div>
       <!-- 빌드 표시 — 태블릿이 최신 파일을 받았는지 눈으로 확인하는 용도.
            배포할 때마다 아래 COURTBUILD 와 스크립트의 BUILD 를 함께 올린다. -->
-      <!--COURTBUILD:c6--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c6</div>
+      <!--COURTBUILD:c7--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c7</div>
       <div class="step-indicator" id="step-label">STEP 1 / 3</div>
       <div class="step-dots">
         <div class="step-dot active" id="dot-1"></div>
@@ -1977,19 +1977,22 @@ async function startStream() {
   }
   _updateStreamStatus('starting');
   try {
-    // 카테고리 약칭: Bronze&Silver→B&S, Gold&Platinum→G&P, 복수→Bridge
+    // 카테고리 — **리그에 적힌 부문 이름 그대로**(26S3: Bronze · Silver · Gold+), 여러 부문이면 Bridge.
+    // ⚠️ 예전엔 'Gold' 가 들어가면 무조건 G&P 로 줄였다(26S2 의 Gold&Platinum 시절 규칙) — 26S3 'Gold+' 가
+    //    썸네일·제목에 [G&P] 로 나갔다(2026-10-01 신고 "카테고리 이상함"). 줄임은 이름에 '&' 가 든 옛 부문에만 한다.
+    const catLabel = (c) => {
+      const v = String(c || '').trim();
+      if (!v.includes('&')) return v;
+      return (v.includes('Bronze') || v.includes('Silver')) ? 'B&S'
+           : (v.includes('Gold') || v.includes('Platinum')) ? 'G&P'
+           : v;
+    };
     const cats = (selectedMatch && selectedMatch.categories) || [];
     let catShort = 'Bridge';
     if (cats.length === 1) {
-      const c = cats[0];
-      catShort = (c.includes('Bronze') || c.includes('Silver')) ? 'B&S'
-               : (c.includes('Gold') || c.includes('Platinum')) ? 'G&P'
-               : c;
+      catShort = catLabel(cats[0]) || 'Bridge';
     } else if (cats.length === 0 && selectedMatch && selectedMatch.division) {
-      const d = selectedMatch.division;
-      catShort = (d.includes('Bronze') || d.includes('Silver')) ? 'B&S'
-               : (d.includes('Gold') || d.includes('Platinum')) ? 'G&P'
-               : d;
+      catShort = catLabel(selectedMatch.division) || 'Bridge';
     }
     const res = await fetch(`${STREAM_SERVER}/start-stream`, {
       method: 'POST',
@@ -2292,7 +2295,7 @@ if ('serviceWorker' in navigator) {
 -->
 <script>
 (function () {
-  var BUILD = "c6";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
+  var BUILD = "c7";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
   var el = document.getElementById('app-build');
   if (el) el.textContent = '앱 ' + BUILD;
 
