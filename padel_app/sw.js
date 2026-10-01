@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ps-league-v4';
+const CACHE_NAME = 'ps-league-v5';
 const STATIC_ASSETS = [
   '/PS-rank/padel_app/manifest.json',
   '/PS-rank/padel_app/icon-192.png',
