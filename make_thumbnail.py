@@ -4,6 +4,7 @@
     cd C:\\dev\\PS-rank
     .venv\\Scripts\\python make_thumbnail.py --league 26S3 --match 1
     .venv\\Scripts\\python make_thumbnail.py --league 26S3 --match 1 --video https://youtube.com/live/XXXX   # 올리기까지
+    .venv\\Scripts\\python make_thumbnail.py --league 26S3 --match 1 --video live   # 지금 방송 중인 영상에
 
 왜 (2026-10-01): 서버가 리그 매치 응답의 선수 사진을 파일 이름으로만 보내서(`attachParToMatch` 가 toJSON 을 건너뛰었다)
 태블릿이 '사진 없음' 으로 보고 썸네일에 **이니셜**을 그렸다. 서버를 고쳐도 이미 올라간 썸네일은 그대로라, 여기서 다시 만든다.
@@ -80,10 +81,23 @@ def cat_label(c):
     return v
 
 
+ID_RE = re.compile(r'^[A-Za-z0-9_-]{11}$')
+
+
 def video_id(s):
+    """URL·id → 11자 영상 id. 못 알아보면 '' — 엉뚱한 값을 YouTube 에 보내 500 을 받지 않게(2026-10-01 실제로 그랬다).
+    'live' 면 이 PC 의 stream_server(/status)가 지금 송출 중인 방송 id."""
     s = (s or '').strip()
+    if s.lower() == 'live':
+        try:
+            st = requests.get('http://127.0.0.1:5000/status', timeout=5).json()
+            return st.get('broadcast_id') or '' if st.get('active') else ''
+        except Exception:
+            return ''
     m = re.search(r'(?:v=|/live/|youtu\.be/|/shorts/)([A-Za-z0-9_-]{11})', s)
-    return m.group(1) if m else s
+    if m:
+        return m.group(1)
+    return s if ID_RE.match(s) else ''
 
 
 def main():
@@ -126,10 +140,14 @@ def main():
     print(f"\n✅ 썸네일: {path}  ({league_short} [{category}] Match {a.match} · {date_str})")
 
     if a.video:
+        vid = video_id(a.video)
+        if not vid:
+            sys.exit('⚠️ 올릴 영상을 못 찾았어요 — 유튜브 [공유 → 링크 복사] 주소를 넣거나, 방송 중이면 --video live. '
+                     f'(받은 값: {a.video})  썸네일 파일은 위 경로에 있어요.')
         from youtube_api import YouTubeAPI
         with open(os.path.join(DIR, 'config.json'), encoding='utf-8-sig') as f:
             cfg = json.load(f)
-        ok = YouTubeAPI(cfg).set_thumbnail(video_id(a.video), path)
+        ok = YouTubeAPI(cfg).set_thumbnail(vid, path)
         print('✅ YouTube 에 올렸어요.' if ok else '⚠️ YouTube 업로드 실패 — 위 로그를 보고, 파일을 Studio 에서 직접 올려 주세요.')
 
 
