@@ -59,6 +59,11 @@ class FakeYT:
         FakeYT.thumbnails.append((broadcast_id, path))
         return True
 
+    voided = []              # [무효] 를 붙인 영상 id
+    def mark_void(self, vid):
+        FakeYT.voided.append(vid)
+        return True
+
 
 def load_server():
     # config.json 이 있어야 import 가 된다 — 임시 폴더에 사본을 만들어 거기서 읽힌다.
@@ -195,6 +200,58 @@ def main():
     r = c.post('/start-stream', json={'teamA': ['가', '나'], 'teamB': ['다', '라'], 'league': 'PS iLeague 26S3'})
     check(r.status_code == 200 and r.get_json()['success'], '이름만 보내는 구버전 태블릿도 그대로 시작된다')
     c.post('/stop-stream')
+
+    # 10) 끝까지 못 친 경기 — 영상은 지우지 않고 [무효] (태블릿 '매치 취소')
+    import time
+    FakeYT.voided.clear()
+    r = c.post('/start-stream', json={'teamA': ['a', 'b'], 'teamB': ['c', 'd'], 'league': 'PS iLeague 26S3'})
+    bid = r.get_json()['broadcast_id']
+    r = c.post('/stop-stream', json={'void': True})
+    d = r.get_json()
+    check(d['success'] and d.get('voided') == bid and not ss.stream_state['active'], '/stop-stream {void} — 끄고 voided 를 돌려준다')
+    for _ in range(40):
+        if bid in FakeYT.voided: break
+        time.sleep(0.05)
+    check(FakeYT.voided == [bid], '그 방송 영상에 [무효] 가 붙는다', str(FakeYT.voided))
+    check(bid in ss.youtube.ended, '영상은 지우지 않고 방송만 끝낸다(end_broadcast)')
+
+    # 평범한 종료엔 붙이지 않는다
+    FakeYT.voided.clear()
+    c.post('/start-stream', json={'teamA': ['a', 'b'], 'teamB': ['c', 'd']})
+    r = c.post('/stop-stream')
+    time.sleep(0.2)
+    check('voided' not in r.get_json() and FakeYT.voided == [], '보통 종료(점수 저장)엔 [무효] 가 없다')
+
+    # 이미 끝난 방송 — /void-video
+    FakeYT.voided.clear()
+    r = c.post('/void-video', json={'watchUrl': 'https://www.youtube.com/watch?v=abcDEF_12-x'})
+    for _ in range(40):
+        if FakeYT.voided: break
+        time.sleep(0.05)
+    check(r.get_json().get('voided') == 'abcDEF_12-x' and FakeYT.voided == ['abcDEF_12-x'], '/void-video — 주소에서 id 를 읽어 붙인다')
+    r = c.post('/void-video', json={'watchUrl': 'https://evil.example/<x>'})
+    check(r.status_code == 400, '알아볼 수 없는 주소는 400')
+    check(ss._video_id_of('https://youtu.be/abcDEF123') == 'abcDEF123', 'youtu.be 짧은 주소도 읽는다')
+
+    # 송출 중인 그 방송에 /void-video 가 오면 끄면서 붙인다
+    FakeYT.voided.clear()
+    r = c.post('/start-stream', json={'teamA': ['a', 'b'], 'teamB': ['c', 'd']})
+    bid = r.get_json()['broadcast_id']
+    c.post('/void-video', json={'videoId': bid})
+    check(not ss.stream_state['active'], '송출 중인 영상이면 방송도 끈다')
+
+    # 제목·설명 바꾸기 규칙(순수 함수 — 실물 youtube_api)
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('yt_real', os.path.join(ROOT, 'youtube_api.py'))
+    yt = importlib.util.module_from_spec(spec); spec.loader.exec_module(yt)
+    sn = yt.void_snippet({'title': 'PSiL 26S3 [Gold+] Match 1 | A vs B', 'description': '설명', 'categoryId': '17',
+                          'tags': ['파델'], 'thumbnails': {}, 'channelId': 'x', 'publishedAt': 'y'})
+    check(sn['title'].startswith('[무효] PSiL 26S3'), '제목 앞에 [무효]')
+    check(sn['description'].startswith('[무효]') and sn['description'].endswith('설명'), '설명 앞에 [무효] 안내 + 원래 설명')
+    check(sn['tags'] == ['파델'] and 'thumbnails' not in sn and 'channelId' not in sn, '태그는 지키고 읽기 전용 칸은 뺀다')
+    check(yt.void_snippet({'title': '[무효] 이미'}) is None, '이미 붙었으면 다시 안 붙인다')
+    long = yt.void_snippet({'title': 'x' * 100, 'description': '가' * 3000})
+    check(len(long['title']) == 100 and len(long['description'].encode('utf-8')) <= 5000, 'YouTube 한도(제목 100자 · 설명 5000바이트)')
 
     print(f'\nALL OK — {ok} checks')
 

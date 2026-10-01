@@ -15,6 +15,7 @@ ps_court.html에서 '스코어 입력' 버튼을 누르면:
 
 import atexit
 import json
+import re
 import logging
 import os
 import signal
@@ -537,14 +538,62 @@ def _stop_stream_impl(reason: str = '') -> list:
 
 @app.route('/stop-stream', methods=['POST'])
 def stop_stream():
-    """스트리밍 종료"""
+    """스트리밍 종료. Body(선택): { "void": true } — 끝까지 못 친 경기(태블릿 '매치 취소').
+    영상은 지우지 않고 제목·설명에 [무효] 를 붙인다(매치는 태블릿이 지워 순위·PAR·전적에서 빠진다)."""
+    data = request.get_json(silent=True) or {}
+    void = data.get('void') is True
     with state_lock:
         if not stream_state['active']:
             return jsonify({'success': True, 'message': '스트리밍 중이 아니에요'})
-    errors = _stop_stream_impl('태블릿에서 종료')
+        bid = stream_state.get('broadcast_id')
+    errors = _stop_stream_impl('태블릿에서 종료' + (' · 무효' if void else ''))
+    out = {'success': True}
+    if void and bid:
+        _void_later(bid)
+        out['voided'] = bid     # 태블릿이 이걸로 '새 서버인지' 안다 — 옛 서버는 void 를 모른다
     if errors:
-        return jsonify({'success': True, 'warnings': errors})
-    return jsonify({'success': True})
+        out['warnings'] = errors
+    return jsonify(out)
+
+
+_VIDEO_ID = re.compile(r'^[A-Za-z0-9_-]{6,20}$')
+
+
+def _video_id_of(s: str) -> str:
+    """'https://www.youtube.com/watch?v=ID' · 'https://youtu.be/ID' · 'ID' → ID. 모르면 ''."""
+    s = str(s or '').strip()
+    m = re.search(r'[?&]v=([A-Za-z0-9_-]+)', s) or re.search(r'youtu\.be/([A-Za-z0-9_-]+)', s)
+    vid = m.group(1) if m else s
+    return vid if _VIDEO_ID.match(vid) else ''
+
+
+def _void_later(video_id: str):
+    """[무효] 표시는 백그라운드 — 방금 끝낸 영상은 YouTube 가 잠깐 처리 중일 수 있어 몇 번 다시 해 본다.
+    태블릿은 기다리지 않는다(매치 삭제가 이것 때문에 늦어지면 안 된다)."""
+    def run():
+        for i in range(3):
+            if youtube.mark_void(video_id):
+                return
+            time.sleep(20 * (i + 1))
+        logger.warning(f"⚠️ [무효] 표시 끝내 실패 — 유튜브 스튜디오에서 직접 ({video_id})")
+    threading.Thread(target=run, daemon=True).start()
+
+
+@app.route('/void-video', methods=['POST'])
+def void_video():
+    """이미 끝난 방송의 영상에 [무효] — 방송을 먼저 끄고 나중에 '매치 취소' 를 누른 경우.
+    Body: { "watchUrl": "https://www.youtube.com/watch?v=..." } (또는 "videoId")"""
+    data = request.get_json(silent=True) or {}
+    vid = _video_id_of(data.get('videoId') or data.get('watchUrl') or '')
+    if not vid:
+        return jsonify({'success': False, 'error': '영상 주소를 알아볼 수 없어요'}), 400
+    with state_lock:
+        live_now = stream_state['active'] and stream_state.get('broadcast_id') == vid
+    if live_now:
+        # 아직 송출 중인 그 방송이면 끄면서 붙인다
+        _stop_stream_impl('태블릿에서 종료 · 무효')
+    _void_later(vid)
+    return jsonify({'success': True, 'voided': vid})
 
 
 def _auto_stop_once(now=None) -> bool:
