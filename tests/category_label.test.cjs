@@ -25,6 +25,10 @@ t("⚠️ 'Gold' 만 보고 G&P 로 줄이는 옛 규칙이 남아 있지 않다
   if (/\? 'B&S'\s*:\s*\(c\.includes\('Gold'\)/.test(src)) throw new Error('옛 규칙');
 });
 t('make_thumbnail.py 도 같은 규칙', () => { if (!mk.includes("if '&' not in v:\n        return v")) throw new Error('규칙 다름'); });
+t("make_thumbnail --video: 'live' 는 stream_server /status · 못 알아본 값은 올리기 전에 멈춘다", () => {
+  if (!mk.includes("if s.lower() == 'live':") || !mk.includes("127.0.0.1:5000/status")) throw new Error('live');
+  if (!mk.includes('if not vid:')) throw new Error('검증');
+});
 t('설명 해시태그에 #파델', () => { eq((ss.match(/#빠델 #파델 /g) || []).length, 2); });
 t('빌드 배지 c7 · BUILD · SW v41 같이', () => {
   if (!src.includes('<!--COURTBUILD:c7-->') || !src.includes('var BUILD = "c7";')) throw new Error('배지');
