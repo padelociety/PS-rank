@@ -28,7 +28,7 @@ t('방송 중이면 끄면서 void · 끝났으면 기억한 이 매치 영상�
   const b = body('voidStreamOf');
   if (!b.includes('stopStream({ void: true })')) throw new Error('stopStream void');
   if (!b.includes('/void-video')) throw new Error('/void-video');
-  if (!b.includes('saved.matchId !== matchId')) throw new Error('다른 매치 영상에 붙이면 안 된다');
+  if (!b.includes('saved.matchId === matchId')) throw new Error('다른 매치 영상에 붙이면 안 된다');
 });
 
 t('옛 서버(voided 없음)면 직접 붙이라고 말한다', () => {
