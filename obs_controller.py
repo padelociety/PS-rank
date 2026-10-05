@@ -9,6 +9,7 @@ OBS Studio를 원격으로 제어합니다 (obs-websocket 5.x)
 """
 
 import logging
+import os
 import threading
 import time
 
@@ -40,6 +41,9 @@ class OBSController:
         # 하이라이트 요청이 동시에 접근하면 응답이 꼬여 엉뚱한 예외가 남(예: 버퍼가
         # 켜져 있는데 "꺼짐"으로 오판). 모든 OBS 호출을 이 락으로 직렬화한다.
         self._lock = threading.RLock()
+        # 하이라이트 저장은 한 번에 하나 — 두 번 연달아 누르면 둘 다 같은 '직전 경로' 를 기억해,
+        # 먼저 끝난 파일을 둘이 같이 올린다(두 번째 클립이 사라진다).
+        self._replay_save_lock = threading.Lock()
 
     # ── 연결 ─────────────────────────────────────────────────────
     def connect(self, retries: int = 3, delay: float = 2.0):
@@ -350,31 +354,63 @@ class OBSController:
                     break
         return False
 
-    def save_replay_buffer(self) -> str:
-        """버퍼를 파일로 저장하고 저장된 파일 경로를 반환 (실패 시 빈 문자열).
-        폴링 sleep 동안엔 락을 놓아 키프알라이브 등 다른 OBS 호출을 막지 않는다."""
+    def _last_replay_path(self) -> str:
+        """OBS 가 기억하는 '마지막으로 저장이 끝난' 리플레이 경로. 없거나 실패하면 빈 문자열."""
+        try:
+            resp = self.client.get_last_replay_buffer_replay()
+            return getattr(resp, "saved_replay_path", "") or ""
+        except Exception:
+            return ""
+
+    def save_replay_buffer(self, timeout_s: float = 15.0) -> str:
+        """버퍼를 파일로 저장하고 **이번에 저장된** 파일 경로를 반환 (실패 시 빈 문자열).
+        폴링 sleep 동안엔 락을 놓아 키프알라이브 등 다른 OBS 호출을 막지 않는다.
+
+        ⚠️ GetLastReplayBufferReplay 는 '마지막으로 저장이 **끝난**' 파일이다. 방금 요청한
+           저장이 아직 디스크에 쓰이는 중이면 **직전 하이라이트의 경로**를 돌려준다.
+           예전엔 0.5초 뒤 받은 첫 경로를 그대로 썼다 — 90초 버퍼는 쓰는 데 그보다 오래 걸려서
+           Match25 제목·선수에 **앞서 저장한 Match21 클립**이 붙어 올라갔다(2026-10-05 신고:
+           "하이라이트 저장한건데 동영상은 해당 동영상이 아니네?").
+           그래서 저장 전 경로를 기억해 두고 **그와 다른 경로**(또는 같은 이름을 덮어쓴 새 파일)가
+           나올 때까지만 기다린다. 끝내 안 바뀌면 빈 문자열 — 엉뚱한 클립을 올리느니 안 올린다."""
+        with self._replay_save_lock:
+            return self._save_replay_buffer(timeout_s)
+
+    def _save_replay_buffer(self, timeout_s: float) -> str:
         with self._lock:
             if not self.client:
                 self.connect()
+            before = self._last_replay_path()
+            started = time.time()
             try:
                 self.client.save_replay_buffer()
             except Exception as e:
                 logger.error(f"리플레이 저장 실패: {e}")
                 return ""
-        # 저장은 비동기 — 파일 경로가 잡힐 때까지 짧게 폴링 (최대 ~5초)
-        for _ in range(10):
+        # 저장은 비동기 — 새 파일 경로가 잡힐 때까지 폴링
+        polls = max(1, int(timeout_s / 0.5))
+        for _ in range(polls):
             time.sleep(0.5)
             with self._lock:
-                try:
-                    resp = self.client.get_last_replay_buffer_replay()
-                    path = getattr(resp, "saved_replay_path", "") or ""
-                    if path:
-                        logger.info(f"🎬 하이라이트 저장됨: {path}")
-                        return path
-                except Exception:
-                    continue
-        logger.error("리플레이 저장 경로를 못 받았어요 (OBS 버전 확인)")
+                path = self._last_replay_path()
+            if not path:
+                continue
+            if path != before or self._written_since(path, started):
+                logger.info(f"🎬 하이라이트 저장됨: {path}")
+                return path
+        logger.error(
+            f"새 리플레이 파일이 {timeout_s:.0f}초 안에 안 잡혔어요 — 직전 클립을 잘못 올리지 않도록 건너뜁니다"
+            f" (마지막 파일: {before or '없음'})"
+        )
         return ""
+
+    @staticmethod
+    def _written_since(path: str, started: float) -> bool:
+        """같은 이름으로 덮어쓴 경우 — 파일이 저장 요청 뒤에 쓰였으면 새 클립이다."""
+        try:
+            return os.path.getmtime(path) >= started - 1
+        except OSError:
+            return False
 
     # ── 씬 전환 (선택 사항) ───────────────────────────────────────
     def switch_scene(self, scene_name: str):
