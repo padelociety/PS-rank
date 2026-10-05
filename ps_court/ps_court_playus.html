@@ -705,7 +705,7 @@ body {
       <div id="fb-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:4px">🔴 Firebase 연결 중...</div>
       <!-- 빌드 표시 — 태블릿이 최신 파일을 받았는지 눈으로 확인하는 용도.
            배포할 때마다 아래 COURTBUILD 와 스크립트의 BUILD 를 함께 올린다. -->
-      <!--COURTBUILD:c10--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c10</div>
+      <!--COURTBUILD:c11--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c11</div>
       <div class="step-indicator" id="step-label">STEP 1 / 3</div>
       <div class="step-dots">
         <div class="step-dot active" id="dot-1"></div>
@@ -1669,20 +1669,27 @@ async function cancelMatch() {
 //    (조용히 넘어가면 그 영상이 정식 경기로 남는다).
 async function voidStreamOf(matchId) {
   let data = null;
-  if (_streamActive) {
+  const wasLive = !!(_streamActive || _stopping);
+  if (wasLive) {
     data = await stopStream({ void: true });
-  } else {
+  }
+  // ⚠️ 2026-10-05: 그냥 끄는 중(cancelScore 의 stopStream())이면 stopStream 은 **그 약속**을 돌려줘
+  //    void 가 안 실린다 — 그때는 다 꺼진 뒤 /void-video 로 따로 붙인다(아래 길).
+  if (!(data && data.voided)) {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem('ps_stream_of') || 'null'); } catch(_) {}
-    if (!saved || saved.matchId !== matchId || !saved.watchUrl) return; // 이 매치는 방송을 안 했다
-    try {
-      const res = await fetch(`${STREAM_SERVER}/void-video`, {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ watchUrl: saved.watchUrl }),
-        signal: AbortSignal.timeout(10000),
-      });
-      data = await res.json();
-    } catch(_) { data = null; }
+    const mine = !!(saved && saved.matchId === matchId && saved.watchUrl);
+    if (!mine && !wasLive) return; // 이 매치는 방송을 안 했다
+    if (mine) {
+      try {
+        const res = await fetch(`${STREAM_SERVER}/void-video`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ watchUrl: saved.watchUrl }),
+          signal: AbortSignal.timeout(10000),
+        });
+        data = await res.json();
+      } catch(_) { data = null; }
+    }
   }
   if (data && data.voided) {
     try { localStorage.removeItem('ps_stream_of'); } catch(_) {}
@@ -1734,6 +1741,9 @@ async function replayDifferentPair() {
     if (sec) sec.innerHTML = '';
     renderStep();
     renderTeamDisplay(true);
+    // ⚠️ 2026-10-05: 새 매치(서버 기본 Friendly)로 PAR 스위치를 다시 그린다 — 안 그리면 직전 매치에서
+    //    켜 둔 'PAR 반영' 이 그대로 보이고, 끄려고 누르면 새 매치에서 거꾸로 켜졌다.
+    renderParToggle();
     showToast('✅ 다음 매치 준비 완료!');
   } catch(e) {
     showToast('⚠️ ' + e.message);
@@ -2086,9 +2096,21 @@ async function startStream() {
   }
 }
 
+// ⚠️ 2026-10-05: 끄는 중에 또 부르면 같은 약속을 돌려준다 — [매치 취소] 는 voidStreamOf(void) 를
+//    던져 놓고 곧바로 resetAll() 이 stopStream() 을 또 불러 /stop-stream 이 두 번 나갔다.
+var _stopping = null;   // var — 선언 줄보다 먼저 불려도 TDZ 로 죽지 않게
 async function stopStream(opts) {
+  if (_stopping) return _stopping;
   if (!_streamActive) return null;
+  _stopping = _stopStreamOnce(opts);
+  try { return await _stopping; } finally { _stopping = null; }
+}
+async function _stopStreamOnce(opts) {
   const voidIt = !!(opts && opts.void);
+  // ⚠️ 2026-10-05: 리그는 await 전에 잡아 둔다. /stop-stream(OBS·유튜브 전환)이 느린 사이
+  //    resetAll() 이 selectedLeague 를 null 로 비워서 isLive:false 가 안 나갔다 — [매치 취소] 뒤
+  //    앱 리그 카드에 빨간 LIVE 가 다음 방송(일주일 뒤)까지 남았다.
+  const lg = selectedLeague;
   try {
     const res = await fetch(`${STREAM_SERVER}/stop-stream`, {
       method: 'POST',
@@ -2105,8 +2127,8 @@ async function stopStream(opts) {
     _updateStreamStatus(_streamServerOnline ? 'online' : 'offline');
     showToast('⏹️ 스트리밍 종료됨');
     // 앱 라이브 배너 끄기
-    if (psToken && selectedLeague) {
-      psFetch(`/league/update/${selectedLeague._id}`, {
+    if (psToken && lg) {
+      psFetch(`/league/update/${lg._id}`, {
         method: 'PUT',
         body: JSON.stringify({ isLive: false }),
       }).catch(() => {});
@@ -2353,7 +2375,7 @@ if ('serviceWorker' in navigator) {
 -->
 <script>
 (function () {
-  var BUILD = "c10";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
+  var BUILD = "c11";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
   var el = document.getElementById('app-build');
   if (el) el.textContent = '앱 ' + BUILD;
 

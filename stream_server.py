@@ -245,7 +245,7 @@ FREE_LIVE_MINUTES = (90, 120, 180)
 
 
 def push_thumbnail(broadcast_id: str, roster_a: list, roster_b: list, *,
-                   league='', category='', match_number=0):
+                   league='', category='', match_number=0, free=False):
     """
     그 경기 선수 얼굴이 들어간 썸네일을 만들어 YouTube 에 올린다.
 
@@ -256,6 +256,13 @@ def push_thumbnail(broadcast_id: str, roster_a: list, roster_b: list, *,
     ⚠️ 여기서 나는 어떤 예외도 방송에 영향을 주면 안 된다 — thumbnail.build 와
        youtube.set_thumbnail 둘 다 스스로 삼키지만, 스레드 최상단이라 한 번 더 감싼다.
     """
+    # ⚠️ 2026-10-05: 자유 라이브(free)는 리그 경기가 아니다 — 예전엔 리그가 비면 'PS i-League'
+    #    머리·'i-LEAGUE' 꼬리를 붙여서 'Padel Society 라이브' 방송이 리그 경기처럼 보였고,
+    #    이름을 안 적으면(선택이다) 금색 VS 한 줄뿐인 빈 카드가 올라갔다. 이름이 없으면
+    #    올리지 않는다 — 유튜브가 방송 화면에서 알아서 뽑는다.
+    if free and not roster_a and not roster_b:
+        logger.info("🖼️ 자유 라이브 · 이름 없음 — 썸네일은 유튜브 자동 프레임으로 둔다")
+        return
     try:
         # ⚠️ 파일 이름에 방송 id 를 넣는다. 고정 이름을 쓰면 방송이 이어서 시작될 때
         #    (자유 라이브 → 리그 경기 넘겨받기) 앞 스레드가 아직 쓰는 파일을 뒤 스레드가
@@ -263,8 +270,9 @@ def push_thumbnail(broadcast_id: str, roster_a: list, roster_b: list, *,
         safe = ''.join(ch for ch in str(broadcast_id) if ch.isalnum() or ch in '-_')[:40]
         path = thumbnail.build(
             roster_a, roster_b,
-            league=shorten_league(league) if league else 'PS i-League',
+            league=shorten_league(league) if league else ('' if free else 'PS i-League'),
             category=category, match_number=match_number,
+            footer=thumbnail.FOOTER_FREE if free else thumbnail.FOOTER_LEAGUE,
             date_str=datetime.now().strftime('%Y.%m.%d'),
             out_path=os.path.join(tempfile.gettempdir(), f'ps_thumb_{safe or "live"}.jpg'),
         )
@@ -448,7 +456,8 @@ def start_stream():
         threading.Thread(
             target=push_thumbnail,
             args=(broadcast_id, roster_a, roster_b),
-            kwargs={'league': league, 'category': category, 'match_number': match_number},
+            kwargs={'league': league, 'category': category, 'match_number': match_number,
+                    'free': mode == 'free'},
             daemon=True,
             name='thumbnail',
         ).start()

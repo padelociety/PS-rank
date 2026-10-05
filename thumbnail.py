@@ -253,14 +253,21 @@ def _paste_player(img, draw, cx: int, cy: int, size: int, player: dict, name_w: 
                       label, font=fp, fill=color)
 
 
+# ⚠️ 2026-10-05: 하단 띠가 'i-LEAGUE' 로 박혀 있어서 자유 라이브('Padel Society 라이브 …')
+#    썸네일도 리그 경기처럼 보였다. 자유 라이브는 FOOTER_FREE 를 넘긴다(stream_server.push_thumbnail).
+FOOTER_LEAGUE = 'PADEL SOCIETY  i-LEAGUE'
+FOOTER_FREE = 'PADEL SOCIETY'
+
+
 # ── 본체 ────────────────────────────────────────────────────────────────────
 def build(team_a, team_b, *, league='', category='', match_number=0, date_str='',
-          out_path=None):
+          out_path=None, footer=FOOTER_LEAGUE):
     """
     썸네일 한 장을 만들어 **파일 경로**를 돌려준다. 못 만들면 `None`.
 
     team_a / team_b: `[{'name':…, 'photo':URL|'', 'par':4.2|None, 'tier':'gold'}]`
       문자열 리스트(이름만)도 받는다 — 옛 호출부·자유 라이브가 그렇게 부른다.
+    footer: 하단 띠 글자. 자유 라이브는 `FOOTER_FREE` — 리그 경기가 아니다.
     """
     try:
         from PIL import Image, ImageDraw        # noqa: F401  (없으면 여기서 걸린다)
@@ -269,7 +276,7 @@ def build(team_a, team_b, *, league='', category='', match_number=0, date_str=''
         return None
 
     try:
-        return _build(team_a, team_b, league, category, match_number, date_str, out_path)
+        return _build(team_a, team_b, league, category, match_number, date_str, out_path, footer)
     except Exception as e:
         # ⚠️ 절대 위로 던지지 않는다 — 썸네일 때문에 방송이 안 켜지면 안 된다.
         logger.warning(f"⚠️ 썸네일 생성 실패 (방송은 그대로 진행): {e}")
@@ -292,7 +299,7 @@ def normalize(team):
     return [p for p in out if p['name']]
 
 
-def _build(team_a, team_b, league, category, match_number, date_str, out_path):
+def _build(team_a, team_b, league, category, match_number, date_str, out_path, footer=None):
     from PIL import ImageDraw
 
     a = normalize(team_a)
@@ -350,7 +357,7 @@ def _build(team_a, team_b, league, category, match_number, date_str, out_path):
     draw.line([(60, H - 96), (W - 60, H - 96)], fill=GOLD, width=2)
     fb = _font(30, True)
     if fb:
-        draw.text((60, H - 74), 'PADEL SOCIETY  i-LEAGUE', font=fb, fill=CREAM)
+        draw.text((60, H - 74), FOOTER_LEAGUE if footer is None else footer, font=fb, fill=CREAM)
         live = 'LIVE'
         wl = _text_w(draw, live, fb)
         draw.rounded_rectangle([W - 60 - wl - 34, H - 80, W - 60, H - 34], radius=23, fill=TERRA)
