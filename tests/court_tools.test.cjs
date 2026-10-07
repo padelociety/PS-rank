@@ -19,7 +19,7 @@ const body = (name) => {
 };
 
 (async () => {
-  await t('① 다른 페어로 다시하기 — 새 매치는 등급(PAR) 반영(STEP 2)부터 다시 고른다 (c12)', () => {
+  await t('① 다른 페어로 다시하기 — 새 매치는 STEP 2 에서 직전 값을 서버에 적어 이어받는다 (c13)', () => {
     const b = body('replayDifferentPair');
     const i = b.indexOf('selectedMatch = m;'), k = b.indexOf('renderParStep()');
     if (i < 0) throw new Error('새 매치로 바꾸는 줄이 없다');
@@ -27,6 +27,8 @@ const body = (name) => {
     if (k < i) throw new Error('selectedMatch = m 뒤에 renderParStep() 이 없다');
     if (!/curStep = 2;/.test(b.slice(i))) throw new Error('STEP 2 로 가지 않는다');
     if (!/parDecidedFor = null;/.test(b.slice(i))) throw new Error('직전 매치의 결정이 새 매치로 넘어간다');
+    // 이어받기는 화면만 옮기지 않고 STEP 2 와 같은 길(par-apply → 서버 확인)로 적는다.
+    if (!/await chooseParApply\(prevPar === 'on', true\)/.test(b.slice(i))) throw new Error('이어받기가 서버 확인 길을 안 탄다');
   });
 
   // 진짜로 돌려 본다 — /stop-stream 이 느린 사이 resetAll() 이 selectedLeague 를 비운다.
@@ -105,9 +107,9 @@ const body = (name) => {
     if (!toasts.some((m) => m.includes('[무효] 를 붙여요'))) throw new Error('성공 안내 없음: ' + JSON.stringify(toasts));
   });
 
-  await t('빌드 배지 c12 · BUILD · SW v46 같이', () => {
-    if (!src.includes('<!--COURTBUILD:c12-->') || !src.includes('var BUILD = "c12";')) throw new Error('배지');
-    if (!sw.includes("const CACHE = 'ps-court-v46';")) throw new Error('SW');
+  await t('빌드 배지 c13 · BUILD · SW v47 같이', () => {
+    if (!src.includes('<!--COURTBUILD:c13-->') || !src.includes('var BUILD = "c13";')) throw new Error('배지');
+    if (!sw.includes("const CACHE = 'ps-court-v47';")) throw new Error('SW');
   });
 
   console.log(fails ? `\n실패 ${fails}건\n` : '\n전부 통과\n');
