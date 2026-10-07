@@ -1,4 +1,4 @@
-// 태블릿 작은 버그 점검 (c11 · 2026-10-05).
+// 태블릿 작은 버그 점검 (c11 · 2026-10-05 · ①은 c12 에서 STEP 2 로).
 //   실행: node tests/court_tools.test.cjs
 //   ① '다른 페어로 다시하기' 가 PAR 스위치를 새 매치로 다시 그린다
 //   ② [매치 취소] 로 방송을 끄는 사이 resetAll() 이 리그를 비워도 isLive:false 가 나간다
@@ -19,12 +19,14 @@ const body = (name) => {
 };
 
 (async () => {
-  await t('① 다른 페어로 다시하기 — 새 매치로 PAR 스위치를 다시 그린다', () => {
+  await t('① 다른 페어로 다시하기 — 새 매치는 등급(PAR) 반영(STEP 2)부터 다시 고른다 (c12)', () => {
     const b = body('replayDifferentPair');
-    const i = b.indexOf('selectedMatch = m;'), k = b.indexOf('renderParToggle()');
+    const i = b.indexOf('selectedMatch = m;'), k = b.indexOf('renderParStep()');
     if (i < 0) throw new Error('새 매치로 바꾸는 줄이 없다');
-    // ⚠️ 안 그리면 직전 매치의 'PAR 반영 ON' 이 남고, 끄려고 누르면 새 매치에서 거꾸로 켜진다.
-    if (k < i) throw new Error('selectedMatch = m 뒤에 renderParToggle() 이 없다');
+    // ⚠️ 안 그리면 직전 매치의 'PAR 반영 ON' 이 남고, 서버엔 새 매치 기본(반영 안 함)이 적혀 조용히 빠진다.
+    if (k < i) throw new Error('selectedMatch = m 뒤에 renderParStep() 이 없다');
+    if (!/curStep = 2;/.test(b.slice(i))) throw new Error('STEP 2 로 가지 않는다');
+    if (!/parDecidedFor = null;/.test(b.slice(i))) throw new Error('직전 매치의 결정이 새 매치로 넘어간다');
   });
 
   // 진짜로 돌려 본다 — /stop-stream 이 느린 사이 resetAll() 이 selectedLeague 를 비운다.
@@ -103,9 +105,9 @@ const body = (name) => {
     if (!toasts.some((m) => m.includes('[무효] 를 붙여요'))) throw new Error('성공 안내 없음: ' + JSON.stringify(toasts));
   });
 
-  await t('빌드 배지 c11 · BUILD · SW v45 같이', () => {
-    if (!src.includes('<!--COURTBUILD:c11-->') || !src.includes('var BUILD = "c11";')) throw new Error('배지');
-    if (!sw.includes("const CACHE = 'ps-court-v45';")) throw new Error('SW');
+  await t('빌드 배지 c12 · BUILD · SW v46 같이', () => {
+    if (!src.includes('<!--COURTBUILD:c12-->') || !src.includes('var BUILD = "c12";')) throw new Error('배지');
+    if (!sw.includes("const CACHE = 'ps-court-v46';")) throw new Error('SW');
   });
 
   console.log(fails ? `\n실패 ${fails}건\n` : '\n전부 통과\n');
