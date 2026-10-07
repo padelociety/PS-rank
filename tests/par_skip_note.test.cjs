@@ -46,10 +46,10 @@ t('저장·토글 둘 다 이유를 보여 준다', () => {
   if (!src.includes('const parNote = parSkipNote(saved && saved.message);')) throw new Error('저장 뒤 이유');
   if (!src.includes('const warnMsg = res && res.data && res.data.parWarning;')) throw new Error('토글 경고');
 });
-t('빌드 c11 · SW v45', () => {
-  if (!src.includes('<!--COURTBUILD:c11-->') || !src.includes('var BUILD = "c11";')) throw new Error('배지');
+t('빌드 c12 · SW v46', () => {
+  if (!src.includes('<!--COURTBUILD:c12-->') || !src.includes('var BUILD = "c12";')) throw new Error('배지');
   const sw = fs.readFileSync(path.join(__dirname, '..', 'ps_court', 'ps_court_sw.js'), 'utf8');
-  if (!sw.includes("const CACHE = 'ps-court-v45';")) throw new Error('SW');
+  if (!sw.includes("const CACHE = 'ps-court-v46';")) throw new Error('SW');
 });
 console.log(fails ? `\n실패 ${fails}건\n` : '\n전부 통과\n');
 process.exit(fails ? 1 : 0);
