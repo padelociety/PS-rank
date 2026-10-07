@@ -217,23 +217,55 @@ const curBtn = (html) => (/class="par-opt (on|off) current"/.exec(html) || [])[1
     assert(!srv.calls.some((c) => /par-apply$/.test(c[1])), '잠긴 매치에 par-apply 를 보냈다');
   });
 
-  await t('⑧ 다른 페어로 다시하기 — 새 매치는 STEP 2 에서 다시 고른다(직전 값은 안내만)', async () => {
+  await t('⑧ 다른 페어로 다시하기 — 직전 매치에서 고른 값(반영)을 서버에 적고 이어받는다', async () => {
     const srv = makeServer([base({ matchType: 'Competitive', parForced: true, status: 'completed', sets: [{ a: 6, b: 1 }, { a: 6, b: 2 }] })]);
+    const tab = makeTablet(srv, []);
+    tab.done(JSON.parse(JSON.stringify(srv.db.get('M1'))), LG);
+    await tab.replayDifferentPair();
+    const s = tab.get();
+    assert(s.selectedMatch._id !== 'M1', '새 매치가 아니다');
+    assert(s.curStep === 3, '이어받았는데 팀 화면으로 안 갔다: ' + s.curStep);
+    assert(srv.db.get(s.selectedMatch._id).parForced === true, '서버에 안 적혔다 — 화면만 켜졌다');
+    assert(srv.calls.some(c => /par-apply$/.test(c[1]) && c[2].includes('true')), 'par-apply 를 안 불렀다');
+    assert(tab.ctx.teamFresh === true, "팀 배지가 '새 팀' 이 아니다");
+  });
+
+  await t('⑧-2 직전이 반영 안 함이면 반영 안 함으로 이어받는다', async () => {
+    const srv = makeServer([base({ matchType: 'Friendly', parForced: false, status: 'completed', sets: [{ a: 6, b: 1 }] })]);
+    const tab = makeTablet(srv, []);
+    tab.done(JSON.parse(JSON.stringify(srv.db.get('M1'))), LG);
+    await tab.replayDifferentPair();
+    const s = tab.get();
+    assert(s.curStep === 3 && srv.db.get(s.selectedMatch._id).matchType === 'Friendly', '반영 안 함으로 안 이어받았다');
+  });
+
+  await t('⑧-3 고른 적 없는 옛 값(legacy)은 이어받지 않고 STEP 2 에서 고르게 한다', async () => {
+    const srv = makeServer([base({ matchType: 'Competitive', parForced: false, status: 'completed', sets: [{ a: 6, b: 1 }] })]);
     const tab = makeTablet(srv, []);
     tab.done(JSON.parse(JSON.stringify(srv.db.get('M1'))), LG);
     await tab.replayDifferentPair();
     let s = tab.get();
     assert(s.curStep === 2, 'STEP 2 로 안 갔다: ' + s.curStep);
-    assert(s.selectedMatch._id !== 'M1' && s.selectedMatch.matchType === 'Friendly', '새 매치(서버 기본)가 아니다');
     const html = tab.ctx.els['par-step'].innerHTML;
     assert(curBtn(html) === 'off', "새 매치의 '지금' 이 반영 안 함이 아니다");
-    assert(html.includes("직전 매치는 '등급(PAR) 반영'"), '직전 값 안내가 없다');
+    assert(html.includes('옛 설정이라 이어받지 않았어요'), '안내가 없다');
     await tab.goToScore();
-    assert(tab.get().curStep === 2, '새 매치를 고르지 않고 시작했다');
+    assert(tab.get().curStep === 2, '고르지 않고 시작했다');
     await tab.chooseParApply(true);
     s = tab.get();
     assert(s.curStep === 3 && srv.db.get(s.selectedMatch._id).parForced === true, '새 매치에 안 적혔다');
-    assert(tab.ctx.teamFresh === true, "팀 배지가 '새 팀' 이 아니다");
+  });
+
+  await t('⑧-4 이어받기를 서버가 확인해 주지 않으면 STEP 2 에 남아 다시 고르게 한다', async () => {
+    const srv = makeServer([base({ matchType: 'Competitive', parForced: true, status: 'completed', sets: [{ a: 6, b: 1 }] })]);
+    const tab = makeTablet(srv, []);
+    tab.done(JSON.parse(JSON.stringify(srv.db.get('M1'))), LG);
+    srv.echoWrong = true;
+    await tab.replayDifferentPair();
+    const s = tab.get();
+    assert(s.curStep === 2, '확인 없이 팀 화면으로 갔다: ' + s.curStep);
+    const html = tab.ctx.els['par-step'].innerHTML;
+    assert(html.includes('이어받지 못했어요'), '실패 안내가 없다');
   });
 
   await t('⑨ 팀 화면에서 뒤로 — 점수 전이면 STEP 2(PAR)로, 거기서 뒤로 — 목록', async () => {
@@ -276,10 +308,10 @@ const curBtn = (html) => (/class="par-opt (on|off) current"/.exec(html) || [])[1
     assert(!body('selectMatch').includes('doAssignTeams'), '매치를 고르자마자 팀을 뽑는다');
   });
 
-  await t('빌드 배지 c12 · BUILD · SW v46 같이', () => {
+  await t('빌드 배지 c13 · BUILD · SW v47 같이', () => {
     const sw = fs.readFileSync(path.join(__dirname, '..', 'ps_court', 'ps_court_sw.js'), 'utf8');
-    assert(src.includes('<!--COURTBUILD:c12-->') && src.includes('var BUILD = "c12";') && src.includes('>앱 c12</div>'), '배지');
-    assert(sw.includes("const CACHE = 'ps-court-v46';"), 'SW');
+    assert(src.includes('<!--COURTBUILD:c13-->') && src.includes('var BUILD = "c13";') && src.includes('>앱 c13</div>'), '배지');
+    assert(sw.includes("const CACHE = 'ps-court-v47';"), 'SW');
   });
 
   console.log(fails ? `\n실패 ${fails}건\n` : '\n전부 통과\n');
