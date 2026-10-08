@@ -142,5 +142,41 @@ c = OBSController({'obs': {}}); c.client = cl
 c.start_stream()
 check(cl.start_requests == 1 and cl.active, '꺼져 있으면 시작한다')
 
+print('\n[6] 연결이 **있는데 죽어 있으면** 버리고 새로 붙어 끈다(검토 2026-10-08)')
+
+
+class DeadClient:
+    def __init__(self): self.calls = 0
+    def get_stream_status(self):
+        self.calls += 1
+        raise ConnectionError('socket dead')
+    def stop_stream(self): raise ConnectionError('socket dead')
+    def disconnect(self): pass
+
+
+obs_controller.time.sleep = lambda s: None
+fresh = FakeClient(active=True, lag=1)
+ws = FakeWS(fresh); with_ws(ws)
+c = OBSController({'obs': {}})
+dead = DeadClient()
+c.client = dead
+ok = c.stop_stream(timeout=5)
+check(dead.calls >= 1 and ws.made == 1, '죽은 연결에서 던지면 한 번 새로 붙는다')
+check(fresh.stop_requests == 1 and ok is True and fresh.active is False, '새 연결로 끄기를 보내고 멈춘 걸 확인한다')
+
+print('\n[7] is_streaming — 죽은 연결이면 새로 붙어 한 번 더 묻는다(바로 아니오 라고 하지 않는다)')
+live = FakeClient(active=True)
+ws = FakeWS(live); with_ws(ws)
+c = OBSController({'obs': {}})
+c.client = DeadClient()
+check(c.is_streaming() is True and ws.made == 1, '새 연결로 다시 물어 송출 중이라고 답한다')
+
+print('\n[8] wait_until_stopped — 죽은 연결로 시간을 다 쓰지 않고 새로 붙어 확인한다')
+quiet = FakeClient(active=False)
+ws = FakeWS(quiet); with_ws(ws)
+c = OBSController({'obs': {}})
+c.client = DeadClient()
+check(c.wait_until_stopped(timeout=5) is True and ws.made == 1, '새 연결로 꺼진 걸 확인한다')
+
 print('\n' + ('전부 통과' if not fails else f'실패 {len(fails)}건'))
 sys.exit(1 if fails else 0)

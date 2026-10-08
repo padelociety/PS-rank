@@ -40,7 +40,8 @@ t('옛 서버(voided 없음)면 직접 붙이라고 말한다', () => {
 });
 
 t('방송 시작 때 이 매치의 영상 주소를 기억한다', () => {
-  if (!src.includes('streamOfSet(selectedMatch._id, data.watch_url)')) throw new Error('저장 없음');
+  // c14: 켜기를 시작한 그 매치 id 로(켜는 사이 화면이 바뀌어도 그 경기 영상으로 남는다)
+  if (!src.includes('streamOfSet(startedFor, data.watch_url)')) throw new Error('저장 없음');
 });
 
 t('스코어 화면 취소(예정으로 되돌리기)는 [무효] 를 붙이지 않는다 — 다시 칠 경기다', () => {

@@ -111,7 +111,7 @@ function makeTablet(srv, rows, opts = {}) {
     function renderScoreSection() {}
     async function ensureMatchNumber() { return 1; }
     function pushToFirebase() {} function startStream() {} function hideScoreboard() {}
-    let _streamActive = false; var _stopping = null; function stopStream(o) { (ctx.stops = ctx.stops || []).push(o); }
+    let _streamActive = false; var _stopping = null; var _starting = null; function stopStream(o) { (ctx.stops = ctx.stops || []).push(o); }
     ${FNS.map(body).join('\n')}
     return {
       selectMatch, chooseParApply, replayDifferentPair, goToScore, goBack, goParStep,

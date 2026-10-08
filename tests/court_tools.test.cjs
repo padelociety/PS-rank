@@ -41,6 +41,7 @@ const body = (name) => {
     const fetch = ctx.fetch, psFetch = ctx.psFetch;
     function _hideWatchBtn() {} function _updateStreamStatus() {} function showToast() {} function checkStreamServer() {}
     ${src.match(/var _stopping = null;[^\n]*/)[0]}
+    ${src.match(/var _starting = null;[^\n]*/)[0]}
     ${body('stopStream')}
     ${body('_stopStreamOnce')}
     return { stopStream, nullLeague: () => { selectedLeague = null; } };
@@ -85,6 +86,7 @@ const body = (name) => {
       const localStorage = ctx.localStorage, setTimeout = (fn) => fn();
       function _hideWatchBtn() {} function _updateStreamStatus() {} function showToast(m) { ctx.toasts.push(m); } function checkStreamServer() {}
       ${src.match(/var _stopping = null;[^\n]*/)[0]}
+    ${src.match(/var _starting = null;[^\n]*/)[0]}
       ${body('stopStream')}
       ${body('_stopStreamOnce')}
       ${body('voidStreamOf')}

@@ -245,22 +245,31 @@ class OBSController:
            사이에 경기가 끝나면 OBS 는 지난 방송 키로 계속 내보내고 서버는 '껐다' 고 믿었다.
            그래서 연결이 없으면 붙여서 끄고, 송출이 실제로 멈출 때까지 기다린다(StopStream 은 요청만
            받고 돌아온다 — 바로 다음 순간엔 아직 송출 중이다)."""
+        # ⚠️ 연결이 **있는데 죽어 있으면**(소켓 끊김·응답 꼬임) 요청이 던진다 — 그때는 연결을 버리고 새로 붙어
+        #    한 번 더 보낸다(2026-10-08 검토). 비어 있는지만 보면 죽은 연결로 끄기를 못 보내고 OBS 는 계속 송출한다.
+        sent = False
         with self._lock:
-            if not self.client:
+            for attempt in range(2):
+                if not self.client:
+                    try:
+                        self.connect(retries=2, delay=1.0)
+                    except Exception as e:
+                        logger.error(f"❌ OBS 에 붙지 못해 송출을 끄지 못했어요: {e}")
+                        return False
                 try:
-                    self.connect(retries=2, delay=1.0)
+                    status = self.client.get_stream_status()
+                    if not status.output_active:
+                        logger.info("스트리밍이 이미 종료됐어요.")
+                        return True
+                    self.client.stop_stream()
+                    logger.info("⏹️  OBS 스트리밍 종료 요청")
+                    sent = True
+                    break
                 except Exception as e:
-                    logger.error(f"❌ OBS 에 붙지 못해 송출을 끄지 못했어요: {e}")
-                    return False
-            try:
-                status = self.client.get_stream_status()
-                if not status.output_active:
-                    logger.info("스트리밍이 이미 종료됐어요.")
-                    return True
-                self.client.stop_stream()
-                logger.info("⏹️  OBS 스트리밍 종료 요청")
-            except Exception as e:
-                logger.warning(f"스트리밍 종료 중 오류: {e}")
+                    logger.warning(f"스트리밍 종료 중 오류 — 다시 붙어서 한 번 더: {e}")
+                    self.disconnect()
+        if not sent:
+            logger.error("❌ OBS 에 끄기를 보내지 못했어요")
         stopped = self.wait_until_stopped(timeout)
         if stopped:
             logger.info("⏹️  OBS 스트리밍 종료됨")
@@ -284,23 +293,28 @@ class OBSController:
                     if self.client and not self.client.get_stream_status().output_active:
                         return True
                 except Exception:
-                    pass
+                    # 죽은 연결로 계속 물으면 시간만 간다 — 버리고 다음 바퀴에 새로 붙는다.
+                    self.disconnect()
             if time.time() >= deadline:
                 return False
             time.sleep(0.4)
 
     def is_streaming(self) -> bool:
-        """현재 스트리밍 중인지 확인합니다. 연결이 없으면 한 번 붙여보고 판단."""
+        """현재 스트리밍 중인지 확인합니다. 연결이 없으면 한 번 붙여보고 판단.
+        ⚠️ 연결이 죽어 있어 물음이 던지면 버리고 새로 붙어 **한 번 더** 묻는다 — 바로 '아니오' 라고 하면 송출 중인
+           방송을 '주인 없는 상태' 로 보고 정리해 버린다(2026-10-08 검토)."""
         with self._lock:
-            if not self.client:
+            for attempt in range(2):
+                if not self.client:
+                    try:
+                        self.connect(retries=1, delay=0)
+                    except Exception:
+                        return False
                 try:
-                    self.connect(retries=1, delay=0)
+                    return bool(self.client.get_stream_status().output_active)
                 except Exception:
-                    return False
-            try:
-                return self.client.get_stream_status().output_active
-            except Exception:
-                return False
+                    self.disconnect()
+            return False
 
     def wait_until_streaming(self, timeout: float = 8.0) -> bool:
         """OBS가 '실제로' 송출을 시작했는지 확인.

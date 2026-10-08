@@ -22,6 +22,7 @@ import signal
 import socket
 import sys
 import tempfile
+import itertools
 import threading
 import time
 import urllib.request
@@ -258,6 +259,8 @@ def build_title_and_desc(team_a: list, team_b: list, league: str,
 # 정해 두면 사람들이 집에 간 뒤에도 빈 코트가 몇 시간씩 방송된다(유튜브에 그대로 남는다).
 FREE_LIVE_MINUTES = (90, 120, 180)
 
+_thumb_seq = itertools.count(1)   # 썸네일 임시 파일 순번(push_thumbnail)
+
 
 def push_thumbnail(broadcast_id: str, roster_a: list, roster_b: list, *,
                    league='', category='', match_number=0, free=False):
@@ -283,13 +286,16 @@ def push_thumbnail(broadcast_id: str, roster_a: list, roster_b: list, *,
         #    (자유 라이브 → 리그 경기 넘겨받기) 앞 스레드가 아직 쓰는 파일을 뒤 스레드가
         #    덮어써서, 엉뚱한 경기 얼굴이 올라간다.
         safe = ''.join(ch for ch in str(broadcast_id) if ch.isalnum() or ch in '-_')[:40]
+        # 같은 방송의 썸네일을 두 스레드가 만들 수 있다(첫 썸네일이 아직 도는데 같은 경기를 이어 쓰며 팀이 바뀜) —
+        # 파일 이름에 순번을 붙여 서로 덮어쓰지 않게 한다.
+        safe = f"{safe or 'live'}_{next(_thumb_seq)}"
         path = thumbnail.build(
             roster_a, roster_b,
             league=shorten_league(league) if league else ('' if free else 'PS i-League'),
             category=category, match_number=match_number,
             footer=thumbnail.FOOTER_FREE if free else thumbnail.FOOTER_LEAGUE,
             date_str=datetime.now().strftime('%Y.%m.%d'),
-            out_path=os.path.join(tempfile.gettempdir(), f'ps_thumb_{safe or "live"}.jpg'),
+            out_path=os.path.join(tempfile.gettempdir(), f'ps_thumb_{safe}.jpg'),
         )
         if path:
             youtube.set_thumbnail(broadcast_id, path)
@@ -397,20 +403,6 @@ def _ensure_obs_idle():
         )
 
 
-def _end_broadcast_later(broadcast_id: str, why: str):
-    """주인 잃은 유튜브 방송을 뒤에서 닫는다(태블릿 응답을 붙잡지 않는다). 실패해도 enableAutoStop 이
-    송출이 끊긴 방송을 결국 닫는다 — 이건 보험이다."""
-    if not broadcast_id:
-        return
-    def run():
-        try:
-            youtube.end_broadcast(broadcast_id)
-            logger.info(f"↩️ 남아 있던 방송 정리 ({why}): {broadcast_id}")
-        except Exception as e:
-            logger.warning(f"남아 있던 방송 정리 실패(무시 — 자동 종료에 맡김): {e}")
-    threading.Thread(target=run, daemon=True, name='end-broadcast').start()
-
-
 def _refresh_live_meta(broadcast_id: str, title: str, description: str, *, retitle: bool,
                        rethumb: bool, roster_a: list, roster_b: list, league: str,
                        category: str, match_number: int):
@@ -503,7 +495,10 @@ def _start_stream_locked(mode, team_a, team_b, league, category, match_number,
             logger.warning(f"⚠️ 이전 스트리밍 상태가 남아 있는데 OBS는 송출 중이 아님 — 정리하고 새로 시작 ({cur.get('watch_url') or stale})")
             with state_lock:
                 _clear_state_locked()
-            _end_broadcast_later(stale, '상태만 남은 방송')
+            # 주인 잃은 유튜브 방송은 **여기서(잠금 안에서) 바로** 닫는다 — 뒤 스레드로 돌리면 바로 다음 방송 만들기와
+            # 같은 유튜브 연결을 동시에 써서 만들기가 실패했다(2026-10-08 검토). 실패해도 던지지 않는다(자동 종료가 보험).
+            if stale and youtube.end_broadcast(stale):
+                logger.info(f"↩️ 남아 있던 방송 정리: {stale}")
 
     if takeover:
         if mode == 'league' and (cur.get('mode') or 'league') == 'free':
