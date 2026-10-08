@@ -1872,8 +1872,13 @@ async function cancelMatch() {
 //    (조용히 넘어가면 그 영상이 정식 경기로 남는다).
 async function voidStreamOf(matchId) {
   let data = null;
-  const liveNow = !!(_streamActive || _stopping);
-  const wasLive = liveNow || _starts.some((s) => s.matchId === String(matchId));
+  // 지금 방송·끄는 중이 **이 경기**의 것인가 — 다른 경기 것이면 이 경기는 방송한 적이 없을 수 있다(검토 3차: 저장 →
+  // 다시하기 → 앞 경기를 끄는 사이 [매치 취소] 에 '[무효] 직접 붙여 주세요' 가 떠, 방금 끝난 정상 경기 영상에
+  // [무효] 를 붙일 뻔했다). 경기를 모르는 방송(옛 서버·옛 태블릿이 켠 것)은 이 경기 것일 수 있다고 본다.
+  const id = String(matchId);
+  const liveNow = !!(_streamActive && _liveMode !== 'free' && (!_liveMatchId || _liveMatchId === id))
+    || !!(_stopping && (!_stoppingFor || _stoppingFor === id));
+  const wasLive = liveNow || _starts.some((s) => s.matchId === id);
   if (wasLive) {
     // 매치 id 를 같이 보낸다 — 지금 방송이 **다른** 경기면(다음 경기가 넘겨받았다) 서버가 그대로 둔다(skipped).
     data = await stopStream({ void: true, matchId });
@@ -2420,6 +2425,7 @@ async function _startStreamOnce(forMatch, startedFor, rec) {
 // ⚠️ 2026-10-05: 끄는 중에 또 부르면 같은 약속을 돌려준다 — [매치 취소] 는 voidStreamOf(void) 를
 //    던져 놓고 곧바로 resetAll() 이 stopStream() 을 또 불러 /stop-stream 이 두 번 나갔다.
 var _stopping = null;   // var — 선언 줄보다 먼저 불려도 TDZ 로 죽지 않게
+var _stoppingFor = '';  // 끄는 중인 경기 id — '' 면 경기를 안 정한 끄기(무엇이든 끈다)
 async function stopStream(opts) {
   // 켜는 중이면 다 켜진 뒤에 끈다(같은 매치거나 매치를 안 정한 끄기일 때). 다른 매치 끄기는 기다리지 않는다 —
   // 서버가 '다른 경기' 로 보고 그대로 둔다.
@@ -2437,10 +2443,17 @@ async function stopStream(opts) {
     // ⚠️ 보내지 않고 끝난 켜기(서버 꺼짐·떠남)는 세지 않는다 — 세면 그 끄기만 버려져 방송이 남았다(검토 2차).
     if (_startSeq !== seq) return null;
   }
-  if (_stopping) return _stopping;
+  // 끄는 중이면 — 같은 경기(또는 경기를 안 정한 끄기)면 그 약속을 돌려준다(한 번만 보낸다). **다른** 경기의 끄기면
+  // 끝나길 기다렸다 다시 본다 — 얹혀 돌려받으면 서버가 그 끄기를 '다른 경기'(skipped)로 답해 이 경기 방송이
+  // 남았다(검토 3차: Z 를 켜는 중 목록 → A 시작 → A 켜는 중 [취소] — 팀 화면인데 A 방송이 계속 나갔다).
+  while (_stopping) {
+    if (!mid || !_stoppingFor || _stoppingFor === mid) return _stopping;
+    try { await _stopping; } catch (_) {}
+  }
   if (!_streamActive) return null;
   _stopping = _stopStreamOnce(opts);
-  try { return await _stopping; } finally { _stopping = null; }
+  _stoppingFor = mid;
+  try { return await _stopping; } finally { _stopping = null; _stoppingFor = ''; }
 }
 async function _stopStreamOnce(opts) {
   const voidIt = !!(opts && opts.void);

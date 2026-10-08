@@ -46,6 +46,7 @@ function tablet(ctx) {
     function checkStreamServer() { ctx.healthChecks = (ctx.healthChecks || 0) + 1; }
     const document = { getElementById: (id) => (ctx.els[id] = ctx.els[id] || { textContent: '', style: {} }) };
     ${src.match(/var _stopping = null;[^\n]*/)[0]}
+    ${src.match(/var _stoppingFor = '';[^\n]*/)[0]}
     ${src.match(/var _starts = \[\];[^\n]*/)[0]}
     ${src.match(/var _starting = null;[^\n]*/)[0]}
     ${src.match(/var _startSeq = 0;[^\n]*/)[0]}
@@ -54,7 +55,7 @@ function tablet(ctx) {
     return {
       startStream, stopStream, voidStreamOf, streamOfGet, streamOfSet, streamOfDel, _updateStreamStatus,
       get: () => ({ _streamActive, _liveMatchId, _liveMatchNum, _liveMode, starting: _starting, starts: _starts }),
-      setLive: (num, mode) => { _liveMatchNum = num; _liveMode = mode; },
+      setLive: (num, mode, id) => { _liveMatchNum = num; _liveMode = mode; if (id !== undefined) _liveMatchId = id; },
       leave: () => { selectedMatch = null; },
       swap: (m) => { selectedMatch = m; },
       setOnline: (v) => { _streamServerOnline = v; },
@@ -451,6 +452,71 @@ const mkCtx = (over) => {
     const b = body('voidStreamOf');
     const i = b.indexOf('/void-video');
     if (i < 0 || !/signal: AbortSignal\.timeout\(60000\)/.test(b.slice(i))) throw new Error('/void-video 60초');
+  });
+
+  await t('⑪ 다른 경기 끄기가 도는 중의 [취소] — 거기 얹히지 않고 끝나길 기다렸다 이 경기 방송을 끈다 (검토 3차 S21)', async () => {
+    const releases = [];
+    const ctx = mkCtx({ active: true, match: { _id: 'mA' } });
+    ctx.fetch = (url, o) => {
+      ctx.calls.push([url.replace('http://obs', ''), o.body]);
+      if (url.endsWith('/stop-stream')) {
+        const skipped = /"matchId":"mZ"/.test(o.body);
+        return new Promise((r) => releases.push(() => r({ json: async () => (skipped ? { success: true, skipped: true } : { success: true }) })));
+      }
+      return Promise.resolve({ json: async () => ({ success: true }) });
+    };
+    const tab = tablet(ctx);
+    tab.setLive(0, 'league');
+    const pZ = tab.stopStream({ matchId: 'mZ' });       // 떠난 경기 Z 의 자동 끄기 — 서버는 A 방송이라 skipped
+    const pA = tab.stopStream({ matchId: 'mA' });       // A [취소]
+    await new Promise((r) => setImmediate(r));
+    releases.shift()();
+    for (let i = 0; i < 5 && !releases.length; i++) await new Promise((r) => setImmediate(r));
+    if (!releases.length) throw new Error('A 의 끄기를 보내지 않았다(Z 의 답을 돌려받았다): ' + JSON.stringify(ctx.calls.map((c) => c[1])));
+    releases.shift()();
+    await Promise.all([pZ, pA]);
+    const stops = ctx.calls.filter((c) => c[0] === '/stop-stream').map((c) => JSON.parse(c[1]).matchId);
+    if (stops.join(',') !== 'mZ,mA') throw new Error('끄기: ' + stops.join(','));
+    if (tab.get()._streamActive) throw new Error('A 방송 표시가 남았다');
+  });
+
+  await t('⑪ 같은 경기 끄기가 도는 중이면 한 번만 보낸다(같은 약속) — [매치 취소] 의 void 뒤 resetAll', async () => {
+    let release;
+    const ctx = mkCtx({ active: true, match: { _id: 'mA' } });
+    ctx.fetch = (url, o) => { ctx.calls.push([url, o.body]); return new Promise((r) => { release = () => r({ json: async () => ({ success: true, voided: 'vA' }) }); }); };
+    const tab = tablet(ctx);
+    const p1 = tab.stopStream({ void: true, matchId: 'mA' });
+    const p2 = tab.stopStream({ matchId: 'mA' });
+    await new Promise((r) => setImmediate(r));
+    release();
+    const [d1, d2] = await Promise.all([p1, p2]);
+    if (ctx.calls.length !== 1) throw new Error('/stop-stream ' + ctx.calls.length + '번');
+    if (d1 !== d2) throw new Error('같은 약속이 아니다');
+  });
+
+  await t('⑪ 저장 → 다시하기 → 앞 경기를 끄는 사이 [매치 취소] — 방송한 적 없는 경기라 [무효] 안내 없음 (검토 3차 S8)', async () => {
+    let releaseStop;
+    const ctx = mkCtx({ active: true, match: { _id: 'm39' } });
+    ctx.fetch = (url, o) => {
+      ctx.calls.push([url.replace('http://obs', ''), o.body]);
+      if (url.endsWith('/stop-stream')) return new Promise((r) => { releaseStop = () => r({ json: async () => ({ success: true }) }); });
+      return Promise.resolve({ json: async () => ({ success: true, watch_url: 'https://youtu.be/v40' }) });
+    };
+    const tab = tablet(ctx);
+    tab.setLive(39, 'league', 'm39');                  // 지금 방송은 m39(태블릿이 켰다)
+    tab.streamOfSet('m39', 'https://youtu.be/v39');
+    const pStop = tab.stopStream({ matchId: 'm39' });  // showDone
+    tab.swap({ _id: 'm40' });                          // 다른 페어로 다시하기
+    const pStart = tab.startStream();                  // m40 — 앞 끄기를 기다린다
+    const pVoid = tab.voidStreamOf('m40');             // [매치 취소]
+    tab.leave();
+    releaseStop();
+    await Promise.all([pStop, pStart, pVoid]);
+    ctx.timers.forEach((fn) => fn());
+    const order = ctx.calls.map((c) => c[0]);
+    if (order.join(',') !== '/stop-stream') throw new Error('보낸 것: ' + order.join(','));
+    if (ctx.toasts.some((m) => /무효/.test(m))) throw new Error('[무효] 안내를 띄웠다: ' + JSON.stringify(ctx.toasts));
+    if (tab.streamOfGet('m39') !== 'https://youtu.be/v39') throw new Error('앞 경기 영상 주소를 건드렸다');
   });
 
   await t('페이지 스크립트 전체가 문법 오류 없이 뜬다(떼어 낸 함수만 보면 다른 자리 오류를 놓친다)', () => {
