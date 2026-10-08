@@ -22,6 +22,7 @@ import signal
 import socket
 import sys
 import tempfile
+import itertools
 import threading
 import time
 import urllib.request
@@ -155,9 +156,21 @@ stream_state: dict = {
     'team_b': [],
     'league': '',
     'title': '',
+    # 어느 리그 매치의 방송인가 — 다음 매치가 오면 넘겨받고, 같은 매치면 이어 쓴다(2026-10-08).
+    'match_id': '',
+    'match_number': 0,
+    'category': '',
     'error': None,
 }
 state_lock = threading.Lock()
+
+# ⚠️ 방송을 켜고 끄는 일(/start-stream · /stop-stream · /void-video · 자유 라이브 워치독)은 **한 번에 하나**.
+#    2026-10-08: 경기 저장(끄기)이 OBS·유튜브를 정리하는 몇 초 사이에 '다른 페어로 다시하기' 의 켜기가
+#    끼어들면, 켜기가 새로 세운 상태를 끄기의 마지막 정리가 지웠다 — 서버는 '방송 없음' 이라 믿고 OBS 는
+#    그 방송으로 계속 내보냈다. 그 뒤로는 끄기가 아무 일도 안 해서 지난 경기 제목 방송에 다음 경기가
+#    이어 나갔다. RLock — 켜기가 넘겨받으며 끄기를 부른다. 상태 읽기(/health · /highlight)는 이 잠금을
+#    안 쓴다(state_lock 만) — 켜는 동안에도 태블릿 상태 표시는 그대로 돈다.
+stream_op_lock = threading.RLock()
 
 
 def _clear_state_locked():
@@ -174,6 +187,9 @@ def _clear_state_locked():
         'team_b': [],
         'league': '',
         'title': '',
+        'match_id': '',
+        'match_number': 0,
+        'category': '',
         'error': None,
     })
 
@@ -243,6 +259,8 @@ def build_title_and_desc(team_a: list, team_b: list, league: str,
 # 정해 두면 사람들이 집에 간 뒤에도 빈 코트가 몇 시간씩 방송된다(유튜브에 그대로 남는다).
 FREE_LIVE_MINUTES = (90, 120, 180)
 
+_thumb_seq = itertools.count(1)   # 썸네일 임시 파일 순번(push_thumbnail)
+
 
 def push_thumbnail(broadcast_id: str, roster_a: list, roster_b: list, *,
                    league='', category='', match_number=0, free=False):
@@ -268,13 +286,16 @@ def push_thumbnail(broadcast_id: str, roster_a: list, roster_b: list, *,
         #    (자유 라이브 → 리그 경기 넘겨받기) 앞 스레드가 아직 쓰는 파일을 뒤 스레드가
         #    덮어써서, 엉뚱한 경기 얼굴이 올라간다.
         safe = ''.join(ch for ch in str(broadcast_id) if ch.isalnum() or ch in '-_')[:40]
+        # 같은 방송의 썸네일을 두 스레드가 만들 수 있다(첫 썸네일이 아직 도는데 같은 경기를 이어 쓰며 팀이 바뀜) —
+        # 파일 이름에 순번을 붙여 서로 덮어쓰지 않게 한다.
+        safe = f"{safe or 'live'}_{next(_thumb_seq)}"
         path = thumbnail.build(
             roster_a, roster_b,
             league=shorten_league(league) if league else ('' if free else 'PS i-League'),
             category=category, match_number=match_number,
             footer=thumbnail.FOOTER_FREE if free else thumbnail.FOOTER_LEAGUE,
             date_str=datetime.now().strftime('%Y.%m.%d'),
-            out_path=os.path.join(tempfile.gettempdir(), f'ps_thumb_{safe or "live"}.jpg'),
+            out_path=os.path.join(tempfile.gettempdir(), f'ps_thumb_{safe}.jpg'),
         )
         if path:
             youtube.set_thumbnail(broadcast_id, path)
@@ -338,17 +359,80 @@ def health():
         'duration_minutes': st.get('duration_minutes') or 0,
         'team_a': st.get('team_a') or [],
         'team_b': st.get('team_b') or [],
+        # 어느 리그 매치의 방송인가 — 태블릿 상태 줄이 'LIVE · Match 39' 로 그린다(엉뚱한 경기 제목이면 보인다).
+        'match_id': st.get('match_id') or '',
+        'match_number': st.get('match_number') or 0,
         # 소리 싱크(OBS 연결 때마다 넣는 값) — 원격에서 맞춰졌는지 본다. config 에 없으면 target_ms: null.
         'audio_sync': getattr(obs, 'audio_sync_status', None),
     })
+
+
+def _same_match(cur: dict, match_id: str, league: str, match_number: int,
+                team_a: list, team_b: list) -> bool:
+    """지금 방송(cur)이 이 리그 매치의 방송인가.
+
+    태블릿(c14~)은 매치 id 를 보낸다 — 둘 다 있으면 그것만 본다. 옛 태블릿(캐시된 c13 이하)은 id 가
+    없으니 리그 + 번호로, 번호도 없으면 리그 + 네 사람으로 본다(팀을 다시 뽑아도 같은 네 명이다)."""
+    cur_id = str(cur.get('match_id') or '')
+    if match_id and cur_id:
+        return match_id == cur_id
+    if (cur.get('league') or '') != (league or ''):
+        return False
+    cur_no = int(cur.get('match_number') or 0)
+    if match_number > 0 and cur_no > 0:
+        return match_number == cur_no
+    people = sorted(list(cur.get('team_a') or []) + list(cur.get('team_b') or []))
+    return bool(people) and people == sorted(list(team_a) + list(team_b))
+
+
+def _ensure_obs_idle():
+    """새 방송 키를 넣기 **전에** OBS 가 아무것도 내보내지 않게 한다. 내보내고 있으면 끄고, 못 끄면 던진다.
+
+    ⚠️ 2026-10-08 (26S3 — Match39 제목·썸네일 방송에 Match 41 이 나갔다): 서버는 '방송 없음' 이라
+       믿는데 OBS 가 지난 방송 키로 계속 내보내는 때가 있었다(끄기 직전 연결이 끊겨 OBS 를 못 껐거나,
+       끄기와 켜기가 겹쳐 상태가 지워졌다). 그때 켜기는 새 키를 넣고 '이미 스트리밍 중' 에 붙어 성공이라
+       답했다 — 새 키는 송출을 다시 시작해야 먹으므로 **영상은 계속 지난 방송으로** 갔다.
+       유튜브 방송을 만들기 전에 부른다 — 여기서 실패하면 빈 방송이 남지 않는다."""
+    if not obs.is_streaming():
+        return
+    logger.warning("⚠️ 서버엔 방송이 없는데 OBS 가 송출 중 — 지난 방송 키일 수 있어 먼저 끕니다")
+    if not obs.stop_stream():
+        raise RuntimeError(
+            "OBS 가 이전 방송을 계속 내보내고 있어 새 방송을 열지 못했어요. "
+            "OBS 에서 [방송 중단] 을 누른 뒤 다시 시작해 주세요."
+        )
+
+
+def _refresh_live_meta(broadcast_id: str, title: str, description: str, *, retitle: bool,
+                       rethumb: bool, roster_a: list, roster_b: list, league: str,
+                       category: str, match_number: int):
+    """같은 매치를 이어 쓰는데 제목(번호·부문)이나 팀이 바뀌었으면 그 방송의 제목·설명·썸네일을 고친다.
+    뒤에서 돈다 — 태블릿은 기다리지 않는다. 실패해도 방송은 그대로다."""
+    def run():
+        try:
+            if retitle:
+                youtube.update_snippet(broadcast_id, title, description)
+            if rethumb:
+                push_thumbnail(broadcast_id, roster_a, roster_b, league=league,
+                               category=category, match_number=match_number)
+        except Exception as e:
+            logger.warning(f"⚠️ 이어 쓰는 방송 정보 갱신 실패(방송은 그대로): {e}")
+    threading.Thread(target=run, daemon=True, name='live-meta').start()
 
 
 @app.route('/start-stream', methods=['POST'])
 def start_stream():
     """
     스트리밍 시작
-    Body(리그):     { "teamA": [...], "teamB": [...], "league": "...", "category": "...", "matchNumber": n }
+    Body(리그):     { "teamA": [...], "teamB": [...], "league": "...", "category": "...", "matchNumber": n,
+                      "matchId": "..."(c14~) }
     Body(자유 라이브): { "mode": "free", "durationMinutes": 90|120|180, "teamA": [...](선택), "teamB": [...](선택) }
+
+    리그 방송 중에 리그 경기가 또 오면(2026-10-08):
+      · **같은 매치**(태블릿을 다시 열어 이어서 하기 · 두 번 누름) → 그 방송을 그대로 쓴다(reused).
+        팀·번호가 바뀌었으면 제목·설명·썸네일만 고친다.
+      · **다른 매치** → 지난 방송을 끝내고 새 방송을 연다. 예전엔 409 로 거절해서, 지난 경기 방송이
+        그대로 남아 다음 경기가 지난 경기 제목·썸네일로 나갔다.
     """
     data = request.get_json(silent=True) or {}
     mode = 'free' if (data.get('mode') == 'free') else 'league'
@@ -357,6 +441,7 @@ def start_stream():
     league = data.get('league', '')
     category = data.get('category', '')
     match_number = int(data.get('matchNumber', 0) or 0)
+    match_id = str(data.get('matchId') or '').strip()[:64] if mode == 'league' else ''
     minutes = int(data.get('durationMinutes', 0) or 0)
     # 썸네일용 선수 상세 — 있으면 사진·등급까지 그린다. 없으면 이름만 (구버전 태블릿).
     roster_a = merge_roster(team_a, data.get('rosterA'))
@@ -368,39 +453,60 @@ def start_stream():
     if mode == 'free' and minutes not in FREE_LIVE_MINUTES:
         return jsonify({'success': False, 'error': f'방송 시간은 {"/".join(str(m) for m in FREE_LIVE_MINUTES)}분 중에서 골라주세요'}), 400
 
-    takeover = False
+    with stream_op_lock:
+        return _start_stream_locked(mode, team_a, team_b, league, category, match_number,
+                                    match_id, minutes, roster_a, roster_b)
+
+
+def _start_stream_locked(mode, team_a, team_b, league, category, match_number,
+                         match_id, minutes, roster_a, roster_b):
+    """/start-stream 의 본체 — stream_op_lock 을 쥔 채로 돈다(끄기·다른 켜기와 겹치지 않는다)."""
+    takeover = ''
     with state_lock:
-        if stream_state['active']:
-            # 정말 송출 중인지 OBS에 물어본다. OBS가 재시작되거나 송출이 끊겨도 이
-            # 플래그는 True로 남고, 그 뒤 모든 방송 요청이 409로 막힌다 — 실제로
-            # 3시간 동안 그랬고, 사람이 /stop-stream을 눌러야만 풀렸다.
-            # 송출 중이 아니면 죽은 상태로 보고 정리한 뒤 새로 시작한다.
-            if obs.is_streaming():
-                cur_mode = stream_state.get('mode') or 'league'
-                if cur_mode == 'free' and mode == 'league':
-                    # 리그 경기가 우선이다 — 자유 라이브가 켜져 있으면 끄고 리그 방송을 연다.
-                    # (안 그러면 코트에 온 리그 4명이 '이미 스트리밍 중' 에 막혀 점수판만 켠다.)
-                    takeover = True
-                elif cur_mode == 'free':
+        cur = dict(stream_state)
+    if cur['active']:
+        # 정말 송출 중인지 OBS에 물어본다. OBS가 재시작되거나 송출이 끊겨도 이
+        # 플래그는 True로 남고, 그 뒤 모든 방송 요청이 409로 막힌다 — 실제로
+        # 3시간 동안 그랬고, 사람이 /stop-stream을 눌러야만 풀렸다.
+        # 송출 중이 아니면 죽은 상태로 보고 정리한 뒤 새로 시작한다.
+        # (OBS 질문은 state_lock 밖에서 — 켜기·끄기는 stream_op_lock 으로 이미 한 줄이다.)
+        if obs.is_streaming():
+            cur_mode = cur.get('mode') or 'league'
+            if cur_mode == 'free' and mode == 'league':
+                # 리그 경기가 우선이다 — 자유 라이브가 켜져 있으면 끄고 리그 방송을 연다.
+                # (안 그러면 코트에 온 리그 4명이 '이미 스트리밍 중' 에 막혀 점수판만 켠다.)
+                takeover = '리그 경기로 전환'
+            elif cur_mode == 'free':
+                with state_lock:
                     left = _minutes_left_locked()
-                    return jsonify({'success': False,
-                                    'error': f'자유 라이브가 진행 중이에요 ({left}분 남음) — 먼저 종료해주세요'}), 409
-                else:
-                    return jsonify({'success': False, 'error': '리그 경기 방송 중이에요'}), 409
+                return jsonify({'success': False,
+                                'error': f'자유 라이브가 진행 중이에요 ({left}분 남음) — 먼저 종료해주세요'}), 409
+            elif mode == 'free':
+                return jsonify({'success': False, 'error': '리그 경기 방송 중이에요'}), 409
+            elif _same_match(cur, match_id, league, match_number, team_a, team_b):
+                return _reuse_league_stream(cur, team_a, team_b, league, category, match_number,
+                                            match_id, roster_a, roster_b)
             else:
-                stale = stream_state.get('watch_url') or stream_state.get('broadcast_id') or ''
-                logger.warning(f"⚠️ 이전 스트리밍 상태가 남아 있는데 OBS는 송출 중이 아님 — 정리하고 새로 시작 ({stale})")
+                takeover = '다음 경기로 전환'
+                logger.info(f"🔁 다른 리그 매치가 시작됨 — 진행 중이던 방송을 끝내고 새로 엽니다 "
+                            f"({cur.get('title') or cur.get('broadcast_id')} → Match{match_number or '?'})")
+        else:
+            stale = cur.get('broadcast_id') or ''
+            logger.warning(f"⚠️ 이전 스트리밍 상태가 남아 있는데 OBS는 송출 중이 아님 — 정리하고 새로 시작 ({cur.get('watch_url') or stale})")
+            with state_lock:
                 _clear_state_locked()
-        if not takeover:
-            stream_state['active'] = True  # 먼저 잠금 — 동시 요청 방지
+            # 주인 잃은 유튜브 방송은 **여기서(잠금 안에서) 바로** 닫는다 — 뒤 스레드로 돌리면 바로 다음 방송 만들기와
+            # 같은 유튜브 연결을 동시에 써서 만들기가 실패했다(2026-10-08 검토). 실패해도 던지지 않는다(자동 종료가 보험).
+            if stale and youtube.end_broadcast(stale):
+                logger.info(f"↩️ 남아 있던 방송 정리: {stale}")
 
     if takeover:
-        logger.info("🔁 리그 경기 시작 — 진행 중이던 자유 라이브를 먼저 끕니다")
-        _stop_stream_impl('리그 경기로 전환')
-        with state_lock:
-            if stream_state['active']:
-                return jsonify({'success': False, 'error': '이미 스트리밍 중이에요'}), 409
-            stream_state['active'] = True
+        if mode == 'league' and (cur.get('mode') or 'league') == 'free':
+            logger.info("🔁 리그 경기 시작 — 진행 중이던 자유 라이브를 먼저 끕니다")
+        _stop_stream_impl(takeover)
+
+    with state_lock:
+        stream_state['active'] = True  # 먼저 잠금 — /health 가 '켜는 중' 을 방송 중으로 본다
 
     broadcast_id = None   # 실패 시 정리해야 하므로 try 밖에서 잡아둔다
     try:
@@ -409,6 +515,9 @@ def start_stream():
         else:
             title, description = build_title_and_desc(team_a, team_b, league, category, match_number)
         logger.info(f"🎬 스트리밍 시작({mode}): {title}")
+        # 0. OBS 가 지난 방송 키로 내보내는 중이면 먼저 끈다 — 못 끄면 여기서 멈춘다(빈 방송을 만들기 전).
+        _ensure_obs_idle()
+
         # 1. YouTube 방송 생성
         broadcast_id, rtmp_url, stream_key = youtube.create_broadcast_and_stream(title, description)
         watch_url = YouTubeAPI.get_watch_url(broadcast_id)
@@ -435,6 +544,7 @@ def start_stream():
         ends = (started + timedelta(minutes=minutes)) if mode == 'free' else None
         with state_lock:
             stream_state.update({
+                'active': True,
                 'mode': mode,
                 'broadcast_id': broadcast_id,
                 'watch_url': watch_url,
@@ -445,6 +555,9 @@ def start_stream():
                 'team_b': team_b,
                 'league': league,
                 'title': title,
+                'match_id': match_id,
+                'match_number': match_number if mode == 'league' else 0,
+                'category': category if mode == 'league' else '',
                 'error': None,
             })
         if ends:
@@ -471,6 +584,8 @@ def start_stream():
             'watch_url': watch_url,
             'broadcast_id': broadcast_id,
             'ends_at': ends_at,
+            'reused': False,
+            'took_over': bool(takeover),
         })
 
     except Exception as e:
@@ -490,9 +605,50 @@ def start_stream():
             pass
 
         with state_lock:
-            stream_state['active'] = False  # 실패 시 롤백
+            _clear_state_locked()   # 실패 시 롤백 — 반쯤 채운 칸(제목·매치)을 남기지 않는다
             stream_state['error'] = str(e)
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _reuse_league_stream(cur, team_a, team_b, league, category, match_number, match_id,
+                         roster_a, roster_b):
+    """같은 리그 매치의 방송이 이미 나가는 중 — 새로 열지 않고 그대로 쓴다(stream_op_lock 안에서).
+
+    태블릿을 다시 열어 [이어서 하기] 를 누르거나 켜기를 두 번 누르면 여기로 온다. 예전엔 409
+    '리그 경기 방송 중이에요' 로 오류 토스트가 떴다(방송은 멀쩡한데). 팀을 다시 뽑았거나 번호·부문이
+    바뀌었으면 제목·설명·썸네일만 고친다 — 새 방송을 열면 한 경기가 영상 둘로 쪼개진다."""
+    bid = cur.get('broadcast_id')
+    title, description = build_title_and_desc(team_a, team_b, league, category, match_number)
+    teams_changed = (list(cur.get('team_a') or []) != team_a) or (list(cur.get('team_b') or []) != team_b)
+    title_changed = title != (cur.get('title') or '')
+    with state_lock:
+        stream_state.update({
+            'team_a': team_a,
+            'team_b': team_b,
+            'league': league,
+            'title': title,
+            'match_id': match_id or cur.get('match_id') or '',
+            'match_number': match_number or int(cur.get('match_number') or 0),
+            'category': category,
+        })
+    if teams_changed or title_changed:
+        logger.info(f"✏️ 같은 매치 방송을 이어 씀 — {'팀 ' if teams_changed else ''}{'제목 ' if title_changed else ''}갱신: {title}")
+        _refresh_live_meta(bid, title, description, retitle=True,
+                           rethumb=teams_changed or title_changed,
+                           roster_a=roster_a, roster_b=roster_b, league=league,
+                           category=category, match_number=match_number)
+    else:
+        logger.info(f"▶️ 같은 매치 방송을 이어 씀: {title}")
+    return jsonify({
+        'success': True,
+        'mode': 'league',
+        'title': title,
+        'watch_url': cur.get('watch_url'),
+        'broadcast_id': bid,
+        'ends_at': None,
+        'reused': True,
+        'took_over': False,
+    })
 
 
 def _minutes_left_locked() -> int:
@@ -509,7 +665,13 @@ def _minutes_left_locked() -> int:
 
 def _stop_stream_impl(reason: str = '') -> list:
     """스트리밍 종료 — 사람이 누른 /stop-stream 과 시간 만료 워치독이 **같은 길**을 탄다.
-    돌려주는 값은 일부 실패 목록(빈 리스트면 깨끗이 끝남). 스트리밍 중이 아니면 아무것도 안 한다."""
+    돌려주는 값은 일부 실패 목록(빈 리스트면 깨끗이 끝남). 스트리밍 중이 아니면 아무것도 안 한다.
+    ⚠️ stream_op_lock 안에서 돈다(RLock — 켜기가 넘겨받으며 부를 때는 이미 쥐고 있다)."""
+    with stream_op_lock:
+        return _stop_stream_locked(reason)
+
+
+def _stop_stream_locked(reason: str = '') -> list:
     with state_lock:
         if not stream_state['active']:
             return []
@@ -521,8 +683,12 @@ def _stop_stream_impl(reason: str = '') -> list:
     # OBS와 YouTube를 독립적으로 종료 (하나 실패해도 다른 쪽은 시도)
     # ⚠️ 리플레이 버퍼는 일부러 안 끈다 — 방송 종료 후에도 하이라이트 저장 가능하게
     #    (키프알라이브 스레드가 계속 켜둠). 버퍼는 OBS 종료 시에만 멈춤.
+    # ⚠️ 못 껐으면(연결 실패 · 시간 안에 안 멈춤) 오류로 남긴다 — 다음 켜기가 _ensure_obs_idle 로
+    #    다시 끄고, 그래도 안 되면 켜기를 멈춘다(지난 방송 키에 이어 붙지 않게).
     try:
-        obs.stop_stream()
+        if obs.stop_stream() is False:
+            logger.error("❌ OBS 송출을 끄지 못했어요 — 다음 방송을 열 때 다시 끕니다")
+            errors.append("OBS: 송출을 끄지 못했어요(OBS 를 확인해 주세요)")
     except Exception as e:
         logger.error(f"❌ OBS 종료 실패: {e}")
         errors.append(f"OBS: {e}")
@@ -551,11 +717,26 @@ def stop_stream():
     영상은 지우지 않고 제목·설명에 [무효] 를 붙인다(매치는 태블릿이 지워 순위·PAR·전적에서 빠진다)."""
     data = request.get_json(silent=True) or {}
     void = data.get('void') is True
-    with state_lock:
-        if not stream_state['active']:
-            return jsonify({'success': True, 'message': '스트리밍 중이 아니에요'})
-        bid = stream_state.get('broadcast_id')
-    errors = _stop_stream_impl('태블릿에서 종료' + (' · 무효' if void else ''))
+    # 태블릿(c14~)이 끝낸 매치의 id — 지금 방송이 **다른** 매치면 건드리지 않는다(아래).
+    match_id = str(data.get('matchId') or '').strip()[:64]
+    with stream_op_lock:
+        with state_lock:
+            if not stream_state['active']:
+                # idle — 태블릿이 '방송이 없었다' 를 안다(켜기가 실패했는데 그 사이 /health 를 '방송 중' 으로 읽은
+                # 태블릿이 [무효] 를 '직접 붙이라' 고 하지 않게 · '종료됨' 이라 하지 않게).
+                return jsonify({'success': True, 'idle': True, 'message': '스트리밍 중이 아니에요'})
+            bid = stream_state.get('broadcast_id')
+            cur_mode = stream_state.get('mode') or 'league'
+            cur_id = stream_state.get('match_id') or ''
+        # ⚠️ 2026-10-08: 다음 매치가 방송을 넘겨받은 뒤 앞 매치를 정리하는 태블릿 동작(앞 매치 [매치 취소] ·
+        #    뒤로 가기)이 **지금 경기 방송을 끄고 [무효] 까지** 붙이면 안 된다. 매치 id 를 함께 보냈고 지금
+        #    방송이 그 매치가 아니면(다른 리그 매치 · 자유 라이브) 그대로 둔다. id 를 모르는 방송(옛 태블릿이
+        #    켠 것)이면 예전처럼 끈다.
+        if match_id and (cur_mode != 'league' or (cur_id and cur_id != match_id)):
+            logger.info(f"⏭ 다른 매치({match_id}) 끝내기 요청 — 지금 방송({cur_id or cur_mode})은 그대로 둡니다")
+            return jsonify({'success': True, 'skipped': True,
+                            'message': '지금 방송은 다른 경기예요 — 그대로 둬요'})
+        errors = _stop_stream_impl('태블릿에서 종료' + (' · 무효' if void else ''))
     out = {'success': True}
     if void and bid:
         _void_later(bid)
@@ -596,11 +777,12 @@ def void_video():
     vid = _video_id_of(data.get('videoId') or data.get('watchUrl') or '')
     if not vid:
         return jsonify({'success': False, 'error': '영상 주소를 알아볼 수 없어요'}), 400
-    with state_lock:
-        live_now = stream_state['active'] and stream_state.get('broadcast_id') == vid
-    if live_now:
-        # 아직 송출 중인 그 방송이면 끄면서 붙인다
-        _stop_stream_impl('태블릿에서 종료 · 무효')
+    with stream_op_lock:
+        with state_lock:
+            live_now = stream_state['active'] and stream_state.get('broadcast_id') == vid
+        if live_now:
+            # 아직 송출 중인 그 방송이면 끄면서 붙인다
+            _stop_stream_impl('태블릿에서 종료 · 무효')
     _void_later(vid)
     return jsonify({'success': True, 'voided': vid})
 
@@ -608,16 +790,17 @@ def void_video():
 def _auto_stop_once(now=None) -> bool:
     """자유 라이브가 만료됐으면 끈다. 껐으면 True. (워치독 한 바퀴 — 테스트가 직접 부른다)"""
     now = now or datetime.now(timezone.utc)
-    with state_lock:
-        active = stream_state['active']
-        ends = stream_state.get('ends_at')
-    if not (active and ends):
-        return False
-    if datetime.fromisoformat(ends) > now:
-        return False
-    logger.info("⏱ 자유 라이브 시간 만료 — 자동 종료")
-    _stop_stream_impl('시간 만료')
-    return True
+    with stream_op_lock:
+        with state_lock:
+            active = stream_state['active']
+            ends = stream_state.get('ends_at')
+        if not (active and ends):
+            return False
+        if datetime.fromisoformat(ends) > now:
+            return False
+        logger.info("⏱ 자유 라이브 시간 만료 — 자동 종료")
+        _stop_stream_impl('시간 만료')
+        return True
 
 
 def _auto_stop_loop():

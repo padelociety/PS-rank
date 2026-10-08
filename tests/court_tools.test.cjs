@@ -35,11 +35,16 @@ const body = (name) => {
   const run = new Function('ctx', `
     let selectedLeague = ctx.league, psToken = 'tok';
     let _streamActive = true, _watchUrl = 'w', _liveMode = 'league', _liveEndsAt = null, _streamServerOnline = true;
+    let _liveMatchId = '', _liveMatchNum = 0;
     const STREAM_SERVER = 'http://obs';
     const AbortSignal = { timeout: () => null };
     const fetch = ctx.fetch, psFetch = ctx.psFetch;
-    function _hideWatchBtn() {} function _updateStreamStatus() {} function showToast() {}
+    function _hideWatchBtn() {} function _updateStreamStatus() {} function showToast() {} function checkStreamServer() {}
     ${src.match(/var _stopping = null;[^\n]*/)[0]}
+    ${src.match(/var _stoppingFor = '';[^\n]*/)[0]}
+    ${src.match(/var _starts = \[\];[^\n]*/)[0]}
+    ${src.match(/var _starting = null;[^\n]*/)[0]}
+    ${src.match(/var _startSeq = 0;[^\n]*/)[0]}
     ${body('stopStream')}
     ${body('_stopStreamOnce')}
     return { stopStream, nullLeague: () => { selectedLeague = null; } };
@@ -72,24 +77,33 @@ const body = (name) => {
   await t('③ 그냥 끄는 중에 [매치 취소] — 그 약속을 받아도 /void-video 로 [무효] 를 붙인다', async () => {
     let release;
     const calls = [], toasts = [];
+    // 옛 모양(한 칸) 그대로 — 태블릿을 올린 날 남아 있는 값도 읽어야 한다(c14 부터 매치별 맵)
     const store = { ps_stream_of: JSON.stringify({ matchId: 'M1', watchUrl: 'https://youtu.be/x' }) };
     const run3 = new Function('ctx', `
       let selectedLeague = { _id: 'L1' }, psToken = 'tok';
       let _streamActive = true, _watchUrl = 'w', _liveMode = 'league', _liveEndsAt = null, _streamServerOnline = true;
+      let _liveMatchId = '', _liveMatchNum = 0;
       const STREAM_SERVER = 'http://obs';
       const AbortSignal = { timeout: () => null };
       const fetch = ctx.fetch, psFetch = () => Promise.resolve({});
       const localStorage = ctx.localStorage, setTimeout = (fn) => fn();
-      function _hideWatchBtn() {} function _updateStreamStatus() {} function showToast(m) { ctx.toasts.push(m); }
+      function _hideWatchBtn() {} function _updateStreamStatus() {} function showToast(m) { ctx.toasts.push(m); } function checkStreamServer() {}
       ${src.match(/var _stopping = null;[^\n]*/)[0]}
+    ${src.match(/var _stoppingFor = '';[^\n]*/)[0]}
+    ${src.match(/var _starts = \[\];[^\n]*/)[0]}
+    ${src.match(/var _starting = null;[^\n]*/)[0]}
+    ${src.match(/var _startSeq = 0;[^\n]*/)[0]}
       ${body('stopStream')}
       ${body('_stopStreamOnce')}
       ${body('voidStreamOf')}
+      ${body('streamOfAll')}
+      ${body('streamOfGet')}
+      ${body('streamOfDel')}
       return { stopStream, voidStreamOf };
     `);
     const tab = run3({
       toasts,
-      localStorage: { getItem: (k) => store[k] || null, removeItem: (k) => { delete store[k]; } },
+      localStorage: { getItem: (k) => store[k] || null, setItem: (k, v) => { store[k] = v; }, removeItem: (k) => { delete store[k]; } },
       fetch: (url, o) => {
         calls.push([url, o.body]);
         if (url.endsWith('/stop-stream')) return new Promise((r) => { release = () => r({ json: async () => ({ ok: true }) }); });
@@ -107,9 +121,9 @@ const body = (name) => {
     if (!toasts.some((m) => m.includes('[무효] 를 붙여요'))) throw new Error('성공 안내 없음: ' + JSON.stringify(toasts));
   });
 
-  await t('빌드 배지 c13 · BUILD · SW v47 같이', () => {
-    if (!src.includes('<!--COURTBUILD:c13-->') || !src.includes('var BUILD = "c13";')) throw new Error('배지');
-    if (!sw.includes("const CACHE = 'ps-court-v47';")) throw new Error('SW');
+  await t('빌드 배지 c14 · BUILD · SW v48 같이', () => {
+    if (!src.includes('<!--COURTBUILD:c14-->') || !src.includes('var BUILD = "c14";')) throw new Error('배지');
+    if (!sw.includes("const CACHE = 'ps-court-v48';")) throw new Error('SW');
   });
 
   console.log(fails ? `\n실패 ${fails}건\n` : '\n전부 통과\n');
