@@ -252,7 +252,8 @@ class OBSController:
             for attempt in range(2):
                 if not self.client:
                     try:
-                        self.connect(retries=2, delay=1.0)
+                        # 다시 붙을 때는 한 번만 — OBS 가 멈춰 있으면 붙기마다 10초라 끄기 전체가 태블릿 기다림을 넘긴다.
+                        self.connect(retries=2 if attempt == 0 else 1, delay=1.0)
                     except Exception as e:
                         logger.error(f"❌ OBS 에 붙지 못해 송출을 끄지 못했어요: {e}")
                         return False

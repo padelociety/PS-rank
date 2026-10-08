@@ -85,6 +85,7 @@ class FakeYT:
         if self.end_delays:
             import time as _t; _t.sleep(self.end_delays.pop(0))
         self.ended.append(bid)
+        self.calls.append(f'ended:{bid}')   # **끝난** 순서 — 뒤 스레드로 닫으면 만들기보다 늦게 찍힌다
         return True
 
     @staticmethod
@@ -440,11 +441,14 @@ def main():
     b80 = r.get_json()['broadcast_id']
     ss.obs.streaming = False; ss.obs.key = None     # OBS 가 스스로 멈췄다(서버는 아직 방송 중이라 믿음)
     yt.calls.clear()
+    yt.end_delays = [0.3]   # 닫기가 느려도 만들기는 그 **뒤**여야 한다(뒤 스레드로 닫으면 만들기가 먼저 찍힌다)
     r = c.post('/start-stream', json={'teamA': ['e', 'f'], 'teamB': ['g', 'h'], 'league': L,
                                       'matchNumber': 81, 'matchId': 'm81'})
     d81 = r.get_json()
-    check(d81['success'] and yt.calls[:2] == [f'end:{b80}', f"create:{d81['broadcast_id']}"],
-          '남은 방송 닫기 → 새 방송 만들기 순서(동시에 쓰지 않는다)', str(yt.calls))
+    yt.end_delays = []
+    seq = [x for x in yt.calls if x.startswith('ended:') or x.startswith('create:')]
+    check(d81['success'] and seq[:2] == [f'ended:{b80}', f"create:{d81['broadcast_id']}"],
+          '남은 방송을 다 닫은 뒤에 새 방송 만들기(동시에 쓰지 않는다)', str(yt.calls))
     c.post('/stop-stream')
 
     # 16) 같은 매치 판정(순수 함수)
@@ -474,9 +478,11 @@ def main():
     import threading as _th, time as _tm
     api = yt2.YouTubeAPI({})
     live = [0]; peak = [0]
+    owned = []
     class _Req:
         def __init__(s, ret): s.ret = ret
         def execute(s):
+            owned.append(api._lock._is_owned())   # 시점이 아니라 '잠금을 쥐고 부르나' 를 본다(메서드 하나만 빠져도 잡힌다)
             live[0] += 1; peak[0] = max(peak[0], live[0]); _tm.sleep(0.03); live[0] -= 1; return s.ret
     class _Col:
         def insert(s, **k): return _Req({'id': 'b1', 'cdn': {'ingestionInfo': {'ingestionAddress': 'rtmp://x', 'streamName': 'k'}}})
@@ -498,6 +504,7 @@ def main():
     ths = [_th.Thread(target=j) for j in jobs]
     [x.start() for x in ths]; [x.join(5) for x in ths]
     check(peak[0] == 1, '유튜브 API 호출은 동시에 하나만(잠금)', f'peak={peak[0]}')
+    check(len(owned) >= 8 and all(owned), '모든 API 호출이 잠금을 쥐고 나간다(만들기·끝내기·제목·썸네일·[무효])', str(owned))
 
     # 18) 썸네일 임시 파일은 부를 때마다 다른 이름 — 같은 방송 썸네일을 두 스레드가 만들어도 덮어쓰지 않는다
     import tempfile as _tf

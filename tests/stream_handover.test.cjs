@@ -47,6 +47,7 @@ function tablet(ctx) {
     const document = { getElementById: (id) => (ctx.els[id] = ctx.els[id] || { textContent: '', style: {} }) };
     ${src.match(/var _stopping = null;[^\n]*/)[0]}
     ${src.match(/var _starting = null;[^\n]*/)[0]}
+    ${src.match(/var _startSeq = 0;[^\n]*/)[0]}
     ${['_updateStreamStatus', 'startStream', '_startStreamOnce', 'stopStream', '_stopStreamOnce', 'voidStreamOf',
        'streamOfAll', 'streamOfGet', 'streamOfSet', 'streamOfDel'].map(body).join('\n')}
     return {
@@ -54,6 +55,7 @@ function tablet(ctx) {
       get: () => ({ _streamActive, _liveMatchId, _liveMatchNum, _liveMode, starting: _starting }),
       setLive: (num, mode) => { _liveMatchNum = num; _liveMode = mode; },
       leave: () => { selectedMatch = null; },
+      swap: (m) => { selectedMatch = m; },
     };
   `);
   return run(ctx);
@@ -283,9 +285,83 @@ const mkCtx = (over) => {
     if (ctx.els['stream-status'] && /서버 꺼짐/.test(ctx.els['stream-status'].textContent)) throw new Error("'서버 꺼짐' 으로 단정했다");
   });
 
-  await t('⑧ 기다리는 시간 — 켜기 60초 · 끄기 30초(서버가 OBS·유튜브를 확인하고 답한다)', () => {
+  await t('⑧ 기다리는 시간 — 켜기 60초 · 끄기 45초(서버가 OBS 멈춤을 다시 붙어 확인하고 답한다 — 최악 약 33초)', () => {
     if (!body('_startStreamOnce').includes('signal: AbortSignal.timeout(60000),')) throw new Error('켜기 60초');
-    if (!/signal: AbortSignal.timeout\(30000\),/.test(body('_stopStreamOnce'))) throw new Error('끄기 30초');
+    if (!/signal: AbortSignal.timeout\(45000\),/.test(body('_stopStreamOnce'))) throw new Error('끄기 45초');
+  });
+
+  await t('⑧ 끄기가 실패하면 상태 줄이 LIVE 로 남지 않는다(⚠️ 오류 — 서버 상태를 다시 읽을 때까지) (검토 2차)', async () => {
+    const ctx = mkCtx({ active: true, match: { _id: 'm41' } });
+    ctx.fetch = () => Promise.reject(Object.assign(new Error('timeout'), { name: 'TimeoutError' }));
+    const tab = tablet(ctx);
+    tab.setLive(41, 'league');
+    tab._updateStreamStatus('live');
+    await tab.stopStream({ matchId: 'm41' });
+    const txt = ctx.els['stream-status'].textContent;
+    if (/LIVE/.test(txt)) throw new Error('LIVE 가 남았다: ' + txt);
+    if (!/오류/.test(txt)) throw new Error('오류 표시가 아니다: ' + txt);
+  });
+
+  await t('⑨ 켜는 중 [취소] → 같은 경기 다시 켜기 — 기다리던 끄기가 새 방송을 끄지 않는다 (검토 2차)', async () => {
+    const releases = [];
+    const ctx = mkCtx({ match: { _id: 'm40' } });
+    ctx.fetch = (url, o) => {
+      ctx.calls.push([url.replace('http://obs', ''), o.body]);
+      if (url.endsWith('/start-stream')) return new Promise((r) => releases.push(() => r({ json: async () => ({ success: true, watch_url: 'https://youtu.be/v40', reused: releases.length > 1 }) })));
+      return Promise.resolve({ json: async () => ({ success: true }) });
+    };
+    const tab = tablet(ctx);
+    const p1 = tab.startStream();                       // goToScore
+    await new Promise((r) => setImmediate(r));
+    const pStop = tab.stopStream({ matchId: 'm40' });   // cancelScore — 켜기를 기다린다
+    const p2 = tab.startStream();                       // 곧바로 다시 [시작]
+    await new Promise((r) => setImmediate(r));
+    while (releases.length) releases.shift()();          // 먼저 보낸 켜기부터 끝난다
+    await new Promise((r) => setImmediate(r));
+    while (releases.length) releases.shift()();
+    await Promise.all([p1, pStop, p2]);
+    ctx.timers.forEach((fn) => fn());
+    await new Promise((r) => setImmediate(r));
+    if (ctx.calls.some((c) => c[0] === '/stop-stream')) throw new Error('다시 켠 방송을 옛 끄기가 껐다: ' + JSON.stringify(ctx.calls.map((c) => c[0])));
+    if (!tab.get()._streamActive) throw new Error('방송 표시가 꺼졌다');
+  });
+
+  await t('⑨ 끄기를 기다리는 사이 같은 매치를 다시 읽어 와도(객체가 바뀜) 켠다 — 매치는 id 로 본다 (검토 2차)', async () => {
+    let releaseStop;
+    const ctx = mkCtx({ active: true, match: { _id: 'm40' } });
+    ctx.fetch = (url, o) => {
+      ctx.calls.push([url.replace('http://obs', ''), o.body]);
+      if (url.endsWith('/stop-stream')) return new Promise((r) => { releaseStop = () => r({ json: async () => ({ success: true }) }); });
+      return Promise.resolve({ json: async () => ({ success: true, watch_url: 'w' }) });
+    };
+    const tab = tablet(ctx);
+    const pStop = tab.stopStream({ matchId: 'm39' });
+    const pStart = tab.startStream();
+    tab.swap({ _id: 'm40', fresh: true });             // fetchFreshMatch — 같은 매치, 새 객체
+    releaseStop();
+    await Promise.all([pStop, pStart]);
+    const st = ctx.calls.find((c) => c[0] === '/start-stream');
+    if (!st || !/"matchId":"m40"/.test(st[1])) throw new Error('같은 매치인데 켜지 않았다: ' + JSON.stringify(ctx.calls.map((c) => c[0])));
+  });
+
+  await t('⑨ 켜기가 실패한 경기의 [매치 취소] — 영상이 없으니 [무효] 를 \'직접 붙이라\' 고 하지 않는다 (검토 2차)', async () => {
+    let releaseStart;
+    const ctx = mkCtx({ match: { _id: 'm40' } });
+    ctx.fetch = (url, o) => {
+      ctx.calls.push([url.replace('http://obs', ''), o.body]);
+      if (url.endsWith('/start-stream')) return new Promise((r) => { releaseStart = () => r({ json: async () => ({ success: false, error: 'OBS 연결 실패' }) }); });
+      return Promise.resolve({ json: async () => ({ success: true }) });
+    };
+    const tab = tablet(ctx);
+    const pStart = tab.startStream();
+    await new Promise((r) => setImmediate(r));
+    const pVoid = tab.voidStreamOf('m40');
+    tab.leave();
+    releaseStart();
+    await Promise.all([pStart, pVoid]);
+    ctx.timers.forEach((fn) => fn());
+    if (ctx.calls.some((c) => c[0] === '/stop-stream' || c[0] === '/void-video')) throw new Error('없는 방송을 끄거나 [무효] 를 보냈다: ' + JSON.stringify(ctx.calls.map((c) => c[0])));
+    if (ctx.toasts.some((m) => /무효/.test(m))) throw new Error('[무효] 안내를 띄웠다: ' + JSON.stringify(ctx.toasts));
   });
 
   await t('페이지 스크립트 전체가 문법 오류 없이 뜬다(떼어 낸 함수만 보면 다른 자리 오류를 놓친다)', () => {
