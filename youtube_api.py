@@ -172,10 +172,11 @@ class YouTubeAPI:
             return False
 
     # ── 방송 종료 ─────────────────────────────────────────────────
-    def end_broadcast(self, broadcast_id: str):
-        """방송을 명시적으로 종료합니다 (enableAutoStop이 있으면 자동으로 되지만 보험용)."""
+    def end_broadcast(self, broadcast_id: str) -> bool:
+        """방송을 명시적으로 종료합니다 (enableAutoStop이 있으면 자동으로 되지만 보험용).
+        끝냈으면 True. **예외를 던지지 않는다.**"""
         if not self.youtube or not broadcast_id:
-            return
+            return False
         try:
             self.youtube.liveBroadcasts().transition(
                 broadcastStatus='complete',
@@ -183,8 +184,38 @@ class YouTubeAPI:
                 part='id,status'
             ).execute()
             logger.info(f"⏹️  YouTube 방송 종료됨 (ID: {broadcast_id})")
+            return True
         except Exception as e:
             logger.warning(f"방송 종료 중 오류 (무시): {e}")
+            return False
+
+    # ── 제목·설명 바꾸기 ──────────────────────────────────────────
+    def update_snippet(self, video_id: str, title: str, description: str) -> bool:
+        """진행 중인 방송의 제목·설명을 바꾼다. **예외를 던지지 않는다.**
+
+        같은 매치를 이어서 방송하는데(태블릿을 새로 열어 [이어서 하기]) 팀을 다시 뽑았거나 번호가
+        바뀌었을 때만 쓴다 — 방송을 새로 열면 그 경기가 영상 두 개로 쪼개진다(2026-10-08).
+        라이브 방송의 영상 id 는 broadcast id 와 같다."""
+        if not video_id:
+            return False
+        try:
+            self._ensure_auth()
+            res = self.youtube.videos().list(part='snippet', id=video_id).execute()
+            items = res.get('items') or []
+            if not items:
+                logger.warning(f"⚠️ 제목 바꾸기: 영상을 못 찾음 ({video_id})")
+                return False
+            snippet = retitle_snippet(items[0].get('snippet') or {}, title, description)
+            if snippet is None:
+                return True
+            self.youtube.videos().update(
+                part='snippet', body={'id': video_id, 'snippet': snippet},
+            ).execute()
+            logger.info(f"✏️ 방송 제목·설명 갱신 ({video_id}) — {snippet['title']}")
+            return True
+        except Exception as e:
+            logger.warning(f"⚠️ 방송 제목·설명 갱신 실패 (방송은 그대로): {e}")
+            return False
 
     # ── 무효 표시 ─────────────────────────────────────────────────
     def mark_void(self, video_id: str) -> bool:
@@ -242,6 +273,31 @@ def void_snippet(snippet: dict):
         'title': (VOID_TAG + ' ' + title)[:100],
         'description': _cut_bytes(VOID_NOTE + ('\n\n' + desc if desc else ''), 5000),
         'categoryId': snippet.get('categoryId') or '17',   # 읽은 값이 없을 때만 — 17 = Sports
+    }
+    for k in ('tags', 'defaultLanguage', 'defaultAudioLanguage'):
+        if snippet.get(k):
+            out[k] = snippet[k]
+    return out
+
+
+def retitle_snippet(snippet: dict, title: str, description: str):
+    """videos.update 에 보낼 snippet — 제목·설명만 바꾼다. 이미 같으면 None.
+    ⚠️ void_snippet 과 같은 이유로 categoryId·태그·언어를 그대로 싣는다(빼면 지워진다).
+    ⚠️ [무효] 가 붙은 영상이면 그 표시를 지키고 제목 앞에 다시 붙인다."""
+    cur_title = str(snippet.get('title') or '')
+    cur_desc = str(snippet.get('description') or '')
+    title = str(title or '').strip() or cur_title
+    description = str(description or '')
+    if cur_title.startswith(VOID_TAG) and not title.startswith(VOID_TAG):
+        title = VOID_TAG + ' ' + title
+    title = title[:100]
+    description = _cut_bytes(description, 5000)
+    if title == cur_title and description == cur_desc:
+        return None
+    out = {
+        'title': title,
+        'description': description,
+        'categoryId': snippet.get('categoryId') or '17',
     }
     for k in ('tags', 'defaultLanguage', 'defaultAudioLanguage'):
         if snippet.get(k):

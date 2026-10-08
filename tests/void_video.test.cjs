@@ -26,9 +26,11 @@ t('매치 취소는 여전히 매치를 지운다(DELETE) — 순위·PAR·전�
 
 t('방송 중이면 끄면서 void · 끝났으면 기억한 이 매치 영상에 /void-video', () => {
   const b = body('voidStreamOf');
-  if (!b.includes('stopStream({ void: true })')) throw new Error('stopStream void');
+  // c14: 매치 id 를 같이 보낸다 — 지금 방송이 다른 경기면 서버가 그대로 둔다(skipped)
+  if (!b.includes('stopStream({ void: true, matchId })')) throw new Error('stopStream void + matchId');
   if (!b.includes('/void-video')) throw new Error('/void-video');
-  if (!b.includes('saved.matchId === matchId')) throw new Error('다른 매치 영상에 붙이면 안 된다');
+  // 다른 매치 영상에 붙이면 안 된다 — 이 매치의 주소만 찾는다(c14: 매치별 맵)
+  if (!b.includes('streamOfGet(matchId)')) throw new Error('이 매치 영상 주소로 찾지 않는다');
 });
 
 t('옛 서버(voided 없음)면 직접 붙이라고 말한다', () => {
@@ -38,7 +40,7 @@ t('옛 서버(voided 없음)면 직접 붙이라고 말한다', () => {
 });
 
 t('방송 시작 때 이 매치의 영상 주소를 기억한다', () => {
-  if (!/ps_stream_of', JSON\.stringify\(\{ matchId: selectedMatch\._id, watchUrl: data\.watch_url \}\)/.test(src)) throw new Error('저장 없음');
+  if (!src.includes('streamOfSet(selectedMatch._id, data.watch_url)')) throw new Error('저장 없음');
 });
 
 t('스코어 화면 취소(예정으로 되돌리기)는 [무효] 를 붙이지 않는다 — 다시 칠 경기다', () => {

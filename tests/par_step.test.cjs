@@ -111,6 +111,7 @@ function makeTablet(srv, rows, opts = {}) {
     function renderScoreSection() {}
     async function ensureMatchNumber() { return 1; }
     function pushToFirebase() {} function startStream() {} function hideScoreboard() {}
+    let _streamActive = false; var _stopping = null; function stopStream(o) { (ctx.stops = ctx.stops || []).push(o); }
     ${FNS.map(body).join('\n')}
     return {
       selectMatch, chooseParApply, replayDifferentPair, goToScore, goBack, goParStep,
@@ -308,10 +309,10 @@ const curBtn = (html) => (/class="par-opt (on|off) current"/.exec(html) || [])[1
     assert(!body('selectMatch').includes('doAssignTeams'), '매치를 고르자마자 팀을 뽑는다');
   });
 
-  await t('빌드 배지 c13 · BUILD · SW v47 같이', () => {
+  await t('빌드 배지 c14 · BUILD · SW v48 같이', () => {
     const sw = fs.readFileSync(path.join(__dirname, '..', 'ps_court', 'ps_court_sw.js'), 'utf8');
-    assert(src.includes('<!--COURTBUILD:c13-->') && src.includes('var BUILD = "c13";') && src.includes('>앱 c13</div>'), '배지');
-    assert(sw.includes("const CACHE = 'ps-court-v47';"), 'SW');
+    assert(src.includes('<!--COURTBUILD:c14-->') && src.includes('var BUILD = "c14";') && src.includes('>앱 c14</div>'), '배지');
+    assert(sw.includes("const CACHE = 'ps-court-v48';"), 'SW');
   });
 
   console.log(fails ? `\n실패 ${fails}건\n` : '\n전부 통과\n');
