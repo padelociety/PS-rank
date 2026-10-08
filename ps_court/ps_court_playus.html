@@ -1873,7 +1873,7 @@ async function cancelMatch() {
 async function voidStreamOf(matchId) {
   let data = null;
   const liveNow = !!(_streamActive || _stopping);
-  const wasLive = liveNow || !!(_starting && _starting.matchId === String(matchId));
+  const wasLive = liveNow || _starts.some((s) => s.matchId === String(matchId));
   if (wasLive) {
     // 매치 id 를 같이 보낸다 — 지금 방송이 **다른** 경기면(다음 경기가 넘겨받았다) 서버가 그대로 둔다(skipped).
     data = await stopStream({ void: true, matchId });
@@ -1885,13 +1885,15 @@ async function voidStreamOf(matchId) {
     const watchUrl = streamOfGet(matchId);
     const mine = !!watchUrl;
     // 이 매치는 방송을 안 했다 — 켜는 중이었다가 켜지 못한 경우도(영상이 없다. '직접 붙이라' 고 하지 않는다).
-    if (!mine && !liveNow) return;
+    // 서버가 '방송이 없었다'(idle)고 답한 경우도 같다 — 켜는 사이 /health 가 '방송 중' 을 읽어 liveNow 가 켜져 있었을 뿐이다(검토 2차).
+    if (!mine && (!liveNow || (data && data.idle))) return;
     if (mine) {
       try {
         const res = await fetch(`${STREAM_SERVER}/void-video`, {
           method: 'POST', headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({ watchUrl }),
-          signal: AbortSignal.timeout(10000),
+          // 서버는 [무효] 를 켜고 끄기와 같은 줄에서 붙인다 — 다음 경기 넘겨받기(15~20초) 뒤에 설 수 있다(검토 2차).
+          signal: AbortSignal.timeout(60000),
         });
         data = await res.json();
       } catch(_) { data = null; }
@@ -2303,27 +2305,35 @@ async function checkStreamServer() {
   }
 }
 
-// 켜는 중인 방송 — { matchId, p }. 끄기가 이걸 기다린다(아래 stopStream).
+// 켜는 중인 방송들 — [{ matchId, p, sent, cancelled }]. 끄기가 이걸 보고 거두거나 기다린다(아래 stopStream).
 // ⚠️ 2026-10-08 검토: 켜기는 10~20초 걸리고 그동안 _streamActive 가 false 라, 그 사이 [매치 취소]·뒤로 가기의
 //    끄기가 아무 데도 안 갔다 — 지운 경기의 방송이 밤새 돌 수 있었다.
-var _starting = null;   // var — 선언 줄보다 먼저 불려도 TDZ 로 죽지 않게
-var _startSeq = 0;      // 켜기를 시작할 때마다 +1 — 켜는 중을 기다리던 끄기가 '그 사이 다시 켰나' 를 본다
+// ⚠️ 하나가 아니라 **전부** 기억한다 — 마지막 켜기 하나만 들고 있으면, 곧바로 끝난 새 켜기(서버 꺼짐)가
+//    아직 도는 앞 켜기를 지워 버려 그 뒤의 끄기가 기다릴 대상을 잃었다(검토 2차).
+var _starts = [];       // var — 선언 줄보다 먼저 불려도 TDZ 로 죽지 않게
+var _starting = null;   // 가장 최근 켜기(화면 판정용 — 뒤로 가기)
+var _startSeq = 0;      // /start-stream 을 **실제로 보낼 때마다** +1 — 켜는 중을 기다리던 끄기가 '그 사이 다시 켰나' 를 본다
 async function startStream() {
-  _startSeq++;
   // 켜려는 매치는 **지금** 정한다 — 아래에서 끄기를 기다리는 동안 화면이 바뀔 수 있다.
   const forMatch = selectedMatch;
   const startedFor = forMatch ? String(forMatch._id) : '';
-  const p = _startStreamOnce(forMatch, startedFor);
-  const mine = { matchId: startedFor, p };
-  _starting = mine;
-  try { return await p; } finally { if (_starting === mine) _starting = null; }
+  const rec = { matchId: startedFor, p: null, sent: false, cancelled: false };
+  rec.p = _startStreamOnce(forMatch, startedFor, rec);
+  _starts.push(rec);
+  _starting = rec;
+  try { return await rec.p; } finally {
+    _starts = _starts.filter((s) => s !== rec);
+    if (_starting === rec) _starting = _starts.length ? _starts[_starts.length - 1] : null;
+  }
 }
-async function _startStreamOnce(forMatch, startedFor) {
+async function _startStreamOnce(forMatch, startedFor, rec) {
   // ⚠️ 2026-10-08: 끄기가 아직 도는 중이면 끝날 때까지 기다린다. 경기 저장(showDone 의 stopStream — 기다리지
   //    않는다) 바로 뒤 '다른 페어로 다시하기' 로 켜면 켜기가 끄기와 겹쳐 409(새 경기 방송 없음)를 받거나
   //    서버 상태가 꼬여, 지난 경기 제목·썸네일 방송에 다음 경기가 나갔다(26S3 Match39 → 41).
   if (_stopping) { try { await _stopping; } catch (_) {} }
-  // 기다리는 사이 그 매치를 떠났으면(취소·목록·다른 매치) 켜지 않는다.
+  // 기다리는 사이 이 경기의 끄기가 왔으면(취소·뒤로·매치 취소) 켜지 않는다 — 켜고 나서 끄면 몇 초짜리 영상이 남는다.
+  if (rec && rec.cancelled) return;
+  // 기다리는 사이 그 매치를 떠났으면(목록·다른 매치) 켜지 않는다.
   // ⚠️ **id 로** 본다 — 팀 다시뽑기·PAR 저장 응답이 같은 매치를 새 객체로 갈아 끼운다(그때 켜기를 건너뛰면 안 된다).
   if ((selectedMatch ? String(selectedMatch._id) : '') !== startedFor) return;
   if (!_streamServerOnline) {
@@ -2349,6 +2359,8 @@ async function _startStreamOnce(forMatch, startedFor) {
     } else if (cats.length === 0 && selectedMatch && selectedMatch.division) {
       catShort = catLabel(selectedMatch.division) || 'Bridge';
     }
+    if (rec) rec.sent = true;
+    _startSeq++;
     const res = await fetch(`${STREAM_SERVER}/start-stream`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -2394,6 +2406,8 @@ async function _startStreamOnce(forMatch, startedFor) {
     } else {
       _updateStreamStatus('error');
       showToast('⚠️ 스트리밍 오류: ' + (data.error || '알 수 없는 오류'));
+      // 켜는 사이 /health 가 '방송 중' 을 읽어 _streamActive 를 켰을 수 있다 — 서버 답으로 다시 맞춘다.
+      setTimeout(() => checkStreamServer(), 300);
     }
   } catch(e) {
     _updateStreamStatus('error');
@@ -2410,12 +2424,17 @@ async function stopStream(opts) {
   // 켜는 중이면 다 켜진 뒤에 끈다(같은 매치거나 매치를 안 정한 끄기일 때). 다른 매치 끄기는 기다리지 않는다 —
   // 서버가 '다른 경기' 로 보고 그대로 둔다.
   const mid = (opts && opts.matchId) ? String(opts.matchId) : '';
-  const w = _starting;
-  if (w && (!mid || w.matchId === mid)) {
+  const ours = (s) => !mid || s.matchId === mid;
+  // 아직 /start-stream 을 안 보낸 켜기(앞 끄기를 기다리는 중)는 그 자리에서 거둔다 — 기다렸다 끄면
+  // 방송을 만들었다가 곧바로 끄는 셈이라 유튜브에 몇 초짜리 영상이 남는다(검토 2차).
+  _starts.forEach((s) => { if (!s.sent && ours(s)) s.cancelled = true; });
+  const sent = _starts.filter((s) => s.sent && ours(s));
+  if (sent.length) {
     const seq = _startSeq;
-    try { await w.p; } catch (_) {}
-    // 기다리는 사이 다시 켰으면(뒤로 갔다가 같은 경기를 다시 시작) 이 끄기는 낡았다 — 새로 켠 방송을 끄지 않는다
-    // (2026-10-08 검토). 다른 경기를 켰으면 서버가 넘겨받으며 앞 방송을 끈다.
+    await Promise.all(sent.map((s) => Promise.resolve(s.p).catch(() => {})));
+    // 기다리는 사이 **실제로** 다시 켰으면(뒤로 갔다가 같은 경기를 다시 시작) 이 끄기는 낡았다 — 새로 켠 방송을
+    // 끄지 않는다(2026-10-08 검토). 다른 경기를 켰으면 서버가 넘겨받으며 앞 방송을 끈다.
+    // ⚠️ 보내지 않고 끝난 켜기(서버 꺼짐·떠남)는 세지 않는다 — 세면 그 끄기만 버려져 방송이 남았다(검토 2차).
     if (_startSeq !== seq) return null;
   }
   if (_stopping) return _stopping;
@@ -2441,6 +2460,8 @@ async function _stopStreamOnce(opts) {
     });
     let data = null;
     try { data = await res.json(); } catch(_) {}
+    // JSON 이 아닌 오류 응답(500 등)을 '껐다' 로 읽지 않는다 — 아래 catch 로(오류 표시 · 서버 상태 다시 읽기).
+    if (res.ok === false && !data) throw new Error('HTTP ' + res.status);
     if (data && data.skipped) {
       // 지금 방송은 다른 경기다(다음 경기가 넘겨받았다 · 자유 라이브) — 끄지 않았다. LIVE 표시와
       // 앱 라이브 배너(isLive)를 건드리지 않고 서버 상태만 다시 읽는다.
@@ -2452,9 +2473,12 @@ async function _stopStreamOnce(opts) {
     _liveMode = ''; _liveEndsAt = null; _liveMatchId = ''; _liveMatchNum = 0;
     _hideWatchBtn();
     _updateStreamStatus(_streamServerOnline ? 'online' : 'offline');
-    showToast((data && data.warnings && data.warnings.length)
-      ? '⚠️ 스트리밍 종료 — 일부 오류: ' + data.warnings.join(' · ')
-      : '⏹️ 스트리밍 종료됨');
+    // 서버엔 방송이 없었다(idle — 켜기가 실패했는데 그 사이 /health 가 '방송 중' 을 읽은 경우) — '종료됨' 이라 하지 않는다.
+    if (!(data && data.idle)) {
+      showToast((data && data.warnings && data.warnings.length)
+        ? '⚠️ 스트리밍 종료 — 일부 오류: ' + data.warnings.join(' · ')
+        : '⏹️ 스트리밍 종료됨');
+    }
     // 앱 라이브 배너 끄기
     if (psToken && lg) {
       psFetch(`/league/update/${lg._id}`, {

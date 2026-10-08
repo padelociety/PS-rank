@@ -722,7 +722,9 @@ def stop_stream():
     with stream_op_lock:
         with state_lock:
             if not stream_state['active']:
-                return jsonify({'success': True, 'message': '스트리밍 중이 아니에요'})
+                # idle — 태블릿이 '방송이 없었다' 를 안다(켜기가 실패했는데 그 사이 /health 를 '방송 중' 으로 읽은
+                # 태블릿이 [무효] 를 '직접 붙이라' 고 하지 않게 · '종료됨' 이라 하지 않게).
+                return jsonify({'success': True, 'idle': True, 'message': '스트리밍 중이 아니에요'})
             bid = stream_state.get('broadcast_id')
             cur_mode = stream_state.get('mode') or 'league'
             cur_id = stream_state.get('match_id') or ''

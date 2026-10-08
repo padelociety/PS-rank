@@ -41,6 +41,7 @@ const body = (name) => {
     const fetch = ctx.fetch, psFetch = ctx.psFetch;
     function _hideWatchBtn() {} function _updateStreamStatus() {} function showToast() {} function checkStreamServer() {}
     ${src.match(/var _stopping = null;[^\n]*/)[0]}
+    ${src.match(/var _starts = \[\];[^\n]*/)[0]}
     ${src.match(/var _starting = null;[^\n]*/)[0]}
     ${src.match(/var _startSeq = 0;[^\n]*/)[0]}
     ${body('stopStream')}
@@ -87,6 +88,7 @@ const body = (name) => {
       const localStorage = ctx.localStorage, setTimeout = (fn) => fn();
       function _hideWatchBtn() {} function _updateStreamStatus() {} function showToast(m) { ctx.toasts.push(m); } function checkStreamServer() {}
       ${src.match(/var _stopping = null;[^\n]*/)[0]}
+    ${src.match(/var _starts = \[\];[^\n]*/)[0]}
     ${src.match(/var _starting = null;[^\n]*/)[0]}
     ${src.match(/var _startSeq = 0;[^\n]*/)[0]}
       ${body('stopStream')}

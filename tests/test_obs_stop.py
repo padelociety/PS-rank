@@ -178,5 +178,19 @@ c = OBSController({'obs': {}})
 c.client = DeadClient()
 check(c.wait_until_stopped(timeout=5) is True and ws.made == 1, '새 연결로 꺼진 걸 확인한다')
 
+print('\n[9] 죽은 연결 뒤 다시 붙을 때는 한 번만 — OBS 가 멈춰 있으면 붙기마다 기다려 태블릿 기다림(45초)을 넘긴다(검토 2차)')
+obs_controller.time.sleep = lambda s: None
+ws = FakeWS(None, fail=True); with_ws(ws)
+c = OBSController({'obs': {}})
+c.client = DeadClient()
+seen = []
+_orig_connect = c.connect
+def _spy(retries=3, delay=2.0):
+    seen.append(retries)
+    return _orig_connect(retries=retries, delay=delay)
+c.connect = _spy
+ok = c.stop_stream(timeout=5)
+check(ok is False and seen == [1] and ws.made == 1, '두 번째 붙기는 retries=1 로 한 번만 시도하고 False')
+
 print('\n' + ('전부 통과' if not fails else f'실패 {len(fails)}건'))
 sys.exit(1 if fails else 0)

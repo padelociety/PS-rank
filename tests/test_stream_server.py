@@ -184,6 +184,9 @@ def main():
     r = c.post('/stop-stream')
     check(r.get_json()['success'] and not ss.stream_state['active'], '/stop-stream')
     check(c.get('/health').get_json()['mode'] == '', '끝나면 mode 가 빈다')
+    j = c.post('/stop-stream', json={'void': True, 'matchId': 'mX'}).get_json()
+    check(j['success'] and j.get('idle') is True and 'voided' not in j,
+          '방송이 없을 때 끄기는 idle 로 답한다(태블릿이 [무효] 를 직접 붙이라고 하지 않게 — 검토 2차)')
 
     # 7) 워치독 — 시간이 지나면 끈다(태블릿 없이)
     c.post('/start-stream', json={'mode': 'free', 'durationMinutes': 180, 'teamA': ['김빠델', '이소사']})
