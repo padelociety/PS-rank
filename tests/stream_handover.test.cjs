@@ -31,7 +31,9 @@ function tablet(ctx) {
   // eslint-disable-next-line no-new-func
   const run = new Function('ctx', `
     let selectedMatch = ctx.match || null, selectedLeague = { _id: 'L1', name: 'PS iLeague 26S3' }, psToken = 'tok';
-    let teamA = ['임우재', '조준희'], teamB = ['이준우', '설정수'], teamAPhotos = [], teamBPhotos = [], teamAPar = [], teamBPar = [];
+    // 화면 이름(실명)과 방송 이름(onAir — c15)을 일부러 다르게 — 켜기가 어느 쪽을 보내는지 보이게.
+    let teamA = ['임우재', '조준희'], teamB = ['이준우', '설정수'], teamAPhotos = ['', 'https://x/p2.jpg'], teamBPhotos = [], teamAPar = [], teamBPar = [];
+    let teamAAir = ctx.airA || ['우재짱', '조준희'], teamBAir = ctx.airB || ['이준우', '설정수'];
     let matchNum = ctx.matchNum || 41;
     let _streamActive = !!ctx.active, _watchUrl = null, _liveMode = ctx.active ? 'league' : '', _liveEndsAt = null;
     let _streamServerOnline = true, _liveTitle = '', _liveTeams = { a: [], b: [] }, _liveMatchId = '', _liveMatchNum = 0;
@@ -42,7 +44,6 @@ function tablet(ctx) {
     const setTimeout = (fn) => { ctx.timers.push(fn); return 0; };
     function _hideWatchBtn() {} function _showWatchBtn() {} function renderHlRail() {} function renderFreeLive() {}
     function showToast(m) { ctx.toasts.push(m); }
-    function rosterOf() { return []; }
     function checkStreamServer() { ctx.healthChecks = (ctx.healthChecks || 0) + 1; }
     const document = { getElementById: (id) => (ctx.els[id] = ctx.els[id] || { textContent: '', style: {} }) };
     ${src.match(/var _stopping = null;[^\n]*/)[0]}
@@ -51,7 +52,7 @@ function tablet(ctx) {
     ${src.match(/var _starting = null;[^\n]*/)[0]}
     ${src.match(/var _startSeq = 0;[^\n]*/)[0]}
     ${['_updateStreamStatus', 'startStream', '_startStreamOnce', 'stopStream', '_stopStreamOnce', 'voidStreamOf',
-       'streamOfAll', 'streamOfGet', 'streamOfSet', 'streamOfDel'].map(body).join('\n')}
+       'streamOfAll', 'streamOfGet', 'streamOfSet', 'streamOfDel', 'rosterOf'].map(body).join('\n')}
     return {
       startStream, stopStream, voidStreamOf, streamOfGet, streamOfSet, streamOfDel, _updateStreamStatus,
       get: () => ({ _streamActive, _liveMatchId, _liveMatchNum, _liveMode, starting: _starting, starts: _starts }),
@@ -99,6 +100,11 @@ const mkCtx = (over) => {
     await tab.startStream();
     const start = JSON.parse(ctx.calls.find((c) => c[0] === '/start-stream')[1]);
     if (start.matchId !== 'm41' || start.matchNumber !== 41) throw new Error(JSON.stringify(start));
+    // 유튜브 제목·설명·썸네일·하이라이트는 **방송 이름**(c15) — 화면용 실명 배열이 아니다.
+    if (JSON.stringify(start.teamA) !== '["우재짱","조준희"]') throw new Error('teamA 가 방송 이름이 아니다: ' + JSON.stringify(start.teamA));
+    if (JSON.stringify((start.rosterA || []).map((r) => [r.name, r.photo])) !== '[["우재짱",""],["조준희","https://x/p2.jpg"]]') {
+      throw new Error('rosterA: ' + JSON.stringify(start.rosterA));
+    }
     await tab.stopStream({ matchId: 'm41' });
     const stop = JSON.parse(ctx.calls.find((c) => c[0] === '/stop-stream')[1]);
     if (stop.matchId !== 'm41' || 'void' in stop) throw new Error(JSON.stringify(stop));

@@ -121,9 +121,9 @@ const body = (name) => {
     if (!toasts.some((m) => m.includes('[무효] 를 붙여요'))) throw new Error('성공 안내 없음: ' + JSON.stringify(toasts));
   });
 
-  await t('빌드 배지 c14 · BUILD · SW v48 같이', () => {
-    if (!src.includes('<!--COURTBUILD:c14-->') || !src.includes('var BUILD = "c14";')) throw new Error('배지');
-    if (!sw.includes("const CACHE = 'ps-court-v48';")) throw new Error('SW');
+  await t('빌드 배지 c15 · BUILD · SW v49 같이', () => {
+    if (!src.includes('<!--COURTBUILD:c15-->') || !src.includes('var BUILD = "c15";')) throw new Error('배지');
+    if (!sw.includes("const CACHE = 'ps-court-v49';")) throw new Error('SW');
   });
 
   console.log(fails ? `\n실패 ${fails}건\n` : '\n전부 통과\n');
