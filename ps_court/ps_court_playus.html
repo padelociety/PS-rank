@@ -222,6 +222,14 @@ body {
   padding: clamp(4px,0.8vh,8px) 0;
   line-height: 1.3;
 }
+/* 방송 이름이 실명과 다를 때 — 화면은 실명, 그 아래 작게 '📺 닉네임'(TV·유튜브에 나가는 이름) */
+.air-hint {
+  font-size: clamp(11px,1.6vw,14px);
+  font-weight: 700;
+  color: var(--text-dim);
+  line-height: 1.3;
+  margin-top: 2px;
+}
 .vs-box {
   font-family: 'IBM Plex Sans KR',system-ui,sans-serif;
   font-size: clamp(24px,4vw,36px);
@@ -762,7 +770,7 @@ body {
       <div id="fb-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:4px">🔴 Firebase 연결 중...</div>
       <!-- 빌드 표시 — 태블릿이 최신 파일을 받았는지 눈으로 확인하는 용도.
            배포할 때마다 아래 COURTBUILD 와 스크립트의 BUILD 를 함께 올린다. -->
-      <!--COURTBUILD:c14--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c14</div>
+      <!--COURTBUILD:c15--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c15</div>
       <div class="step-indicator" id="step-label">STEP 1 / 4</div>
       <div class="step-dots">
         <div class="step-dot active" id="dot-1"></div>
@@ -919,11 +927,15 @@ let allMatches = [];        // [{ m, lg }] — 선택 가능한 매치들
 let leagueMatchesById = {}; // leagueId -> 그 리그의 **전체** 매치(완료 포함) — 페어 기록 계산용
 let selectedMatch = null;   // 선택한 매치(populate된 players/teamA/teamB)
 let selectedLeague = null;  // 선택한 매치의 리그
-let teamA = [], teamB = []; // 이름 배열 (점수/Firebase 표시용)
+let teamA = [], teamB = []; // 이름 배열 — **이 화면용(실명)**. 코트의 선수·운영자가 보는 이름
+// 방송 이름 배열 — 바깥으로 나가는 곳(Firebase TV·OBS · 앱 라이브 카드 · 유튜브 제목·설명·썸네일 · 하이라이트)은
+// 전부 이걸 쓴다. 회원이 '방송 이름 = 닉네임' 을 고르면 닉네임이 들어 있다(2026-10-10 · c15 · psAirName).
+let teamAAir = [], teamBAir = [];
 let teamAIds = [], teamBIds = [];
 let teamAPar = [], teamBPar = []; // 각 선수 PAR 객체 (표시용)
 // 프로필 사진 URL — **유튜브 라이브 썸네일**에 쓴다(그 경기 선수 얼굴이 목록에 뜨게).
 // 백엔드가 리그 매치 응답에서 profile 을 전체 URL 로 내려준다(LeagueMatch.toJSON).
+// ⚠️ 방송용이라 닉네임으로 나가는 사람은 빈 칸이다(psAirPhoto — 썸네일이 닉네임 첫 글자를 그린다).
 let teamAPhotos = [], teamBPhotos = [];
 let sets = [{a:0, b:0}];
 let curSet = 0;
@@ -973,6 +985,34 @@ function psName(u) {
   if (typeof u === 'string') return u;
   const ko = `${u.lastNameKorean || ''}${u.firstNameKorean || ''}`.trim();
   return ko || `${u.firstName || ''} ${u.lastName || ''}`.trim() || '선수';
+}
+// ── 방송 이름 (2026-10-10 · c15) ──
+// 사용자: "리그 썸네일에 이름 나오자나. 사람들마다 이름 노출하는거 꺼려할수도 있어서. 닉네임으로 선택하면
+// 닉네임이 보여지게 할 수 있어?" — 회원이 앱 '내 정보 → 방송 이름' 에서 실명/닉네임을 고른다.
+// 서버가 리그 매치 응답의 사람마다 `onAir: { name, showPhoto, mode }` 를 붙인다(backend utils/onAirName).
+//   · 닉네임인데 닉네임이 비었으면 서버가 '선수' 를 준다 — **실명으로 되돌아가지 않는다**(여기서도 실명을 채우지 않는다)
+//   · onAir 가 없으면(옛 서버) 예전 규칙(psName — 실명) 그대로
+// ⚠️ 이 태블릿 **화면**은 실명 그대로다(코트의 선수·운영자) — 바깥으로 나가는 곳만 이걸 쓴다(teamAAir).
+function psAirName(u) {
+  return (u && typeof u === 'object' && u.onAir && String(u.onAir.name || '').trim()) || psName(u);
+}
+// 방송용 사진 — 닉네임으로 나가는 사람은 사진도 빠진다(얼굴이 나가면 이름을 가린 뜻이 없다).
+function psAirPhoto(u) {
+  return (u && u.onAir && u.onAir.showPhoto === false) ? '' : psPhoto(u);
+}
+// 화면은 실명 — 방송 이름이 다르면 그 아래 작게 '📺 닉네임'(운영자가 바깥에 무엇이 나가는지 안다).
+// ⚠️ 닉네임은 회원이 적은 글자라 HTML 로 풀지 않는다.
+function psEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function airHint(real, air) {
+  const a = String(air || '').trim();
+  return (a && a !== String(real || '').trim()) ? `<div class="air-hint">📺 ${psEsc(a)}</div>` : '';
+}
+// 팀 한 줄 — 누구든 방송 이름이 다르면 TV·OBS 에 나가는 그대로('A / B') 한 줄.
+function airTeamHint(real, air) {
+  return (air || []).some((a, i) => String(a || '').trim() !== String((real || [])[i] || '').trim())
+    ? `<div class="air-hint">📺 ${psEsc((air || []).join(' / '))}</div>` : '';
 }
 function psId(u) { return u && u._id ? u._id : (u || ''); }
 // PAR 티어 색상 (백엔드 parHelper TIER_COLOR/GRADIENT 동일)
@@ -1150,7 +1190,7 @@ async function selectMatch(idx) {
   selectedLeague = row.lg;
   const pending = String(row.m._id);
   // 항상 초기화 — 이전 매치 팀이 남아있으면 hasTeams 판단 오류 발생
-  teamA = []; teamB = []; teamAIds = []; teamBIds = []; teamAPar = []; teamBPar = [];
+  teamA = []; teamB = []; teamAAir = []; teamBAir = []; teamAIds = []; teamBIds = []; teamAPar = []; teamBPar = [];
   teamAPhotos = []; teamBPhotos = [];
   sets = [{a:0,b:0}]; curSet = 0; phase = 'playing';
   parDecidedFor = null; parPrevState = null; parError = ''; parBusy = false; teamsFresh = false;
@@ -1212,7 +1252,7 @@ function showTeamStep() {
     renderStep();
     renderTeamDisplay(teamsFresh);
   } else {
-    teamA = []; teamB = []; teamAIds = []; teamBIds = []; teamAPar = []; teamBPar = [];
+    teamA = []; teamB = []; teamAAir = []; teamBAir = []; teamAIds = []; teamBIds = []; teamAPar = []; teamBPar = [];
     teamAPhotos = []; teamBPhotos = [];
     renderStep();
     document.getElementById('team-display').innerHTML =
@@ -1346,15 +1386,19 @@ function renderPairInfo() {
   </div>`;
 }
 
+// 팀을 화면·방송 배열로 — **팀이 바뀌는 자리는 전부 이걸 부른다**(손으로 따로 채우면 방송 배열이 빠진다).
 function applyTeams(aArr, bArr) {
   teamA = (aArr || []).map(psName);
   teamB = (bArr || []).map(psName);
+  // 바깥으로 나가는 이름·사진 — 회원이 고른 방송 이름(onAir). 화면(teamA)은 실명 그대로.
+  teamAAir = (aArr || []).map(psAirName);
+  teamBAir = (bArr || []).map(psAirName);
   teamAIds = (aArr || []).map(psId);
   teamBIds = (bArr || []).map(psId);
   teamAPar = (aArr || []).map(u => (u && u.par) || null);
   teamBPar = (bArr || []).map(u => (u && u.par) || null);
-  teamAPhotos = (aArr || []).map(psPhoto);
-  teamBPhotos = (bArr || []).map(psPhoto);
+  teamAPhotos = (aArr || []).map(psAirPhoto);
+  teamBPhotos = (bArr || []).map(psAirPhoto);
 }
 
 // 프로필 사진 URL. 파일 이름만 오던 시절(2026-09 이전 백엔드)에도 안 깨지게 —
@@ -1364,8 +1408,10 @@ function psPhoto(u) {
   return /^https?:\/\//.test(v) ? v : '';
 }
 
-// 썸네일용 선수 상세 — 이름·사진·등급을 한 벌로. 이름 배열(teamA)은 **그대로 둔다**:
-// 점수판·Firebase·제목이 전부 그걸 쓰고, 구버전 stream_server 도 이름만 읽는다.
+// 썸네일용 선수 상세 — 이름·사진·등급을 한 벌로. 이름 배열(teamAAir)은 **그대로 둔다**:
+// TV 점수판(Firebase)·유튜브 제목이 전부 그걸 쓰고, 구버전 stream_server 도 이름만 읽는다.
+// ⚠️ 방송 이름(teamAAir)·방송 사진(teamAPhotos)으로 부른다 — 실명 배열(teamA)을 넘기면 닉네임을 고른 회원의
+//    실명이 썸네일에 찍힌다.
 function rosterOf(names, photos, pars) {
   return (names || []).map((name, i) => ({
     name,
@@ -1588,12 +1634,12 @@ function renderTeamDisplay(fresh) {
     <div class="team-display">
       <div class="team-box team-a">
         <div class="team-label">TEAM A</div>
-        ${teamA.map((p,i)=>`<div class="team-player">${p}${parTag(teamAPar[i])}</div>`).join('')}
+        ${teamA.map((p,i)=>`<div class="team-player">${p}${parTag(teamAPar[i])}${airHint(p, teamAAir[i])}</div>`).join('')}
       </div>
       <div class="vs-box">VS</div>
       <div class="team-box team-b">
         <div class="team-label">TEAM B</div>
-        ${teamB.map((p,i)=>`<div class="team-player">${p}${parTag(teamBPar[i])}</div>`).join('')}
+        ${teamB.map((p,i)=>`<div class="team-player">${p}${parTag(teamBPar[i])}${airHint(p, teamBAir[i])}</div>`).join('')}
       </div>
     </div>`;
   renderPairInfo();
@@ -1617,8 +1663,9 @@ function pushToFirebase(opts) {
   const title = matchNum > 0 ? `${lgName} · Match ${matchNum}` : lgName;
   window.syncToFirebase({
     title,
-    nameA: teamA.join(' / ') || 'Team A',
-    nameB: teamB.join(' / ') || 'Team B',
+    // ⚠️ 방송 이름(teamAAir) — 코트 TV·OBS 오버레이는 바깥으로 나간다. 실명 배열(teamA)로 채우지 않는다.
+    nameA: teamAAir.join(' / ') || 'Team A',
+    nameB: teamBAir.join(' / ') || 'Team B',
     setsA, setsB, gameA, gameB,
     fresh: !!(opts && opts.fresh),
     // 리그가 정한 40-40 규칙을 스코어보드로 — 26S2 엔 이 값이 없어서 심판이 기기마다
@@ -1643,8 +1690,9 @@ async function broadcastLiveToApp(title, setsA, setsB, gameA, gameB) {
       body: JSON.stringify({
         matchId: selectedMatch._id,
         title,
-        a: { name: teamA.join(' / '), game: gameA, point: 0, sets: setsA, serving: false },
-        b: { name: teamB.join(' / '), game: gameB, point: 0, sets: setsB, serving: false },
+        // 앱 라이브 카드도 방송이다(리그 회원 누구나 본다) — 방송 이름으로.
+        a: { name: teamAAir.join(' / '), game: gameA, point: 0, sets: setsA, serving: false },
+        b: { name: teamBAir.join(' / '), game: gameB, point: 0, sets: setsB, serving: false },
       }),
     });
   } catch (_) { /* 휘발성 — 실패 무시 */ }
@@ -1668,7 +1716,7 @@ function renderScoreBoard() {
     <div class="set-tabs">${tabsHtml}</div>
     <div class="score-board">
       <div class="score-side side-a">
-        <div class="score-side-name">${teamA.join('<br>')}</div>
+        <div class="score-side-name">${teamA.join('<br>')}${airTeamHint(teamA, teamAAir)}</div>
         <div class="score-big" id="score-a">${sets[cs].a}</div>
         <div class="score-btns">
           <button class="score-btn" onclick="adjustScore(${cs},'a',-1)">−</button>
@@ -1676,7 +1724,7 @@ function renderScoreBoard() {
         </div>
       </div>
       <div class="score-side side-b">
-        <div class="score-side-name">${teamB.join('<br>')}</div>
+        <div class="score-side-name">${teamB.join('<br>')}${airTeamHint(teamB, teamBAir)}</div>
         <div class="score-big" id="score-b">${sets[cs].b}</div>
         <div class="score-btns">
           <button class="score-btn" onclick="adjustScore(${cs},'b',-1)">−</button>
@@ -1941,14 +1989,9 @@ async function replayDifferentPair() {
     const prevPar = parStateOf(selectedMatch);
     selectedMatch = m;
     matchNum = (m.matchNumber && m.matchNumber > 0) ? m.matchNumber : 0;
-    teamA = (m.teamA || []).map(u => psName(u));
-    teamB = (m.teamB || []).map(u => psName(u));
-    teamAIds = (m.teamA || []).map(u => String(u._id || u));
-    teamBIds = (m.teamB || []).map(u => String(u._id || u));
-    teamAPar = (m.teamA || []).map(u => (u && u.par) || null);
-    teamBPar = (m.teamB || []).map(u => (u && u.par) || null);
-    teamAPhotos = (m.teamA || []).map(psPhoto);
-    teamBPhotos = (m.teamB || []).map(psPhoto);
+    // ⚠️ applyTeams 하나로 — 예전엔 여기서 배열을 손으로 채웠다. 그대로 두면 방송 이름(teamAAir)이 안 바뀌어
+    //    다시하기 경기만 TV·유튜브에 **앞 경기 사람들 이름**이 나간다(2026-10-10 · c15).
+    applyTeams(m.teamA, m.teamB);
     // 스코어 초기화 후 **등급(PAR) 반영(STEP 2)** 부터 — 새 매치는 서버 기본(반영 안 함)으로 만들어진다.
     // ⚠️ 2026-10-05/07: 직전 매치의 'PAR 반영' 이 화면에 남으면 켜진 줄 알고 치는데 서버엔 '반영 안 함' 이라
     //    조용히 빠졌다(26S3 #36 → #37 · 사용자 신고 2026-10-07).
@@ -2130,7 +2173,7 @@ function resetAll() {
   stopStream(selectedMatch ? { matchId: selectedMatch._id } : undefined); // ⏹️ 처음으로 돌아갈 때 스트리밍 종료
   hideScoreboard(); // 📴 스코어보드 오버레이 숨김
   curStep=1; selectedMatch=null; selectedLeague=null;
-  teamA=[]; teamB=[]; teamAIds=[]; teamBIds=[]; teamAPar=[]; teamBPar=[];
+  teamA=[]; teamB=[]; teamAAir=[]; teamBAir=[]; teamAIds=[]; teamBIds=[]; teamAPar=[]; teamBPar=[];
   teamAPhotos=[]; teamBPhotos=[];
   sets=[{a:0,b:0}]; curSet=0; matchNum=0;
   parDecidedFor=null; parPrevState=null; parError=''; parBusy=false; teamsFresh=false;
@@ -2370,10 +2413,12 @@ async function _startStreamOnce(forMatch, startedFor, rec) {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        teamA, teamB,
+        // ⚠️ 방송 이름(teamAAir) — 유튜브 제목·설명·썸네일과 하이라이트(서버가 이 이름을 기억해 클립에 단다)가
+        //    전부 여기서 나간다. 실명 배열(teamA)은 이 화면 전용이다(2026-10-10).
+        teamA: teamAAir, teamB: teamBAir,
         // 썸네일용 상세 — 구버전 stream_server 는 이 두 칸을 그냥 무시한다.
-        rosterA: rosterOf(teamA, teamAPhotos, teamAPar),
-        rosterB: rosterOf(teamB, teamBPhotos, teamBPar),
+        rosterA: rosterOf(teamAAir, teamAPhotos, teamAPar),
+        rosterB: rosterOf(teamBAir, teamBPhotos, teamBPar),
         league: (selectedLeague && selectedLeague.name) || '',
         category: catShort,
         matchNumber: matchNum,
@@ -2751,7 +2796,7 @@ if ('serviceWorker' in navigator) {
 -->
 <script>
 (function () {
-  var BUILD = "c14";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
+  var BUILD = "c15";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
   var el = document.getElementById('app-build');
   if (el) el.textContent = '앱 ' + BUILD;
 

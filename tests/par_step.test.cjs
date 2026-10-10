@@ -30,7 +30,7 @@ const body = (name) => {
 
 const FNS = ['selectMatch', 'fetchFreshMatch', 'syncMatchRow', 'showTeamStep', 'parApplyOn', 'parStateOf',
   'parApplyLocked', 'renderParToggle', 'goParStep', 'renderParStep', 'chooseParApply', 'replayDifferentPair',
-  'goToScore', 'goBack', 'applyTeams', 'psPhoto'];
+  'goToScore', 'goBack', 'applyTeams', 'psPhoto', 'psName', 'psAirName', 'psAirPhoto'];
 
 // 가짜 서버 — 매치 저장소 하나. 태블릿이 부르는 주소만.
 function makeServer(matches) {
@@ -57,9 +57,14 @@ function makeServer(matches) {
       if (/\/matches\/from-players$/.test(url)) {
         const b = JSON.parse(o.body);
         const id = 'N' + (nextId++);
+        // 서버가 사람마다 onAir(방송 이름)를 붙인다 — 한 명은 닉네임(사진 없음), 한 명은 실명, 둘은 옛 서버처럼 없음.
         const row = { _id: id, matchType: 'Friendly', parForced: false, status: 'scheduled', sets: [],
-          teamA: [{ _id: b.players[0], name: 'p0' }, { _id: b.players[2], name: 'p2' }],
-          teamB: [{ _id: b.players[1], name: 'p1' }, { _id: b.players[3], name: 'p3' }], players: [] };
+          teamA: [{ _id: b.players[0], lastNameKorean: '임', firstNameKorean: '우재', profile: 'https://x/p0.jpg',
+                    onAir: { name: '우재짱', showPhoto: false, mode: 'nickname' } },
+                  { _id: b.players[2], lastNameKorean: '조', firstNameKorean: '준희', profile: 'https://x/p2.jpg',
+                    onAir: { name: '조준희', showPhoto: true, mode: 'real' } }],
+          teamB: [{ _id: b.players[1], lastNameKorean: '이', firstNameKorean: '준우' },
+                  { _id: b.players[3], lastNameKorean: '설', firstNameKorean: '정수' }], players: [] };
         db.set(id, row);
         return { data: clone(row) };
       }
@@ -87,7 +92,7 @@ function makeTablet(srv, rows, opts = {}) {
     const document = ctx.document;
     let curStep = 1, allMatches = ctx.rows, leagueMatchesById = {};
     let selectedMatch = null, selectedLeague = null;
-    let teamA = [], teamB = [], teamAIds = [], teamBIds = [], teamAPar = [], teamBPar = [], teamAPhotos = [], teamBPhotos = [];
+    let teamA = [], teamB = [], teamAAir = [], teamBAir = [], teamAIds = [], teamBIds = [], teamAPar = [], teamBPar = [], teamAPhotos = [], teamBPhotos = [];
     let sets = [{a:0,b:0}], curSet = 0, phase = 'playing', matchNum = 0;
     ${src.match(/let parDecidedFor = null;[^\n]*/)[0]}
     ${src.match(/let parPrevState = null;[^\n]*/)[0]}
@@ -104,7 +109,6 @@ function makeTablet(srv, rows, opts = {}) {
     function renderStep() { ctx.steps.push(curStep); }
     function renderTeamDisplay(fresh) { ctx.teamFresh = fresh; }
     function renderPairInfo() {}
-    function psName(u) { return (u && (u.name || u.nickName)) || '선수'; }
     function psId(u) { return String((u && u._id) || u || ''); }
     function parTag() { return ''; }
     async function refreshLeagueMatches() {}
@@ -115,7 +119,7 @@ function makeTablet(srv, rows, opts = {}) {
     ${FNS.map(body).join('\n')}
     return {
       selectMatch, chooseParApply, replayDifferentPair, goToScore, goBack, goParStep,
-      get: () => ({ curStep, selectedMatch, sets, parDecidedFor, parPrevState, parError, teamA, teamB }),
+      get: () => ({ curStep, selectedMatch, sets, parDecidedFor, parPrevState, parError, teamA, teamB, teamAAir, teamBAir, teamAIds, teamBIds, teamAPhotos }),
       done: (m, lg) => { selectedMatch = m; selectedLeague = lg; applyTeams(m.teamA, m.teamB); curStep = 5; },
     };
   `);
@@ -123,7 +127,8 @@ function makeTablet(srv, rows, opts = {}) {
 }
 
 const LG = { _id: 'L1', name: '26S3' };
-const P = (n) => ({ _id: 'u' + n, name: '선수' + n });
+// 이름은 진짜 psName 이 읽는 모양 그대로(lastNameKorean+firstNameKorean) — 가짜 psName 으로 덮지 않는다(c15).
+const P = (n) => ({ _id: 'u' + n, lastNameKorean: '김', firstNameKorean: '선수' + n });
 const base = (over) => ({ _id: 'M1', status: 'scheduled', sets: [], players: [P(1), P(2), P(3), P(4)],
   teamA: [P(1), P(2)], teamB: [P(3), P(4)], ...over });
 const curBtn = (html) => (/class="par-opt (on|off) current"/.exec(html) || [])[1] || null;
@@ -229,6 +234,11 @@ const curBtn = (html) => (/class="par-opt (on|off) current"/.exec(html) || [])[1
     assert(srv.db.get(s.selectedMatch._id).parForced === true, '서버에 안 적혔다 — 화면만 켜졌다');
     assert(srv.calls.some(c => /par-apply$/.test(c[1]) && c[2].includes('true')), 'par-apply 를 안 불렀다');
     assert(tab.ctx.teamFresh === true, "팀 배지가 '새 팀' 이 아니다");
+    // 화면은 실명, 방송은 onAir(c15) — 닉네임을 고른 사람은 닉네임 + 사진 없음, onAir 가 없으면 실명.
+    assert(JSON.stringify(s.teamA) === '["임우재","조준희"]', '화면 이름(실명): ' + JSON.stringify(s.teamA));
+    assert(JSON.stringify(s.teamAAir) === '["우재짱","조준희"]', '방송 이름: ' + JSON.stringify(s.teamAAir));
+    assert(JSON.stringify(s.teamBAir) === '["이준우","설정수"]', 'onAir 없는 사람은 실명: ' + JSON.stringify(s.teamBAir));
+    assert(JSON.stringify(s.teamAPhotos) === '["","https://x/p2.jpg"]', '닉네임은 사진 없음: ' + JSON.stringify(s.teamAPhotos));
   });
 
   await t('⑧-2 직전이 반영 안 함이면 반영 안 함으로 이어받는다', async () => {
@@ -250,6 +260,9 @@ const curBtn = (html) => (/class="par-opt (on|off) current"/.exec(html) || [])[1
     const html = tab.ctx.els['par-step'].innerHTML;
     assert(curBtn(html) === 'off', "새 매치의 '지금' 이 반영 안 함이 아니다");
     assert(html.includes('옛 설정이라 이어받지 않았어요'), '안내가 없다');
+    // STEP 2 에 남아도 팀 배열은 **새 매치** 것 — 방송 이름까지(손으로 채우던 시절엔 방송 배열이 앞 경기 것으로 남았다 · c15)
+    assert(JSON.stringify(s.teamAAir) === '["우재짱","조준희"]', '방송 이름이 앞 경기 것: ' + JSON.stringify(s.teamAAir));
+    assert(JSON.stringify(s.teamAIds) === '["u1","u3"]' && JSON.stringify(s.teamBIds) === '["u2","u4"]', 'id: ' + JSON.stringify([s.teamAIds, s.teamBIds]));
     await tab.goToScore();
     assert(tab.get().curStep === 2, '고르지 않고 시작했다');
     await tab.chooseParApply(true);
@@ -309,10 +322,10 @@ const curBtn = (html) => (/class="par-opt (on|off) current"/.exec(html) || [])[1
     assert(!body('selectMatch').includes('doAssignTeams'), '매치를 고르자마자 팀을 뽑는다');
   });
 
-  await t('빌드 배지 c14 · BUILD · SW v48 같이', () => {
+  await t('빌드 배지 c15 · BUILD · SW v49 같이', () => {
     const sw = fs.readFileSync(path.join(__dirname, '..', 'ps_court', 'ps_court_sw.js'), 'utf8');
-    assert(src.includes('<!--COURTBUILD:c14-->') && src.includes('var BUILD = "c14";') && src.includes('>앱 c14</div>'), '배지');
-    assert(sw.includes("const CACHE = 'ps-court-v48';"), 'SW');
+    assert(src.includes('<!--COURTBUILD:c15-->') && src.includes('var BUILD = "c15";') && src.includes('>앱 c15</div>'), '배지');
+    assert(sw.includes("const CACHE = 'ps-court-v49';"), 'SW');
   });
 
   console.log(fails ? `\n실패 ${fails}건\n` : '\n전부 통과\n');

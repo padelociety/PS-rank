@@ -9,6 +9,7 @@
 왜 (2026-10-01): 서버가 리그 매치 응답의 선수 사진을 파일 이름으로만 보내서(`attachParToMatch` 가 toJSON 을 건너뛰었다)
 태블릿이 '사진 없음' 으로 보고 썸네일에 **이니셜**을 그렸다. 서버를 고쳐도 이미 올라간 썸네일은 그대로라, 여기서 다시 만든다.
 - 사진·이름·등급은 서버(`/api/league/:id/matches`, 로그인 불필요)에서 읽는다. 사진이 파일 이름으로 와도 URL 로 만든다.
+- 이름·사진은 회원이 고른 **방송 이름**(`onAir` — 2026-10-10)을 따른다: 닉네임을 고른 회원은 닉네임 + 사진 없음(이니셜).
 - 카테고리는 리그 부문 이름 그대로(Gold+ …) — 여러 부문이면 Bridge. 태블릿 c7 과 같은 규칙.
 - `--video` 를 주면 그 방송/영상에 바로 올린다(stream_server 와 같은 YouTube 인증 · config.json).
   안 주면 JPG 파일만 만들고 경로를 찍는다 — YouTube Studio 에서 손으로 올려도 된다.
@@ -43,9 +44,21 @@ def get(path):
     return r.json().get('data')
 
 
+def _on_air(u):
+    """서버가 사람마다 붙이는 방송 이름 `onAir: {name, showPhoto, mode}` (2026-10-10). 없으면(옛 서버) {}."""
+    v = u.get('onAir') if isinstance(u, dict) else None
+    return v if isinstance(v, dict) else {}
+
+
 def name_of(u):
+    """썸네일에 찍을 이름 — 회원이 고른 **방송 이름**(onAir.name)이 먼저다(태블릿 c15 psAirName 과 같은 규칙).
+    닉네임을 골랐는데 닉네임이 비었으면 서버가 '선수' 를 준다 — 여기서 실명으로 되돌리지 않는다.
+    onAir 가 없으면(옛 서버) 예전처럼 실명."""
     if not isinstance(u, dict):
         return ''
+    air = str(_on_air(u).get('name') or '').strip()
+    if air:
+        return air
     ko = f"{u.get('lastNameKorean') or ''}{u.get('firstNameKorean') or ''}".strip()
     if ko:
         return ko
@@ -53,6 +66,9 @@ def name_of(u):
 
 
 def photo_of(u):
+    # 닉네임으로 나가는 사람은 사진도 빠진다(onAir.showPhoto False) — 썸네일이 닉네임 첫 글자 이니셜을 그린다.
+    if _on_air(u).get('showPhoto') is False:
+        return ''
     p = str((u or {}).get('profile') or '').strip() if isinstance(u, dict) else ''
     if not p:
         return ''

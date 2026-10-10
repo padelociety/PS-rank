@@ -30,10 +30,10 @@ t("make_thumbnail --video: 'live' 는 stream_server /status · 못 알아본 값
   if (!mk.includes('if not vid:')) throw new Error('검증');
 });
 t('설명 해시태그에 #파델', () => { eq((ss.match(/#빠델 #파델 /g) || []).length, 2); });
-t('빌드 배지 c14 · BUILD · SW v48 같이', () => {
-  if (!src.includes('<!--COURTBUILD:c14-->') || !src.includes('var BUILD = "c14";')) throw new Error('배지');
+t('빌드 배지 c15 · BUILD · SW v49 같이', () => {
+  if (!src.includes('<!--COURTBUILD:c15-->') || !src.includes('var BUILD = "c15";')) throw new Error('배지');
   const sw = fs.readFileSync(path.join(__dirname, '..', 'ps_court', 'ps_court_sw.js'), 'utf8');
-  if (!sw.includes("const CACHE = 'ps-court-v48';")) throw new Error('SW');
+  if (!sw.includes("const CACHE = 'ps-court-v49';")) throw new Error('SW');
 });
 console.log(fail ? `\n${fail}개 실패` : '\n전부 통과');
 process.exit(fail ? 1 : 0);
