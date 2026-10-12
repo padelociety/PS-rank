@@ -327,7 +327,8 @@ body {
   user-select: none;
 }
 .par-toggle.on  { border-color: rgba(var(--green-rgb),0.45); background: rgba(var(--green-rgb),0.06); }
-/* 꺼짐 = **기본값**(2026-09-23 — 새 매치는 PAR 미반영으로 시작한다). 빨강이면 매 경기 오류처럼 보인다. */
+/* 꺼짐은 오류가 아니다 — 리그 설정이 '끔' 이면 새 매치가 꺼진 채로 온다(2026-10-11 · 켬 리그는 켜진 채로).
+   빨강이면 끔 리그는 매 경기 오류처럼 보인다. */
 .par-toggle.off { border-color: var(--border); background: var(--surface2); }
 .par-toggle.busy { opacity: .55; pointer-events: none; }
 .par-toggle-text { flex: 1; min-width: 0; }
@@ -616,6 +617,19 @@ body {
   font-weight: 700;
   line-height: 2;
 }
+/* 완료 화면의 등급(PAR) 한 줄(c16) — 저장한 뒤 서버에서 다시 읽은 값. 서버가 말이 없으면(옛 서버) 칸째 숨는다. */
+.done-par {
+  display: none;
+  max-width: min(480px,100%);
+  margin: 0 auto;
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  font-size: clamp(14px,2vw,17px);
+  font-weight: 800;
+  line-height: 1.5;
+}
+.done-par.on  { display: block; color: var(--green); background: rgba(var(--green-rgb),0.10); border: 1px solid rgba(var(--green-rgb),0.45); }
+.done-par.off { display: block; color: var(--warm);  background: rgba(var(--warm-rgb),0.08);  border: 1px solid rgba(var(--warm-rgb),0.55); }
 
 /* 로딩 */
 .loading-msg {
@@ -770,7 +784,7 @@ body {
       <div id="fb-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:4px">🔴 Firebase 연결 중...</div>
       <!-- 빌드 표시 — 태블릿이 최신 파일을 받았는지 눈으로 확인하는 용도.
            배포할 때마다 아래 COURTBUILD 와 스크립트의 BUILD 를 함께 올린다. -->
-      <!--COURTBUILD:c15--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c15</div>
+      <!--COURTBUILD:c16--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c16</div>
       <div class="step-indicator" id="step-label">STEP 1 / 4</div>
       <div class="step-dots">
         <div class="step-dot active" id="dot-1"></div>
@@ -844,6 +858,7 @@ body {
       <div class="done-title">경기 저장 완료!</div>
       <div class="done-sub" id="done-sub"></div>
       <div class="done-result" id="done-result"></div>
+      <div class="done-par" id="done-par"></div>
     </div>
   </div>
 
@@ -1183,6 +1198,8 @@ function renderMatchList() {
 //    바꾸거나 경기를 이어서 치면 카드가 옛 값을 들고 있고, 그걸로 스위치를 그리면 '켜짐' 으로 보이는데
 //    서버엔 '반영 안 함' 이 적혀 저장 때 조용히 빠진다(사용자 신고: "par 켜져있는 리그 매치 이어서 할때
 //    Par 가 켜져있는데 반영이 안되네?"). 서버가 정하는 값은 서버에서 읽어 그린다.
+//    2026-10-11 부터는 웹어드민이 리그 'PAR 반영 기본' 을 바꾸면 **다가오는 모집 매치도 서버에서 바뀐다**
+//    (par-default-sync) — 목록 사본이 낡는 길이 하나 더 생겼다.
 async function selectMatch(idx) {
   const row = allMatches[idx];
   if (!row) return;
@@ -1427,8 +1444,11 @@ function rosterOf(names, photos, pars) {
 // 정하면 어떨까? **경쟁이라고 칭하지 말고 Par 반영할껀지** 선택하고 랜덤 팀 선택을 하는거지."
 // 사용자 2026-10-07: "par 선택하는거 팀 선택 전으로 부탁해" → **STEP 2** 가 됐다(팀 배정은 STEP 3).
 //
-// ⚠️ **새 매치는 '반영 안 함' 으로 들어온다**(사용자 결정 2026-09-23 — 서버
-//    `utils/leagueMatchType.NEW_MATCH_DEFAULT`). 반영할 경기만 여기서 **켠다**.
+// ⚠️ **새 매치는 리그 설정으로 들어온다**(사용자 결정 2026-10-11 — *"리그 PAR 켜놓은걸 기준으로 하자."*
+//    서버 `utils/leagueMatchType.newMatchParFields`). 웹어드민 리그 폼의 'PAR 반영 기본' 이 켬이면
+//    `Competitive` + `parForced`(= 여기의 'on'), 끔이면 `Friendly`(= 'off'). '지금' 표시는 그 서버 값이다.
+//    ⚠️ 그래도 **STEP 2 에서 한 번은 누른다** — 기본값이 맞든 틀리든 코트에서 확인하고 시작한다(`goToScore` 가 막는다).
+//    2026-09-23 ~ 10-10 에는 리그와 무관하게 '반영 안 함' 으로 들어왔다(옛 `NEW_MATCH_DEFAULT` — 없앴다).
 //    화면에서만 끄지 않는다 — 서버 값을 그대로 그린다(갈라지면 끈 줄 알았던 경기가 PAR 에 들어간다).
 // ⚠️ **고르면 서버에 적고, 서버가 그 값을 돌려줬을 때만 넘어간다.** 실패하면 화면은 그대로고 이유를 적는다.
 // ⚠️ **'경쟁' 이라고 쓰지 않는다.** 코트에 선 사람에게 필요한 말은 '내 등급이 움직이나' 다.
@@ -1443,10 +1463,12 @@ function parApplyOn() {
 }
 
 // 서버가 저장할 때 실제로 무엇을 할지 — 백엔드 `utils/leagueMatchType` 의 countsForPar · parForcedOn 과 같은 규칙.
-//   'off'    친선(Friendly) — 반영 안 함
-//   'on'     태블릿에서 켠 경기(parForced) — **혼성·브릿지여도** 반영(2026-10-01 규칙)
-//   'legacy' 경쟁(또는 빈 값)인데 태블릿에서 고른 적이 없다(자동 대진·옛 앱·옛 매치) —
-//            반영은 하지만 **혼성·브릿지면 빠진다.** 예전 태블릿은 이걸 그냥 '반영' 으로 그려서
+//   'off'    친선(Friendly) — 반영 안 함(리그 'PAR 반영 기본' 끔으로 만들어진 매치 · STEP 2 에서 '반영 안 함')
+//   'on'     parForced — **혼성·브릿지여도** 반영(2026-10-01 규칙). 2026-10-11 부터는 STEP 2 에서 켠 경기만이
+//            아니라 **리그 'PAR 반영 기본' 켬으로 새로 만들어진 매치 전부**(자동 대진 · 모집 · 다시하기 · 옛 앱이
+//            '경쟁' 으로 만든 것 — 백엔드 newMatchParFields)가 처음부터 이 값이다.
+//   'legacy' 경쟁(또는 빈 값)인데 parForced 가 없다 — **2026-10-11 전에 만들어진 매치에만** 있다(그 뒤의 자동 대진·
+//            옛 앱 매치는 'on'). 반영은 하지만 **혼성·브릿지면 빠진다.** 예전 태블릿은 이걸 그냥 '반영' 으로 그려서
 //            켜진 줄 알았던 혼성·브릿지 경기가 조용히 빠졌다(26S3 #3). 그래서 따로 그리고 고르게 한다.
 function parStateOf(m) {
   if (m && m.matchType === 'Friendly') return 'off';
@@ -1827,15 +1849,69 @@ function parSkipNote(msg) {
   return /반영 안 됨|미반영|대상 아님|일시정지/.test(inner) ? inner.replace(/\s*—\s*PAR 반영 안 됨/, '') : '';
 }
 
+// 저장 확인 창의 등급(PAR) 문장 — **이 매치의 서버 값(parStateOf)대로** 말한다(c16).
+// 예전엔 늘 'PAR이 반영되고' 라고 적어서, '반영 안 함' 으로 고른 경기도 저장 직전에 반영된다고 했다.
+// ⚠️ 문구 규칙은 STEP 2·팀 화면과 같다 — '등급(PAR)' 과 '순위 추가점수' 를 **같이** 적고 '경쟁' 이라고 쓰지 않는다
+//    (서버가 값 하나로 둘을 정한다 · par_toggle.test.cjs).
+// ⚠️ **무승부(세트 승수가 같다)면 등급(PAR)을 약속하지 않는다** — 서버 엔진(parMatchService.applyLeagueMatchResult)은
+//    무승부를 0명으로 끝낸다. 예전엔 확인 창이 '반영되고' 라고 해 놓고 몇 초 뒤 c9 알림·완료 화면이 '반영 안 됨 —
+//    무승부' 라고 스스로 뒤집었다. 순위 추가점수는 서버가 matchType 하나로 붙이므로(leagueRankingService) 무승부여도 그대로다.
+//    played = 저장할 세트 그대로. 일시정지·경기 시각 전처럼 태블릿이 모르는 이유는 저장 뒤 서버가 말한다(c9 알림 · 완료 화면).
+function saveConfirmText(m, scoreStr, played) {
+  const state = parStateOf(m);
+  let aw = 0, bw = 0;
+  for (const s of played || []) { if ((s.a || 0) > (s.b || 0)) aw++; else if ((s.b || 0) > (s.a || 0)) bw++; }
+  const draw = Array.isArray(played) && played.length > 0 && aw === bw;
+  const par = state === 'off'
+    ? '이 경기는 등급(PAR)에 반영되지 않고 순위 추가점수도 없어요.'
+    : draw
+      ? '무승부라 등급(PAR)에는 반영되지 않아요 — 순위 추가점수는 그대로 받아요.'
+      : state === 'on'
+        ? '등급(PAR) 반영 경기예요 — 저장하면 등급(PAR)에 반영되고 순위 추가점수를 받아요.'
+        : '저장하면 등급(PAR)에 반영되고 순위 추가점수를 받아요 — 혼성·브릿지 경기면 등급(PAR)은 빠져요.';
+  return `경기 결과를 저장할까요?\n\n${scoreStr}\n\n${par}\n저장한 결과는 되돌리기 어려워요.`;
+}
+
+// STEP 5 완료 화면의 등급(PAR) 한 줄(c16) — **저장한 뒤 서버에서 다시 읽은 이 매치**의 parStatus · parStatusText
+// (백엔드 utils/leagueParStatus — 회원 앱 결과 칩·웹어드민 배지와 같은 말)로 그린다.
+// ⚠️ 저장 문장만 믿지 않는다 — 문장은 updateMatch 가 갈래마다 따로 만든다. 엔진이 저장 도중 실패하거나 PAR 단계를
+//    아예 건너뛴 저장(팀 미편성 · 종목 없음)도 '(PAR 반영 완료)' 로 나간 적이 있다(2026-10-11 전 서버).
+//    서버가 **지금 이 경기를 어떻게 적어 뒀나**가 회원이 앱에서 보는 것과 같다(PS Control b30 lgParLineOf 도 같은 규칙).
+//  · applied → '등급(PAR) 반영됨'
+//  · 그 밖  → '등급(PAR) 반영 안 됨 — {이유}' — 이유는 서버 말('PAR 미반영 · 혼성')의 '·' 뒤.
+//    이유가 없는 pending(조건은 맞는데 안 들어갔다)은 저장 문장의 괄호(parSkipNote), 그것도 없으면 '운영자 확인이 필요해요'.
+//  · parStatus 가 없으면(옛 서버 · 피클볼 리그 · 다시 못 읽음) null — **아무것도 안 그린다**(없는 말을 지어내지 않는다).
+function parDoneLine(m, saveMsg) {
+  const st = m && m.parStatus;
+  if (!st) return null;
+  if (st === 'applied') return { applied: true, text: '등급(PAR) 반영됨' };
+  const txt = String((m && m.parStatusText) || '');
+  const i = txt.indexOf('·');
+  const why = (i >= 0 ? txt.slice(i + 1).trim() : '') || parSkipNote(saveMsg) || '운영자 확인이 필요해요';
+  return { applied: false, text: '등급(PAR) 반영 안 됨 — ' + why };
+}
+
+// 저장 뒤 이 매치를 서버에서 다시 읽어 완료 화면 한 줄을 채운다 — 기다리지 않는다(화면은 먼저 뜬다).
+// 그 사이 다른 화면·다른 매치로 넘어갔으면(다시하기) 그리지 않는다 — 늦게 온 응답이 새 경기 화면을 덮지 않게.
+async function showDonePar(leagueId, matchId, saveMsg) {
+  const fresh = await fetchFreshMatch(leagueId, matchId);
+  if (curStep !== 5 || !selectedMatch || String(selectedMatch._id) !== String(matchId)) return;
+  const line = parDoneLine(fresh, saveMsg);
+  const el = document.getElementById('done-par');
+  if (!el) return;
+  el.className = 'done-par' + (line ? (line.applied ? ' on' : ' off') : '');
+  el.textContent = line ? (line.applied ? '✅ ' : '⚠️ ') + line.text : ''; // 서버 문장 — innerHTML 에 싣지 않는다
+}
+
 async function saveMatch() {
   if (!psToken) { showToast('운영자 로그인이 필요해요 (⚙ 설정)'); openSettings(); return; }
 
   const playedSets = sets.filter(s => (s.a||0) + (s.b||0) > 0).map(s => ({ a: s.a||0, b: s.b||0 }));
   if (!playedSets.length) { showToast('입력된 스코어가 없어요'); return; }
 
-  // 저장 전 확인 다이얼로그 — 실수 방지 (저장하면 PAR 반영·되돌리기 어려움)
+  // 저장 전 확인 다이얼로그 — 실수 방지 (되돌리기 어려움). 등급(PAR) 문장은 이 매치 값대로(saveConfirmText).
   const scoreStr = playedSets.map(s=>`${s.a}-${s.b}`).join(', ');
-  const confirmed = confirm(`경기 결과를 저장할까요?\n\n${scoreStr}\n\n저장하면 PAR이 반영되고 되돌리기 어려워요.`);
+  const confirmed = confirm(saveConfirmText(selectedMatch, scoreStr, playedSets));
   if (!confirmed) return;
 
   const btn = document.getElementById('save-btn');
@@ -1853,6 +1929,8 @@ async function saveMatch() {
     // 처럼 이유를 주는데 예전엔 버렸다. 그래서 PAR 반영 경기로 치고도 반영 안 된 걸 아무도 몰랐다.
     const parNote = parSkipNote(saved && saved.message);
     if (parNote) setTimeout(() => alert('결과는 저장됐어요.\n\n⚠️ 다만 등급(PAR)은 반영되지 않았어요 — ' + parNote), 300);
+    // 완료 화면 한 줄 — 서버에서 다시 읽은 이 경기의 PAR 상태(c16 · 회원 앱 결과 칩과 같은 말).
+    showDonePar(selectedLeague._id, selectedMatch._id, saved && saved.message);
   } catch(e) {
     const msg = e.message || '';
     // 토큰 만료/권한 문제면 재로그인 유도. 그 외(네트워크 등)는 재시도 안내.
@@ -1992,9 +2070,10 @@ async function replayDifferentPair() {
     // ⚠️ applyTeams 하나로 — 예전엔 여기서 배열을 손으로 채웠다. 그대로 두면 방송 이름(teamAAir)이 안 바뀌어
     //    다시하기 경기만 TV·유튜브에 **앞 경기 사람들 이름**이 나간다(2026-10-10 · c15).
     applyTeams(m.teamA, m.teamB);
-    // 스코어 초기화 후 **등급(PAR) 반영(STEP 2)** 부터 — 새 매치는 서버 기본(반영 안 함)으로 만들어진다.
+    // 스코어 초기화 후 **등급(PAR) 반영(STEP 2)** 부터 — 새 매치는 서버가 **리그 설정**으로 만든다
+    //    (2026-10-11 — 'PAR 반영 기본' 켬 리그면 켜진 채로, 끔 리그면 꺼진 채로). 직전 매치 값과 다를 수 있다.
     // ⚠️ 2026-10-05/07: 직전 매치의 'PAR 반영' 이 화면에 남으면 켜진 줄 알고 치는데 서버엔 '반영 안 함' 이라
-    //    조용히 빠졌다(26S3 #36 → #37 · 사용자 신고 2026-10-07).
+    //    조용히 빠졌다(26S3 #36 → #37 · 사용자 신고 2026-10-07 — 그때는 새 매치가 늘 '반영 안 함' 으로 시작했다).
     // 직전 매치에서 **고른 값('on'·'off')은 이어받는다**(사용자 2026-10-07) — 화면에만 옮기지 않고
     //    STEP 2 와 같은 길(par-apply → 서버가 돌려준 값 확인)로 적은 뒤에야 팀 화면이 열린다.
     //    실패하면 STEP 2 에 남아 이유를 적는다. 고른 적 없는 옛 값('legacy')은 이어받지 않고 고르게 한다.
@@ -2030,6 +2109,9 @@ function showDone(date, scoreStr) {
     <div style="margin-bottom:12px">${teamA.join(' / ')} <span style="color:var(--text-dim);font-size:14px">vs</span> ${teamB.join(' / ')}</div>
     <div style="font-family:'IBM Plex Sans KR',system-ui,sans-serif;font-size:32px;color:var(--gold);letter-spacing:2px;margin-bottom:12px">${scoreStr}</div>
     <div style="color:var(--green)">${winner}</div>`;
+  // 등급(PAR) 한 줄은 서버에서 다시 읽은 뒤 채운다(showDonePar) — 앞 경기 줄이 남지 않게 비우고 숨긴다.
+  const dp = document.getElementById('done-par');
+  if (dp) { dp.className = 'done-par'; dp.textContent = ''; }
 
   curStep = 5;
   renderStep();
@@ -2796,7 +2878,7 @@ if ('serviceWorker' in navigator) {
 -->
 <script>
 (function () {
-  var BUILD = "c15";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
+  var BUILD = "c16";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
   var el = document.getElementById('app-build');
   if (el) el.textContent = '앱 ' + BUILD;
 
