@@ -10,6 +10,7 @@ stream_server 자유 라이브 규칙 — OBS·YouTube 없이 돈다(둘 다 가
   · 자유 라이브 중 **리그 경기가 오면 자유 라이브를 끄고 리그 방송을 연다**(리그 우선).
   · 시간이 지나면 워치독 한 바퀴가 방송을 끈다(태블릿 없이).
   · 자유 라이브 중 🎬 하이라이트 메타 제목이 자유 라이브 제목이다.
+  · (2026-10-19) 방송을 바꾸는 요청은 이 PC 직접 요청이거나 운영자 토큰이어야 한다(터널·LAN·다른 출처 → 401/403/503).
 """
 import io
 import json
@@ -520,6 +521,179 @@ def main():
     finally:
         ss.thumbnail.build = real_build
     check(len(made) == 2 and made[0] != made[1] and all('bcastX' in m for m in made), '썸네일 파일 이름이 부를 때마다 다르다', str(made))
+
+    # 19) 운영자 확인 (2026-10-19) — obs.padelsociety.co.kr 터널은 127.0.0.1 로 들어오지만 X-Real-IP 를 단다.
+    #   예전엔 인증이 없어 인터넷의 누구나 방송을 켜고 끌 수 있었다. 백엔드 확인(_fetch_profile_role)은 가짜로.
+    for _ in range(3):
+        c.post('/stop-stream')
+    calls = []
+    verdict = {'tok-op': ('ok', 'league_operator'), 'tok-admin': ('ok', 'center_admin'),
+               'tok-user': ('ok', 'user'), 'tok-bad': ('invalid', '')}
+    down = {'on': False}
+    def fake_verify(token):
+        calls.append(token)
+        if down['on']:
+            return ('down', 'timeout')
+        return verdict.get(token, ('invalid', ''))
+    real_verify = ss._fetch_profile_role
+    ss._fetch_profile_role = fake_verify
+    ss._auth_cache.clear()
+    TUN = {'X-Real-IP': '203.0.113.9', 'X-Forwarded-For': '203.0.113.9'}
+    def bearer(t, extra=None):
+        h = dict(TUN); h['Authorization'] = f'Bearer {t}'
+        h.update(extra or {})
+        return h
+    try:
+        r = c.post('/stop-stream')
+        check(r.status_code == 200 and r.get_json()['success'], '이 PC 에서 직접(127.0.0.1 · 프록시 머리 없음) — 토큰 없이 통과')
+        check(calls == [], '직접 요청은 백엔드에 묻지도 않는다')
+
+        n_yt = yt.n
+        r = c.post('/start-stream', json={'mode': 'free', 'durationMinutes': 90}, headers=TUN)
+        j = r.get_json()
+        check(r.status_code == 401 and j['auth'] == 'required' and j['success'] is False
+              and '운영자 로그인이 필요해요' in j['error'], '터널(X-Real-IP)로 온 토큰 없는 켜기 → 401', str(j))
+        check(not ss.stream_state['active'] and yt.n == n_yt, '거절된 켜기는 방송을 만들지 않는다')
+        for path in ('/stop-stream', '/void-video', '/highlight'):
+            check(c.post(path, json={}, headers=TUN).status_code == 401, f'터널 {path} 토큰 없음 → 401')
+        # /reload-html 은 잠그지 않는다(배포 절차가 폰 브라우저로 연다 · GitHub 의 파일만 다시 받는다) — 대신 20초에 한 번
+        _real_load, loads = ss._load_court_html, []
+        ss._load_court_html = lambda: loads.append(1)
+        ss._last_reload[0] = 0.0
+        try:
+            r1 = c.get('/reload-html', headers=TUN)
+            r2 = c.get('/reload-html', headers=TUN)
+            check(r1.status_code == 200 and not r1.get_json().get('throttled'), '터널 /reload-html — 토큰 없이도 페이지 다시 받기')
+            check(r2.status_code == 200 and r2.get_json().get('throttled') is True and loads == [1],
+                  '20초 안에 또 부르면 받지 않는다(GitHub 를 두드리지 못하게)', str(loads))
+        finally:
+            ss._load_court_html = _real_load
+        h = c.get('/health', headers=TUN)
+        check(h.status_code == 200 and h.get_json()['ok'], '/health 는 읽기 전용 — 토큰 없이 그대로(태블릿 서버 감지)')
+        check(c.get('/status', headers=TUN).status_code == 200, '/status 도 읽기 전용')
+
+        r = c.post('/start-stream', json={'mode': 'free', 'durationMinutes': 90}, headers=bearer('tok-op'))
+        check(r.status_code == 200 and r.get_json()['success'], '리그 운영자 토큰 → 켜기 통과', str(r.get_json()))
+        r = c.post('/stop-stream', headers=bearer('tok-op'))
+        check(r.status_code == 200 and not ss.stream_state['active'], '같은 토큰으로 끄기')
+        check(calls.count('tok-op') == 1, '통과한 토큰은 10분 동안 다시 안 묻는다(캐시)', str(calls))
+        check('tok-op' not in ''.join(ss._auth_cache.keys()), '캐시 키는 토큰 원문이 아니라 해시')
+        check(c.post('/stop-stream', headers=bearer('tok-admin')).status_code == 200, '센터 관리자도 통과')
+
+        r = c.post('/stop-stream', headers=bearer('tok-user'))
+        j = r.get_json()
+        check(r.status_code == 403 and j['auth'] == 'forbidden' and '운영자 권한이 없어요' in j['error'],
+              '일반 회원 토큰 → 403(운영자 권한 없음)', str(j))
+        r = c.post('/stop-stream', headers=bearer('tok-bad'))
+        check(r.status_code == 401 and r.get_json()['auth'] == 'required', '틀린·만료 토큰 → 401')
+        n = len(calls)
+        c.post('/stop-stream', headers=bearer('tok-bad'))
+        check(len(calls) == n, '거절도 잠깐(30초) 기억한다 — 같은 토큰으로 백엔드를 두드리지 않는다')
+        check(c.post('/stop-stream', headers=bearer('x' * 5000)).status_code == 401, '터무니없이 긴 토큰은 묻지도 않고 401')
+
+        # 출처 — 이 PC 에서 왔어도 다른 사이트 페이지면 토큰이 있어야 한다(브라우저가 대신 보낸 요청)
+        r = c.post('/stop-stream', headers={'Origin': 'https://evil.example'})
+        check(r.status_code == 401, '127.0.0.1 이어도 다른 출처(Origin) → 토큰 필요')
+        r = c.post('/stop-stream', headers={'Origin': 'https://padelociety.github.io'})
+        check(r.status_code == 200, '127.0.0.1 + 허용 출처(github.io 태블릿) → 토큰 없이 통과')
+        r = c.post('/stop-stream', headers={'Origin': 'http://localhost:5000'})
+        check(r.status_code == 200, '127.0.0.1 + 이 서버 자기 출처 → 통과')
+        r = c.post('/stop-stream', headers={'Sec-Fetch-Site': 'cross-site'})
+        check(r.status_code == 401, '출처(Origin) 없는 요청이라도 다른 사이트가 보낸 것(Sec-Fetch-Site) → 토큰 필요')
+        r = c.post('/stop-stream', environ_base={'REMOTE_ADDR': '192.168.0.31'})
+        check(r.status_code == 401, 'LAN 태블릿(다른 IP)도 토큰 필요')
+        r = c.post('/stop-stream', environ_base={'REMOTE_ADDR': '192.168.0.31'},
+                   headers={'Authorization': 'Bearer tok-op'})
+        check(r.status_code == 200, 'LAN 태블릿 + 운영자 토큰 → 통과')
+
+        # 백엔드가 안 닿을 때 — 12시간 안에 통과했던 토큰은 들이고, 처음 보는 토큰은 503
+        down['on'] = True
+        for v in ss._auth_cache.values():
+            v['until'] = 0          # 10분이 지났다고 치고 다시 묻게 한다
+        r = c.post('/stop-stream', headers=bearer('tok-op'))
+        check(r.status_code == 200, '백엔드가 안 닿아도 최근(12시간 안) 통과한 토큰은 들인다(경기장 인터넷 끊김)', str(r.get_json()))
+        n = len(calls)
+        c.post('/stop-stream', headers=bearer('tok-op'))
+        check(len(calls) == n, '그렇게 들인 뒤 1분은 다시 안 묻는다(요청마다 5초씩 멈추지 않게)')
+        r = c.post('/stop-stream', headers=bearer('tok-new'))
+        j = r.get_json()
+        check(r.status_code == 503 and j['auth'] == 'unavailable' and j['success'] is False,
+              '백엔드가 안 닿는데 처음 보는 토큰 → 503(닫힌 채로)', str(j))
+        for v in ss._auth_cache.values():
+            v['until'] = 0
+        r = c.post('/stop-stream', headers=bearer('tok-user'))
+        check(r.status_code == 503, '역할이 없던 토큰은 백엔드가 끊겨도 들이지 않는다')
+        k_op = [k for k, v in ss._auth_cache.items() if v.get('last_ok')]
+        for k in k_op:
+            ss._auth_cache[k]['last_ok'] = __import__('time').time() - 13 * 3600
+            ss._auth_cache[k]['until'] = 0
+        check(c.post('/stop-stream', headers=bearer('tok-op')).status_code == 503, '12시간이 지난 확인은 쓰지 않는다')
+        down['on'] = False
+        verdict['tok-op'] = ('invalid', '')      # 토큰 회수(로그아웃·비밀번호 변경)
+        for v in ss._auth_cache.values():
+            v['until'] = 0
+        check(c.post('/stop-stream', headers=bearer('tok-op')).status_code == 401, '회수된 토큰은 401')
+        down['on'] = True
+        for v in ss._auth_cache.values():
+            v['until'] = 0
+        check(c.post('/stop-stream', headers=bearer('tok-op')).status_code == 503,
+              '회수된 뒤엔 백엔드가 끊겨도 옛 통과 기록으로 들이지 않는다')
+        down['on'] = False
+
+        # CORS — 허용 출처만, 미리 묻기(preflight)에 Authorization 이 들어간다
+        r = c.open('/start-stream', method='OPTIONS', headers={
+            'Origin': 'https://padelociety.github.io', 'Access-Control-Request-Method': 'POST',
+            'Access-Control-Request-Headers': 'content-type,authorization'})
+        allow_h = (r.headers.get('Access-Control-Allow-Headers') or '').lower()
+        check(r.headers.get('Access-Control-Allow-Origin') == 'https://padelociety.github.io' and 'authorization' in allow_h,
+              'preflight: github.io 허용 + Authorization 머리 허용', str(dict(r.headers)))
+        r = c.open('/start-stream', method='OPTIONS', headers={
+            'Origin': 'https://evil.example', 'Access-Control-Request-Method': 'POST'})
+        check(not r.headers.get('Access-Control-Allow-Origin'), '다른 출처엔 CORS 를 열지 않는다(예전 *)')
+        check('https://obs.padelsociety.co.kr' in ss.CORS_ORIGINS and 'http://localhost:5000' in ss.CORS_ORIGINS,
+              '기본 허용 출처에 obs 터널·이 서버 자기 주소')
+
+        # 끄는 스위치 — 점검용
+        ss.CONTROL_AUTH_ENABLED = False
+        check(c.post('/stop-stream', headers=TUN).status_code == 200, 'control_auth.enabled=false 면 확인하지 않는다')
+        ss.CONTROL_AUTH_ENABLED = True
+    finally:
+        ss._fetch_profile_role = real_verify
+        ss.CONTROL_AUTH_ENABLED = True
+        ss._auth_cache.clear()
+
+    # 20) 진짜 확인 함수 — 백엔드 응답 모양 읽기(urlopen 을 가짜로)
+    import urllib.request as _ur, urllib.error as _ue
+    real_open = _ur.urlopen
+    seen_req = {}
+    class _Resp:
+        def __init__(s, body): s.body = body
+        def read(s, n=-1): return s.body
+        def __enter__(s): return s
+        def __exit__(s, *a): return False
+    def opener(body=None, code=None):
+        def f(req, timeout=None):
+            seen_req['url'] = req.full_url; seen_req['auth'] = req.get_header('Authorization'); seen_req['timeout'] = timeout
+            if code:
+                raise _ue.HTTPError(req.full_url, code, 'x', {}, None)
+            return _Resp(body)
+        return f
+    try:
+        _ur.urlopen = opener(json.dumps({'isSuccess': True, 'data': {'role': 'league_operator'}}).encode())
+        check(ss._fetch_profile_role('T1') == ('ok', 'league_operator'), 'myProfile 의 data.role 을 읽는다')
+        check(seen_req['url'].endswith('/api/user/myProfile') and seen_req['auth'] == 'Bearer T1' and seen_req['timeout'] == 5,
+              'GET {api_base}/api/user/myProfile · Bearer · 5초', str(seen_req))
+        _ur.urlopen = opener(json.dumps({'isSuccess': True, 'data': {}}).encode())
+        check(ss._fetch_profile_role('T1') == ('ok', 'user'), '역할이 없으면 user')
+        for code in (401, 403, 433):
+            _ur.urlopen = opener(code=code)
+            check(ss._fetch_profile_role('T1')[0] == 'invalid', f'HTTP {code} → invalid(토큰이 틀렸다)')
+        _ur.urlopen = opener(code=502)
+        check(ss._fetch_profile_role('T1')[0] == 'down', 'HTTP 502 → down(못 물어봤다)')
+        _ur.urlopen = lambda *a, **k: (_ for _ in ()).throw(OSError('offline'))
+        check(ss._fetch_profile_role('T1')[0] == 'down', '네트워크 오류 → down')
+    finally:
+        _ur.urlopen = real_open
 
     print(f'\nALL OK — {ok} checks')
 

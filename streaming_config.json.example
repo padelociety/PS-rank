@@ -1,9 +1,19 @@
 {
   "_설명": "PS Court 자동 스트리밍 설정 파일 — 이 파일을 config.json으로 복사 후 수정하세요",
+  "_cors_origins_설명": "브라우저가 이 서버를 부를 수 있는 페이지 출처. 빼면 github.io · obs.padelsociety.co.kr. localhost:5000 은 늘 들어간다.",
   "cors_origins": [
     "https://padelociety.github.io",
-    "http://localhost:3000"
+    "https://obs.padelsociety.co.kr"
   ],
+  "control_auth": {
+    "_설명": "방송 켜기·끄기·[무효]·하이라이트·reload-html 은 운영자 로그인 토큰(태블릿 ⚙ 설정)을 Playus 백엔드 myProfile 로 확인한다. 이 PC 에서 직접(127.0.0.1 · 터널 아님) 부른 요청만 토큰 없이 된다. enabled=false 는 점검 때만 — 터널로 누구나 방송을 켤 수 있게 된다.",
+    "enabled": true,
+    "roles": ["league_operator", "super_admin", "center_admin"]
+  },
+  "thumbnail": {
+    "_설명": "썸네일 선수 사진을 받아도 되는 호스트(https 만). 빼면 api · dev.api.padelsociety.co.kr.",
+    "photo_hosts": ["api.padelsociety.co.kr", "dev.api.padelsociety.co.kr"]
+  },
   "obs": {
     "_설명": "OBS Studio → 도구 → WebSocket 서버 설정에서 확인",
     "host": "localhost",

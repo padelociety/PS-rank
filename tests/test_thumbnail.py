@@ -22,6 +22,8 @@ sys.path.insert(0, ROOT)
 
 import thumbnail  # noqa: E402
 
+_REAL_FETCH = thumbnail._fetch   # 아래 테스트들이 _fetch 를 갈아 끼운다 — [8] 이 진짜를 본다
+
 OUT_DIR = os.path.join(HERE, '_out')
 
 fails = []
@@ -216,6 +218,75 @@ print('\n[7] 헤더 정보가 없어도 그린다 (자유 라이브)')
 install_fake_fetch({})
 r = thumbnail.build(['김하경', '이준우'], ['박서연', '최나래'], out_path=out('free.jpg'))
 check('리그·카테고리·매치번호 없이도 파일이 나온다', bool(r) and os.path.exists(r))
+
+print('\n[8] 사진은 우리 API 호스트의 https 만 받는다 (SSRF · 2026-10-19)')
+# ⚠️ 사진 URL 은 태블릿이 보낸 그대로다 — 예전엔 http(s) 면 아무 데나 받아서 방송 PC 가 LAN 안쪽으로 요청을 보냈다.
+class _FakeResp:
+    def __init__(self, body=b'', status=200, length=None):
+        self.status_code = status
+        self.body = body
+        self.headers = {} if length is None else {'Content-Length': str(length)}
+        self.closed = False
+    def iter_content(self, n):
+        for i in range(0, len(self.body), n):
+            yield self.body[i:i + n]
+    def close(self):
+        self.closed = True
+
+
+_got = []
+_next = {'resp': None}
+
+
+class _FakeRequests:
+    @staticmethod
+    def get(url, **kw):
+        _got.append((url, kw))
+        return _next['resp']
+
+
+_saved_req = sys.modules.get('requests')
+sys.modules['requests'] = _FakeRequests
+try:
+    for bad in ['http://api.padelsociety.co.kr/public/profile/a.jpg',      # http
+                'https://169.254.169.254/latest/meta-data/',                # 클라우드 메타데이터
+                'https://192.168.0.1/admin.jpg',                            # 공유기
+                'https://localhost:5000/status',
+                'https://evil.example/a.jpg',
+                'https://api.padelsociety.co.kr.evil.example/a.jpg',        # 꼬리 붙이기
+                'https://user:pw@api.padelsociety.co.kr/a.jpg',             # 계정 섞기
+                'file:///etc/passwd', 'ftp://api.padelsociety.co.kr/a.jpg']:
+        _got.clear()
+        check(f'거절: {bad}', _REAL_FETCH(bad) is None and _got == [], str(_got))
+    check('허용 호스트: api · dev.api(포트 있어도)',
+          thumbnail._photo_url_ok('https://api.padelsociety.co.kr/public/profile/a.jpg')
+          and thumbnail._photo_url_ok('https://dev.api.padelsociety.co.kr:4001/public/profile/a.jpg')
+          and thumbnail._photo_url_ok('https://API.padelsociety.co.kr/public/profile/a.jpg'))
+    if have_pillow():
+        from PIL import Image
+        bio = io.BytesIO(); Image.new('RGB', (40, 40), (10, 20, 30)).save(bio, 'JPEG'); jpg = bio.getvalue()
+        _got.clear(); _next['resp'] = _FakeResp(jpg)
+        im = _REAL_FETCH('https://api.padelsociety.co.kr/public/profile/a.jpg')
+        check('허용 호스트 사진은 받는다', im is not None and im.size == (40, 40))
+        check('리다이렉트를 따라가지 않고 조금씩 받는다(stream)',
+              _got and _got[0][1].get('allow_redirects') is False and _got[0][1].get('stream') is True, str(_got))
+        _next['resp'] = _FakeResp(b'', status=302)
+        check('3xx(리다이렉트)는 사진 없음', _REAL_FETCH('https://api.padelsociety.co.kr/public/profile/a.jpg') is None)
+        _next['resp'] = _FakeResp(jpg, length=thumbnail.PHOTO_MAX_BYTES + 1)
+        check('Content-Length 가 상한을 넘으면 받지 않는다', _REAL_FETCH('https://api.padelsociety.co.kr/public/profile/a.jpg') is None)
+        big = _FakeResp(b'\0' * (thumbnail.PHOTO_MAX_BYTES + 70000))
+        _next['resp'] = big
+        check('길이를 안 밝혀도 상한을 넘으면 중간에 끊는다', _REAL_FETCH('https://api.padelsociety.co.kr/public/profile/a.jpg') is None and big.closed)
+    _saved_hosts = thumbnail.PHOTO_HOSTS
+    thumbnail.PHOTO_HOSTS = frozenset({'img.example'})
+    check('허용 목록은 바꿀 수 있다(stream_server 가 config thumbnail.photo_hosts 로)',
+          thumbnail._photo_url_ok('https://img.example/a.jpg') and not thumbnail._photo_url_ok('https://api.padelsociety.co.kr/a.jpg'))
+    thumbnail.PHOTO_HOSTS = _saved_hosts
+finally:
+    if _saved_req is not None:
+        sys.modules['requests'] = _saved_req
+    else:
+        sys.modules.pop('requests', None)
 
 print(f'\n실패 {len(fails)}건\n' if fails else '\n전부 통과\n')
 sys.exit(1 if fails else 0)

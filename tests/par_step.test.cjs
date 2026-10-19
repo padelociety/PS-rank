@@ -38,7 +38,7 @@ const body = (name) => {
 const FNS = ['selectMatch', 'fetchFreshMatch', 'syncMatchRow', 'showTeamStep', 'parApplyOn', 'parStateOf',
   'parApplyLocked', 'renderParToggle', 'goParStep', 'renderParStep', 'chooseParApply', 'replayDifferentPair',
   'goToScore', 'goBack', 'applyTeams', 'psPhoto', 'psName', 'psAirName', 'psAirPhoto',
-  'parSkipNote', 'saveConfirmText', 'parDoneLine', 'showDonePar', 'showDone', 'saveMatch'];
+  'parSkipNote', 'saveConfirmText', 'parDoneLine', 'showDonePar', 'showDone', 'saveMatch', 'psEsc'];
 
 // 새 매치의 PAR 칸 — 진짜 서버(backend utils/leagueMatchType.newMatchParFields)와 같은 모양(c16).
 // 켬 리그(기본) = 태블릿의 '켬' 그대로, 끔 리그 = '반영 안 함'. 모노repo 에선 아래 ⑫ 가 백엔드 함수와 대조한다.
@@ -541,10 +541,10 @@ const curBtn = (html) => (/class="par-opt (on|off) current"/.exec(html) || [])[1
     }
   });
 
-  await t('빌드 배지 c16 · BUILD · SW v50 같이', () => {
+  await t('빌드 배지 c17 · BUILD · SW v51 같이', () => {
     const sw = fs.readFileSync(path.join(__dirname, '..', 'ps_court', 'ps_court_sw.js'), 'utf8');
-    assert(src.includes('<!--COURTBUILD:c16-->') && src.includes('var BUILD = "c16";') && src.includes('>앱 c16</div>'), '배지');
-    assert(sw.includes("const CACHE = 'ps-court-v50';"), 'SW');
+    assert(src.includes('<!--COURTBUILD:c17-->') && src.includes('var BUILD = "c17";') && src.includes('>앱 c17</div>'), '배지');
+    assert(sw.includes("const CACHE = 'ps-court-v51';"), 'SW');
   });
 
   console.log(fails ? `\n실패 ${fails}건\n` : '\n전부 통과\n');

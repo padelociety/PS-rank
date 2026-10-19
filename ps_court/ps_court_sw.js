@@ -1,4 +1,5 @@
-const CACHE = 'ps-court-v50';
+// v51 = 태블릿 c17(2026-10-19): 방송 PC 요청에 운영자 토큰 · 서버 글자 이스케이프. 태블릿 BUILD 와 같이 올린다.
+const CACHE = 'ps-court-v51';
 
 self.addEventListener('install', e => {
   e.waitUntil(
