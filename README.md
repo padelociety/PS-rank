@@ -99,6 +99,27 @@ OBS PC 가 여기서 pull 한다. 고치면 양쪽을 같게 맞출 것(2026-09 
 - `stream_server.py` 는 그대로 — **재시작 필요 없음**, 페이지만 갱신(`/reload-html`). 배지 `앱 c16` · SW `ps-court-v50`.
 - 배포 순서 무관: c16 + 옛 백엔드면 완료 화면 줄이 안 뜰 뿐이고, 새 백엔드 + c15 면 완료 화면 줄과 확인 창 문장만 예전 그대로다.
 
+## 방송 서버 잠금 · 이름 이스케이프 (2026-10-19 · 태블릿 c17 · SW v51)
+
+보안 2차 검토: `obs.padelsociety.co.kr` 가 역방향 ssh 터널로 이 PC 의 `stream_server.py` 를 **인터넷에 그대로** 내놓는데,
+인증이 없고 CORS 가 `*` 였다 — 누구나 방송을 켜고·끄고·영상에 [무효] 를 붙이고·하이라이트를 올릴 수 있었다.
+
+- **바꾸는 요청은 운영자 로그인을 확인한다** — `/start-stream` · `/stop-stream` · `/void-video` · `/highlight`.
+  태블릿이 운영자 토큰을 `Authorization: Bearer` 로 보내고(`streamHeaders`), 서버가 Playus 백엔드 `/api/user/myProfile` 에
+  물어 역할(`league_operator` · `super_admin` · `center_admin`)을 본다. 통과는 10분, 거절은 30초 기억한다(토큰 해시로).
+  백엔드가 안 닿으면 12시간 안에 통과했던 토큰만 들인다(경기장 인터넷 끊김). 막히면 태블릿이 서버 말을 그대로 띄우고 401 이면 ⚙ 설정을 연다.
+- ⚠️ **이제 태블릿이 운영자로 로그인돼 있어야** 자유 라이브·🎬 하이라이트·리그 방송 켜고 끄기·[무효] 가 된다(예전엔 로그인 없이도 됐다).
+  **이 PC 에서 직접 연 페이지**(127.0.0.1 · 프록시 머리 없음)만 토큰 없이 통과한다.
+- `/reload-html` · `/health` · `/status` 는 잠그지 않는다 — 페이지 다시 받기는 GitHub main 의 파일만 받으므로 20초에 한 번으로만 막았다.
+- CORS 는 목록으로(`cors_origins` · 기본 github.io + obs 도메인 + 이 서버 자신) — `file://` 로 연 태블릿 페이지는 이제 방송 서버에 못 닿는다.
+- 썸네일 선수 사진은 우리 API 호스트(`https` · api / dev.api.padelsociety.co.kr)에서만, 8MB 까지 받는다(`thumbnail.photo_hosts` 로 바꾼다).
+- 태블릿(`ps_court_playus.html` · 옛 `ps_court.html`)의 이름·리그·카테고리·서버 문장을 전부 이스케이프해서 그린다(`psEsc`) — 회원이 이름이나
+  리그 이름에 HTML 을 넣으면 태블릿에서 그대로 돌아 운영자 토큰을 빼 갈 수 있었다. 테스트 `tests/xss_escape.test.cjs`.
+- 아메리카노 보드는 새 창이 이 태블릿을 되잡지 못하게 연다(`w.opener = null`).
+- ⚠️ **python 이 바뀌었다 — `stream_server` 재시작이 필요하다. 방송 중엔 하지 말 것.** 설정 키는 `streaming_config.json.example`
+  (`control_auth` · `cors_origins` · `thumbnail.photo_hosts`) — 안 적으면 기본값으로 켜진다.
+- LAN 직접 접속(`http://PC-IP:5000`)은 토큰이 평문으로 와이파이를 지난다 — 가능하면 `https://obs.padelsociety.co.kr` 로 연다.
+
 ## OBS PC 에 새 버전 올리기
 
 ```powershell

@@ -200,13 +200,13 @@ const EMPTY_NICK = { _id: 'u4', lastNameKorean: '설', firstNameKorean: '정수'
     assert(html.includes('📺 &lt;img src=x&gt;'), '이스케이프한 안내가 없다');
   });
 
-  await t('⑥ 빌드 배지 셋(COURTBUILD · 앱 표시 · BUILD)이 같고 c16 · SW CACHE v50', () => {
+  await t('⑥ 빌드 배지 셋(COURTBUILD · 앱 표시 · BUILD)이 같고 c17 · SW CACHE v51', () => {
     const a = (/<!--COURTBUILD:([A-Za-z0-9._]+)-->/.exec(src) || [])[1];
     const b = (/>앱 ([A-Za-z0-9._]+)<\/div>/.exec(src) || [])[1];
     const c = (/var BUILD = "([A-Za-z0-9._]+)";/.exec(src) || [])[1];
     assert(a && a === b && b === c, `배지가 갈라졌다: ${a} · ${b} · ${c}`);
-    assert(a === 'c16', '배지 ' + a);
-    assert(sw.includes("const CACHE = 'ps-court-v50';"), 'SW CACHE');
+    assert(a === 'c17', '배지 ' + a);
+    assert(sw.includes("const CACHE = 'ps-court-v51';"), 'SW CACHE');
   });
 
   console.log(fails ? `\n실패 ${fails}건\n` : '\n전부 통과\n');

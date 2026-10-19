@@ -807,12 +807,12 @@ function renderTeamDisplay() {
     <div class="team-display">
       <div class="team-box team-a">
         <div class="team-label">TEAM A</div>
-        ${teamA.map(p=>`<div class="team-player">${p}</div>`).join('')}
+        ${teamA.map(p=>`<div class="team-player">${psEsc(p)}</div>`).join('')}
       </div>
       <div class="vs-box">VS</div>
       <div class="team-box team-b">
         <div class="team-label">TEAM B</div>
-        ${teamB.map(p=>`<div class="team-player">${p}</div>`).join('')}
+        ${teamB.map(p=>`<div class="team-player">${psEsc(p)}</div>`).join('')}
       </div>
     </div>`;
 
@@ -845,7 +845,7 @@ function renderScoreBoard() {
     <div class="set-tabs">${tabsHtml}</div>
     <div class="score-board">
       <div class="score-side side-a">
-        <div class="score-side-name">${teamA.join('<br>')}</div>
+        <div class="score-side-name">${teamA.map(psEsc).join('<br>')}</div>
         <div class="score-big" id="score-a">${sets[cs].a}</div>
         <div class="score-btns">
           <button class="score-btn" onclick="adjustScore(${cs},'a',-1)">−</button>
@@ -853,7 +853,7 @@ function renderScoreBoard() {
         </div>
       </div>
       <div class="score-side side-b">
-        <div class="score-side-name">${teamB.join('<br>')}</div>
+        <div class="score-side-name">${teamB.map(psEsc).join('<br>')}</div>
         <div class="score-big" id="score-b">${sets[cs].b}</div>
         <div class="score-btns">
           <button class="score-btn" onclick="adjustScore(${cs},'b',-1)">−</button>
@@ -927,12 +927,12 @@ function showDone(date, scoreStr) {
   stopStream(); // ⏹️ 경기 저장 완료 → 스트리밍 종료
   const winsA = sets.filter(s=>s.a>s.b).length;
   const winsB = sets.filter(s=>s.b>s.a).length;
-  const winner = winsA > winsB ? `🏆 ${teamA.join(' / ')} 승리!` : winsB > winsA ? `🏆 ${teamB.join(' / ')} 승리!` : '🤝 무승부';
+  const winner = winsA > winsB ? `🏆 ${psEsc(teamA.join(' / '))} 승리!` : winsB > winsA ? `🏆 ${psEsc(teamB.join(' / '))} 승리!` : '🤝 무승부';
 
   document.getElementById('done-sub').textContent = `${date} · ${league==='gold'?'Gold+':'B&S'} 리그`;
   document.getElementById('done-result').innerHTML = `
-    <div style="margin-bottom:12px">${teamA.join(' / ')} <span style="color:var(--text-dim);font-size:14px">vs</span> ${teamB.join(' / ')}</div>
-    <div style="font-family:'IBM Plex Sans KR',system-ui,sans-serif;font-size:32px;color:var(--gold);letter-spacing:2px;margin-bottom:12px">${scoreStr}</div>
+    <div style="margin-bottom:12px">${psEsc(teamA.join(' / '))} <span style="color:var(--text-dim);font-size:14px">vs</span> ${psEsc(teamB.join(' / '))}</div>
+    <div style="font-family:'IBM Plex Sans KR',system-ui,sans-serif;font-size:32px;color:var(--gold);letter-spacing:2px;margin-bottom:12px">${psEsc(scoreStr)}</div>
     <div style="color:var(--green)">${winner}</div>`;
 
   curStep = 5;
@@ -1014,6 +1014,20 @@ function showToast(msg) {
 // stream_server.py 가 실행 중일 때만 작동합니다
 // ════════════════════════════════════════════════════════════
 const STREAM_SERVER = 'http://localhost:5000';
+// ⚠️ 2026-10-19: stream_server 가 방송을 켜고 끄는 요청에 운영자 로그인을 확인한다. 이 옛 태블릿엔 로그인이 없어
+//    리그앱 태블릿(ps_court_playus.html)과 같은 출처면 그쪽 로그인 토큰(ps_token)을 같이 쓴다. 이 PC 에서 연
+//    페이지(github.io → localhost)는 토큰 없이도 된다.
+function streamHeaders() {
+  const h = { 'Content-Type': 'application/json' };
+  let tok = '';
+  try { tok = localStorage.getItem('ps_token') || ''; } catch (_) {}
+  if (tok) h['Authorization'] = `Bearer ${tok}`;
+  return h;
+}
+// 시트·사람이 적은 이름을 innerHTML 에 실을 때 — 태그로 풀지 않는다(2026-10-19).
+function psEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 let _streamActive = false;
 let _streamServerOnline = false;
 let _watchUrl = null;
@@ -1062,7 +1076,7 @@ async function startStream() {
   try {
     const res = await fetch(`${STREAM_SERVER}/start-stream`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: streamHeaders(),
       body: JSON.stringify({ teamA, teamB, league }),
       signal: AbortSignal.timeout(30000),
     });
@@ -1089,10 +1103,18 @@ async function startStream() {
 async function stopStream() {
   if (!_streamActive) return;
   try {
-    await fetch(`${STREAM_SERVER}/stop-stream`, {
+    const res = await fetch(`${STREAM_SERVER}/stop-stream`, {
       method: 'POST',
+      headers: streamHeaders(),
       signal: AbortSignal.timeout(10000),
     });
+    // 운영자 확인에서 막혔으면 방송은 그대로 나가는 중이다 — '종료됨' 이라 하지 않는다.
+    if ([401, 403, 503].includes(res.status)) {
+      const d = await res.json().catch(() => ({}));
+      _updateStreamStatus('error');
+      showToast('🔒 ' + (d.error || '운영자 로그인이 필요해요'));
+      return;
+    }
     _streamActive = false;
     _watchUrl = null;
     _hideWatchBtn();

@@ -161,18 +161,52 @@ def _background():
 
 
 # ── 선수 사진 ───────────────────────────────────────────────────────────────
+# ⚠️ 2026-10-19: 사진 URL 은 태블릿이 보낸 그대로다(/start-stream 의 rosterA) — 예전엔 http(s) 면 어디든 받아서,
+#    방송 PC 가 LAN 안쪽(공유기 관리 화면 등)이나 아무 주소로 요청을 보내는 통로가 됐다(SSRF).
+#    프로필 사진은 백엔드 `${APP_URL}/public/profile/<파일>` 뿐이라 **우리 API 호스트의 https** 만 받는다.
+#    stream_server 가 config.json 의 thumbnail.photo_hosts 로 바꿀 수 있다. 리다이렉트는 따라가지 않는다.
+PHOTO_HOSTS = frozenset({'api.padelsociety.co.kr', 'dev.api.padelsociety.co.kr'})
+PHOTO_MAX_BYTES = 8 * 1024 * 1024    # 프로필 사진 한 장 상한 — 넘으면 그 사람만 이니셜로
+
+
+def _photo_url_ok(url) -> bool:
+    try:
+        from urllib.parse import urlsplit
+        u = urlsplit(str(url or '').strip())
+        host = (u.hostname or '').lower()
+        _ = u.port                      # 이상한 포트 표기면 여기서 ValueError
+    except Exception:
+        return False
+    return u.scheme == 'https' and host in PHOTO_HOSTS and not u.username and not u.password
+
+
 def _fetch(url: str, timeout=3.0):
     """사진 한 장. 실패하면 None — 한 명이 안 받아져도 나머지는 그린다."""
-    if not url or not str(url).startswith(('http://', 'https://')):
+    if not url or not _photo_url_ok(url):
+        if url:
+            logger.debug(f"선수 사진 주소가 허용 목록 밖이라 건너뜀: {url}")
         return None
     try:
         import requests
         from PIL import Image
-        r = requests.get(url, timeout=timeout)
-        if r.status_code != 200 or not r.content:
+        r = requests.get(url, timeout=timeout, stream=True, allow_redirects=False)
+        try:
+            if r.status_code != 200:
+                return None
+            size = int(r.headers.get('Content-Length') or 0)
+            if size > PHOTO_MAX_BYTES:
+                return None
+            buf = bytearray()
+            for chunk in r.iter_content(64 * 1024):
+                buf += chunk
+                if len(buf) > PHOTO_MAX_BYTES:
+                    return None
+        finally:
+            r.close()
+        if not buf:
             return None
         # ⚠️ 아주 큰 원본이 올 수 있다 — 먼저 줄이고 나서 자른다.
-        im = Image.open(io.BytesIO(r.content))
+        im = Image.open(io.BytesIO(bytes(buf)))
         im.load()
         return im.convert('RGB')
     except Exception as e:

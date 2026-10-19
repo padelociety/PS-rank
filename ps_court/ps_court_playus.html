@@ -783,8 +783,9 @@ body {
       <div id="stream-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:2px">📡 스트리밍 서버 확인 중...</div>
       <div id="fb-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:4px">🔴 Firebase 연결 중...</div>
       <!-- 빌드 표시 — 태블릿이 최신 파일을 받았는지 눈으로 확인하는 용도.
-           배포할 때마다 아래 COURTBUILD 와 스크립트의 BUILD 를 함께 올린다. -->
-      <!--COURTBUILD:c16--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c16</div>
+           배포할 때마다 아래 COURTBUILD 와 스크립트의 BUILD 를 함께 올린다.
+           c17(2026-10-19): 방송 PC(stream_server) 요청에 운영자 토큰 · 서버·회원 글자 이스케이프 · 보드 창 opener 끊기. -->
+      <!--COURTBUILD:c17--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c17</div>
       <div class="step-indicator" id="step-label">STEP 1 / 4</div>
       <div class="step-dots">
         <div class="step-dot active" id="dot-1"></div>
@@ -1017,6 +1018,9 @@ function psAirPhoto(u) {
 }
 // 화면은 실명 — 방송 이름이 다르면 그 아래 작게 '📺 닉네임'(운영자가 바깥에 무엇이 나가는지 안다).
 // ⚠️ 닉네임은 회원이 적은 글자라 HTML 로 풀지 않는다.
+// ⚠️ c17(2026-10-19): 닉네임만이 아니다 — 이름·리그·부문·날짜·서버 오류 문장·방송 PC 가 준 팀 이름까지
+//    innerHTML 에 싣는 남의 글자는 전부 이걸 거친다(예전엔 실명·리그 이름이 그대로 들어가 회원 이름 하나로
+//    운영자 태블릿에서 스크립트가 돌 수 있었다 — 토큰이 localStorage 에 있다). " ' 도 바꿔 속성 안에서도 안전하다.
 function psEsc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -1151,7 +1155,7 @@ async function loadMatches() {
       showToast('⚠️ 새로고침 실패 — 기존 목록 유지');
       return;
     }
-    wrap.innerHTML = `<div class="loading-msg" style="color:var(--red)">⚠️ 매치 불러오기 실패<br>${e.message}<br><br><button onclick="loadMatches()" style="padding:14px 28px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:12px;font-size:16px;cursor:pointer;font-family:'IBM Plex Sans KR',system-ui,sans-serif;">다시 시도</button></div>`;
+    wrap.innerHTML = `<div class="loading-msg" style="color:var(--red)">⚠️ 매치 불러오기 실패<br>${psEsc(e && e.message)}<br><br><button onclick="loadMatches()" style="padding:14px 28px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:12px;font-size:16px;cursor:pointer;font-family:'IBM Plex Sans KR',system-ui,sans-serif;">다시 시도</button></div>`;
   }
 }
 
@@ -1164,10 +1168,10 @@ function renderMatchList() {
   wrap.innerHTML = `<div class="match-list">${allMatches.map((row, idx) => {
     const { m, lg } = row;
     const ppl = (m.players && m.players.length ? m.players : [...(m.teamA || []), ...(m.teamB || [])]);
-    const chips = ppl.filter(Boolean).map(u => `<span class="mp-chip">${psName(u)}${parTag(u.par)}</span>`).join('');
+    const chips = ppl.filter(Boolean).map(u => `<span class="mp-chip">${psEsc(psName(u))}${parTag(u.par)}</span>`).join('');
     // 카테고리 배지 — 복수(브릿지)면 각각 표시, 없으면 division 폴백
     const cats = (m.categories && m.categories.length) ? m.categories : (m.division ? [m.division] : []);
-    const div = cats.map(c => `<span class="div-badge">${c}</span>`).join('');
+    const div = cats.map(c => `<span class="div-badge">${psEsc(c)}</span>`).join('');
     const statusTag = m.status === 'live'
       ? '<span class="status-tag live">🔴 LIVE</span>'
       : m.status === 'scheduled'
@@ -1175,15 +1179,15 @@ function renderMatchList() {
         : '';
     // 날짜 + 시간 (matchTime: '2026-06-05T18:30:00' → '18:30')
     const timeStr = (m.matchTime && m.matchTime.length >= 16) ? m.matchTime.slice(11, 16) : '';
-    const dateStr = m.date ? `<div class="match-date">📅 ${m.date}${timeStr ? ' ' + timeStr : ''}</div>` : '';
+    const dateStr = m.date ? `<div class="match-date">📅 ${psEsc(m.date)}${timeStr ? ' ' + psEsc(timeStr) : ''}</div>` : '';
     const no = (m.matchNumber && m.matchNumber > 0) ? m.matchNumber : 0; // 미채번이면 카드에 번호 숨김
     return `
       <div class="match-card" onclick="selectMatch(${idx})">
         <div class="match-card-top">
-          <span class="lg-badge">${lg.name || '리그'}</span>
+          <span class="lg-badge">${psEsc(lg.name || '리그')}</span>
           ${div}
           ${statusTag}
-          ${no ? `<span class="match-no">#${no}</span>` : ''}
+          ${no ? `<span class="match-no">#${psEsc(no)}</span>` : ''}
         </div>
         <div class="match-players">${chips}</div>
         ${dateStr}
@@ -1354,7 +1358,7 @@ function renderPairInfo() {
   for (const u of [...(selectedMatch.players || []), ...(selectedMatch.teamA || []), ...(selectedMatch.teamB || [])]) {
     if (u && u._id) nameOf[String(u._id)] = psName(u);
   }
-  const nm = (id) => nameOf[String(id)] || '선수';
+  const nm = (id) => psEsc(nameOf[String(id)] || '선수'); // HTML 에만 쓰인다 — 여기서 한 번 이스케이프
 
   const { byPair, byMatchup } = cUsage();
   const [p0, p1, p2, p3] = roster;
@@ -1379,7 +1383,7 @@ function renderPairInfo() {
       const score = cAlignedScore(c.a, m);
       state = `${cMatchLabel(m) || '완료'}${score ? ` · ${score}` : ''}`;
     }
-    return `<div class="combo-row ${cls}"><div class="combo-names">${names}</div><div class="combo-state ${cls}">${state}</div></div>`;
+    return `<div class="combo-row ${cls}"><div class="combo-names">${names}</div><div class="combo-state ${cls}">${psEsc(state)}</div></div>`;
   }).join('');
 
   // 이미 같은 편이었던 짝 — 규칙 위반은 아니지만, 랜덤이 또 붙였는지 코트에서 바로 보이게.
@@ -1389,7 +1393,7 @@ function renderPairInfo() {
       const refs = byPair.get(cPairKey(roster[i], roster[j]));
       if (!refs || !refs.length) continue;
       const where = refs.map(cMatchLabel).filter(Boolean).join(', ');
-      seen.push(`<b>${nm(roster[i])}·${nm(roster[j])}</b> ${refs.length}회${where ? ` (${where})` : ''}`);
+      seen.push(`<b>${nm(roster[i])}·${nm(roster[j])}</b> ${refs.length}회${where ? ` (${psEsc(where)})` : ''}`);
     }
   }
   const usedLine = seen.length
@@ -1536,9 +1540,9 @@ function renderParStep(loading) {
   const m = selectedMatch;
   const state = parStateOf(m);
   const ppl = (m.players && m.players.length ? m.players : [...(m.teamA || []), ...(m.teamB || [])]);
-  const chips = ppl.filter(Boolean).map(u => `<span class="mp-chip">${psName(u)}${parTag(u.par)}</span>`).join('');
-  const lgName = (selectedLeague && selectedLeague.name) || '리그';
-  const no = (m.matchNumber && m.matchNumber > 0) ? ` · #${m.matchNumber}` : '';
+  const chips = ppl.filter(Boolean).map(u => `<span class="mp-chip">${psEsc(psName(u))}${parTag(u.par)}</span>`).join('');
+  const lgName = psEsc((selectedLeague && selectedLeague.name) || '리그');
+  const no = (m.matchNumber && m.matchNumber > 0) ? ` · #${psEsc(m.matchNumber)}` : '';
   const now = '<span class="par-opt-now">지금</span>';
   const dis = parBusy ? ' disabled' : '';
   const opt = (apply) => {
@@ -1552,7 +1556,7 @@ function renderParStep(loading) {
   };
   const notes = [];
   if (parBusy) notes.push('<div class="par-step-note">서버에 적는 중...</div>');
-  if (parError) notes.push(`<div class="par-step-note err">⚠️ ${parError}</div>`);
+  if (parError) notes.push(`<div class="par-step-note err">⚠️ ${psEsc(parError)}</div>`); // 서버 문장
   if (state === 'legacy') {
     notes.push('<div class="par-step-note warn">지금은 태블릿에서 고른 적이 없는 옛 설정이에요 — 이대로 치면 혼성·브릿지 경기는 등급(PAR)에 반영되지 않아요. 둘 중 하나를 골라 주세요.</div>');
   }
@@ -1637,7 +1641,7 @@ async function doAssignTeams() {
       return;
     }
     document.getElementById('team-display').innerHTML =
-      `<div class="no-combo-msg">😅 ${e.message}</div>`;
+      `<div class="no-combo-msg">😅 ${psEsc(e && e.message)}</div>`;
   }
 }
 
@@ -1656,12 +1660,12 @@ function renderTeamDisplay(fresh) {
     <div class="team-display">
       <div class="team-box team-a">
         <div class="team-label">TEAM A</div>
-        ${teamA.map((p,i)=>`<div class="team-player">${p}${parTag(teamAPar[i])}${airHint(p, teamAAir[i])}</div>`).join('')}
+        ${teamA.map((p,i)=>`<div class="team-player">${psEsc(p)}${parTag(teamAPar[i])}${airHint(p, teamAAir[i])}</div>`).join('')}
       </div>
       <div class="vs-box">VS</div>
       <div class="team-box team-b">
         <div class="team-label">TEAM B</div>
-        ${teamB.map((p,i)=>`<div class="team-player">${p}${parTag(teamBPar[i])}${airHint(p, teamBAir[i])}</div>`).join('')}
+        ${teamB.map((p,i)=>`<div class="team-player">${psEsc(p)}${parTag(teamBPar[i])}${airHint(p, teamBAir[i])}</div>`).join('')}
       </div>
     </div>`;
   renderPairInfo();
@@ -1738,7 +1742,7 @@ function renderScoreBoard() {
     <div class="set-tabs">${tabsHtml}</div>
     <div class="score-board">
       <div class="score-side side-a">
-        <div class="score-side-name">${teamA.join('<br>')}${airTeamHint(teamA, teamAAir)}</div>
+        <div class="score-side-name">${teamA.map(psEsc).join('<br>')}${airTeamHint(teamA, teamAAir)}</div>
         <div class="score-big" id="score-a">${sets[cs].a}</div>
         <div class="score-btns">
           <button class="score-btn" onclick="adjustScore(${cs},'a',-1)">−</button>
@@ -1746,7 +1750,7 @@ function renderScoreBoard() {
         </div>
       </div>
       <div class="score-side side-b">
-        <div class="score-side-name">${teamB.join('<br>')}${airTeamHint(teamB, teamBAir)}</div>
+        <div class="score-side-name">${teamB.map(psEsc).join('<br>')}${airTeamHint(teamB, teamBAir)}</div>
         <div class="score-big" id="score-b">${sets[cs].b}</div>
         <div class="score-btns">
           <button class="score-btn" onclick="adjustScore(${cs},'b',-1)">−</button>
@@ -1998,6 +2002,7 @@ async function cancelMatch() {
 //    (조용히 넘어가면 그 영상이 정식 경기로 남는다).
 async function voidStreamOf(matchId) {
   let data = null;
+  let authErr = '';   // 방송 PC 가 운영자 확인에서 막았다(c17) — 마지막 안내에 그 이유를 붙인다
   // 지금 방송·끄는 중이 **이 경기**의 것인가 — 다른 경기 것이면 이 경기는 방송한 적이 없을 수 있다(검토 3차: 저장 →
   // 다시하기 → 앞 경기를 끄는 사이 [매치 취소] 에 '[무효] 직접 붙여 주세요' 가 떠, 방금 끝난 정상 경기 영상에
   // [무효] 를 붙일 뻔했다). 경기를 모르는 방송(옛 서버·옛 태블릿이 켠 것)은 이 경기 것일 수 있다고 본다.
@@ -2021,12 +2026,13 @@ async function voidStreamOf(matchId) {
     if (mine) {
       try {
         const res = await fetch(`${STREAM_SERVER}/void-video`, {
-          method: 'POST', headers: {'Content-Type': 'application/json'},
+          method: 'POST', headers: streamHeaders(),
           body: JSON.stringify({ watchUrl }),
           // 서버는 [무효] 를 켜고 끄기와 같은 줄에서 붙인다 — 다음 경기 넘겨받기(15~20초) 뒤에 설 수 있다(검토 2차).
           signal: AbortSignal.timeout(60000),
         });
         data = await res.json();
+        if (streamAuthFail(res, data)) authErr = data.error || '';
       } catch(_) { data = null; }
     }
   }
@@ -2034,7 +2040,9 @@ async function voidStreamOf(matchId) {
     streamOfDel(matchId);
     setTimeout(() => showToast('🚫 유튜브 영상에 [무효] 를 붙여요'), 1500);
   } else {
-    setTimeout(() => showToast('⚠️ 영상에 [무효] 를 못 붙였어요 — 유튜브 스튜디오에서 직접 붙여 주세요'), 1500);
+    setTimeout(() => showToast(authErr
+      ? '⚠️ 영상에 [무효] 를 못 붙였어요(' + authErr + ') — 유튜브 스튜디오에서 직접 붙여 주세요'
+      : '⚠️ 영상에 [무효] 를 못 붙였어요 — 유튜브 스튜디오에서 직접 붙여 주세요'), 1500);
   }
 }
 
@@ -2100,14 +2108,14 @@ function showDone(date, scoreStr) {
   hideScoreboard(); // 📴 스코어보드 오버레이 숨김
   const winsA = sets.filter(s=>s.a>s.b).length;
   const winsB = sets.filter(s=>s.b>s.a).length;
-  const winner = winsA > winsB ? `🏆 ${teamA.join(' / ')} 승리!` : winsB > winsA ? `🏆 ${teamB.join(' / ')} 승리!` : '🤝 무승부';
+  const winner = winsA > winsB ? `🏆 ${psEsc(teamA.join(' / '))} 승리!` : winsB > winsA ? `🏆 ${psEsc(teamB.join(' / '))} 승리!` : '🤝 무승부';
   const lgName = (selectedLeague && selectedLeague.name) || '리그';
   const divStr = selectedMatch && selectedMatch.division ? ` · ${selectedMatch.division}` : '';
 
   document.getElementById('done-sub').textContent = `${date} · ${lgName}${divStr}`;
   document.getElementById('done-result').innerHTML = `
-    <div style="margin-bottom:12px">${teamA.join(' / ')} <span style="color:var(--text-dim);font-size:14px">vs</span> ${teamB.join(' / ')}</div>
-    <div style="font-family:'IBM Plex Sans KR',system-ui,sans-serif;font-size:32px;color:var(--gold);letter-spacing:2px;margin-bottom:12px">${scoreStr}</div>
+    <div style="margin-bottom:12px">${psEsc(teamA.join(' / '))} <span style="color:var(--text-dim);font-size:14px">vs</span> ${psEsc(teamB.join(' / '))}</div>
+    <div style="font-family:'IBM Plex Sans KR',system-ui,sans-serif;font-size:32px;color:var(--gold);letter-spacing:2px;margin-bottom:12px">${psEsc(scoreStr)}</div>
     <div style="color:var(--green)">${winner}</div>`;
   // 등급(PAR) 한 줄은 서버에서 다시 읽은 뒤 채운다(showDonePar) — 앞 경기 줄이 남지 않게 비우고 숨긴다.
   const dp = document.getElementById('done-par');
@@ -2293,6 +2301,29 @@ const STREAM_SERVER = (function () {
   if (location.protocol === 'file:' || h.endsWith('github.io')) return 'http://localhost:5000';
   return location.origin;
 })();
+// ── 방송 PC 요청의 머리 (c17 · 2026-10-19) ──
+// ⚠️ stream_server 는 방송을 바꾸는 요청(켜기·끄기·[무효]·🎬 하이라이트)에 **운영자 로그인**을 확인한다 — 예전엔
+//    인증이 없어서 obs.padelsociety.co.kr 터널로 인터넷의 누구나 방송을 켜고 끌 수 있었다. 토큰은 리그 저장과 같은
+//    psToken(⚙ 설정 로그인). 이 PC 에서 직접 연 페이지(localhost)만 토큰 없이 된다. /health 는 그대로 토큰 없이.
+//    그래서 **자유 라이브·하이라이트도 이제 로그인이 있어야 한다**(예전엔 아무나 눌렀다).
+function streamHeaders() {
+  const h = { 'Content-Type': 'application/json' };
+  if (psToken) h['Authorization'] = `Bearer ${psToken}`;
+  return h;
+}
+// 방송 PC 가 운영자 확인에서 막았나(401 로그인 필요 · 403 권한 없음 · 503 확인 서버 못 닿음 — 몸에 auth 가 있다).
+// 막혔으면 서버 말을 그대로 띄우고(401 이면 ⚙ 설정을 연다) true. 그 밖은 false — 부른 쪽이 원래대로 처리한다.
+function streamAuthFail(res, data) {
+  if (!res || !data || !data.auth || ![401, 403, 503].includes(res.status)) return false;
+  showToast('🔒 ' + (data.error || '운영자 로그인이 필요해요 (⚙ 설정)'));
+  if (res.status === 401) {
+    const fl = document.getElementById('free-live-modal');
+    if (fl) fl.classList.remove('show'); // 자유 라이브 창 위에 설정 창이 겹치지 않게
+    openSettings();
+  }
+  return true;
+}
+
 let _streamActive = false;
 let _streamServerOnline = false;
 let _watchUrl = null;
@@ -2383,16 +2414,19 @@ async function saveHighlight(seconds, btn) {
   try {
     const res = await fetch(`${STREAM_SERVER}/highlight`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: streamHeaders(),
       body: JSON.stringify({ seconds }),
       signal: AbortSignal.timeout(8000),
     });
     const data = await res.json().catch(() => ({}));
-    if (!data.success) throw new Error(data.error || '저장 실패');
+    if (!data.success) {
+      if (streamAuthFail(res, data)) throw Object.assign(new Error(data.error || ''), { shown: true });
+      throw new Error(data.error || '저장 실패');
+    }
     renderHlRail(`✅ ${seconds}초 저장됨 — 잠시 후 앱에서 확인`);
     showToast(`🎬 ${seconds}초 하이라이트 저장 중 — 잠시 후 앱에서 확인`);
   } catch (e) {
-    showToast('⚠️ ' + (e.message || '하이라이트 저장 실패'));
+    if (!e.shown) showToast('⚠️ ' + (e.message || '하이라이트 저장 실패'));
     console.error('highlight -', e);
   }
   setTimeout(() => {
@@ -2493,7 +2527,7 @@ async function _startStreamOnce(forMatch, startedFor, rec) {
     _startSeq++;
     const res = await fetch(`${STREAM_SERVER}/start-stream`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: streamHeaders(),
       body: JSON.stringify({
         // ⚠️ 방송 이름(teamAAir) — 유튜브 제목·설명·썸네일과 하이라이트(서버가 이 이름을 기억해 클립에 단다)가
         //    전부 여기서 나간다. 실명 배열(teamA)은 이 화면 전용이다(2026-10-10).
@@ -2537,7 +2571,7 @@ async function _startStreamOnce(forMatch, startedFor, rec) {
       }
     } else {
       _updateStreamStatus('error');
-      showToast('⚠️ 스트리밍 오류: ' + (data.error || '알 수 없는 오류'));
+      if (!streamAuthFail(res, data)) showToast('⚠️ 스트리밍 오류: ' + (data.error || '알 수 없는 오류'));
       // 켜는 사이 /health 가 '방송 중' 을 읽어 _streamActive 를 켰을 수 있다 — 서버 답으로 다시 맞춘다.
       setTimeout(() => checkStreamServer(), 300);
     }
@@ -2592,7 +2626,7 @@ async function _stopStreamOnce(opts) {
   try {
     const res = await fetch(`${STREAM_SERVER}/stop-stream`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: streamHeaders(),
       body: JSON.stringify(Object.assign({}, voidIt ? { void: true } : {}, matchId ? { matchId } : {})),
       // 서버는 OBS 가 정말 멈출 때까지 확인하고(OBS 가 멈춰 있으면 다시 붙어 보느라 30초 가까이) 유튜브 방송을
       // 닫은 뒤 답한다 — 10초는 모자랐다.
@@ -2602,6 +2636,12 @@ async function _stopStreamOnce(opts) {
     try { data = await res.json(); } catch(_) {}
     // JSON 이 아닌 오류 응답(500 등)을 '껐다' 로 읽지 않는다 — 아래 catch 로(오류 표시 · 서버 상태 다시 읽기).
     if (res.ok === false && !data) throw new Error('HTTP ' + res.status);
+    // 운영자 확인에서 막혔다(c17) — 방송은 **그대로 나가는 중**이다. '종료됨' · 앱 라이브 배너 끄기를 하지 않는다.
+    if (streamAuthFail(res, data)) {
+      _updateStreamStatus('error');
+      setTimeout(() => checkStreamServer(), 300);
+      return data;
+    }
     if (data && data.skipped) {
       // 지금 방송은 다른 경기다(다음 경기가 넘겨받았다 · 자유 라이브) — 끄지 않았다. LIVE 표시와
       // 앱 라이브 배너(isLive)를 건드리지 않고 서버 상태만 다시 읽는다.
@@ -2683,11 +2723,12 @@ function renderFreeLive() {
     card.classList.add('on');
     const left = _liveEndsAt ? (Date.parse(_liveEndsAt) - Date.now()) : 0;
     st.innerHTML = `🔴 LIVE · <span class="free-live-timer" id="free-live-timer">${_liveEndsAt ? _fmtLeft(left) : ''}</span>`;
+    // 이름은 방송 PC(/health)나 사람이 적은 글자다 — 이스케이프(c17).
     const names = (_liveTeams.a.length || _liveTeams.b.length)
-      ? `<b>${_liveTeams.a.join(' / ') || '팀 A'}</b> vs <b>${_liveTeams.b.join(' / ') || '팀 B'}</b> · `
+      ? `<b>${psEsc(_liveTeams.a.join(' / ') || '팀 A')}</b> vs <b>${psEsc(_liveTeams.b.join(' / ') || '팀 B')}</b> · `
       : '';
     sub.innerHTML = `${names}시간이 다 되면 자동으로 꺼져요. 명장면은 오른쪽 <b>🎬 하이라이트</b> 레일에서 저장해요.`
-      + (_watchUrl ? `<div class="free-live-link">📺 ${_watchUrl}</div>` : '');
+      + (_watchUrl ? `<div class="free-live-link">📺 ${psEsc(_watchUrl)}</div>` : '');
     act.innerHTML = `
       ${_watchUrl ? `<button class="btn btn-shuffle" onclick="copyWatchUrl()">🔗 시청 링크 복사</button>` : ''}
       <button class="btn btn-red" onclick="stopFreeLive()">⏹ 라이브 종료</button>`;
@@ -2742,12 +2783,15 @@ async function startFreeLive() {
   try {
     const res = await fetch(`${STREAM_SERVER}/start-stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: streamHeaders(),
       body: JSON.stringify({ mode: 'free', durationMinutes: _flMinutes, teamA, teamB }),
       signal: AbortSignal.timeout(40000),
     });
     const data = await res.json().catch(() => ({}));
-    if (!data.success) throw new Error(data.error || '시작 실패');
+    if (!data.success) {
+      streamAuthFail(res, data); // 로그인이 없으면 설정 창 — 아래 상태 줄에도 서버 말 그대로
+      throw new Error(data.error || '시작 실패');
+    }
     _streamActive = true;
     _watchUrl = data.watch_url || null;
     _liveMode = 'free';
@@ -2838,8 +2882,11 @@ async function loadAmericano() {
 function openAmericano(id) {
   if (!psToken) { showToast('운영자 로그인이 필요해요 (⚙ 설정)'); openSettings(); return; }
   const url = boardOrigin() + '/am/' + encodeURIComponent(id) + '#t=' + encodeURIComponent(psToken);
+  // ⚠️ 'noopener' 를 세 번째 인자로 주면 window.open 이 늘 null 을 돌려줘 아래 '팝업 막힘' 길이 매번 탄다(태블릿이
+  //    보드로 넘어간다) — 창을 연 **바로 다음** opener 를 끊는다(c17). 아직 about:blank 라 같은 출처로 끊긴다.
   const w = window.open(url, '_blank');
-  if (!w) location.href = url; // 팝업이 막힌 브라우저 — 같은 창으로(보드의 [← 리그앱] 이 뒤로 간다)
+  if (!w) { location.href = url; return; } // 팝업이 막힌 브라우저 — 같은 창으로(보드의 [← 리그앱] 이 뒤로 간다)
+  try { w.opener = null; } catch (_) {}
 }
 
 // ── 초기화 ──────────────────────────────────────────────────
@@ -2878,7 +2925,7 @@ if ('serviceWorker' in navigator) {
 -->
 <script>
 (function () {
-  var BUILD = "c16";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
+  var BUILD = "c17";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
   var el = document.getElementById('app-build');
   if (el) el.textContent = '앱 ' + BUILD;
 

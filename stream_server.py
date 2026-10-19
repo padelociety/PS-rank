@@ -14,6 +14,8 @@ ps_court.html에서 '스코어 입력' 버튼을 누르면:
 """
 
 import atexit
+import functools
+import hashlib
 import json
 import re
 import logging
@@ -25,6 +27,7 @@ import tempfile
 import itertools
 import threading
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
@@ -73,7 +76,145 @@ youtube = YouTubeAPI(config)
 
 # ── Flask 앱 ───────────────────────────────────────────────────
 app = Flask(__name__)
-CORS(app, origins='*')  # LAN 내부 + 테블릿 접속 허용 (로컬 서버라 외부 노출 없음)
+
+# ⚠️ 2026-10-19: 예전엔 CORS origins='*' 에 인증이 없었다 — '로컬 서버라 외부 노출 없음' 이라 믿었지만
+#    obs.padelsociety.co.kr 이 역방향 ssh 터널로 이 서버를 **인터넷에 그대로** 내놓는다. 누구나 방송을 켜고
+#    끄고 [무효] 를 붙일 수 있었다. 출처는 목록으로 좁히고, 바꾸는 요청은 운영자 로그인을 확인한다(아래).
+#    이 서버 자기 주소(localhost:5000)는 config 의 목록과 상관없이 늘 넣는다 — 옛 config.json 예시엔
+#    github.io · localhost:3000 둘뿐이라 그대로 쓰면 PC 브라우저에서 연 태블릿 페이지가 막힌다.
+_SELF_ORIGINS = ['http://localhost:5000', 'http://127.0.0.1:5000',
+                 'https://localhost:5000', 'https://127.0.0.1:5000']
+CORS_ORIGINS = list(dict.fromkeys(
+    [str(o).rstrip('/') for o in (config.get('cors_origins') or [
+        'https://padelociety.github.io',
+        'https://obs.padelsociety.co.kr',
+    ]) if o] + _SELF_ORIGINS))
+CORS(app, origins=CORS_ORIGINS, allow_headers=['Content-Type', 'Authorization'])
+
+# ── 운영자 확인 (방송을 바꾸는 요청) ───────────────────────────────
+# 태블릿은 운영자 로그인 토큰(psToken)을 Authorization: Bearer 로 보낸다. 그 토큰을 Playus 백엔드
+# myProfile 에 물어 역할을 본다. 이 PC 에서 직접 부른 요청(터널·LAN 이 아닌 127.0.0.1)만 토큰 없이 통과 —
+# OBS PC 브라우저의 /reload-html 과 make_thumbnail.py 가 그 길이다.
+_AUTH_CFG = config.get('control_auth') or {}
+CONTROL_AUTH_ENABLED = _AUTH_CFG.get('enabled', True) is not False
+CONTROL_ROLES = frozenset(_AUTH_CFG.get('roles') or ['league_operator', 'super_admin', 'center_admin'])
+AUTH_API_BASE = (_AUTH_CFG.get('api_base') or (config.get('highlight') or {}).get('api_base')
+                 or 'https://api.padelsociety.co.kr').rstrip('/')
+_AUTH_OK_TTL = 600            # 통과한 토큰은 10분 동안 다시 안 묻는다
+_AUTH_DENY_TTL = 30           # 거절(401·역할 없음)은 30초 — 권한을 바로 주면 곧 풀린다
+_AUTH_GRACE = 12 * 3600       # 백엔드가 안 닿을 때: 12시간 안에 통과했던 토큰이면 들인다(경기장 인터넷 끊김)
+_AUTH_GRACE_RECHECK = 60      # 그렇게 들인 뒤엔 1분 동안 다시 묻지 않는다(요청마다 5초씩 멈추지 않게)
+_auth_lock = threading.Lock()
+_auth_cache: dict = {}        # sha256(토큰) → {'verdict': 'ok'|'forbidden'|'invalid', 'until': t, 'last_ok': t}
+
+AUTH_REQUIRED_MSG = '운영자 로그인이 필요해요 — 태블릿 ⚙ 설정에서 로그인해 주세요'
+AUTH_FORBIDDEN_MSG = '이 계정엔 운영자 권한이 없어요 — 운영자 계정으로 ⚙ 설정에서 다시 로그인해 주세요'
+AUTH_DOWN_MSG = ('운영자 확인 서버(Playus)에 연결하지 못했어요 — 방송 PC 의 인터넷 연결을 확인한 뒤 '
+                 '다시 시도해 주세요')
+
+if not CONTROL_AUTH_ENABLED:
+    logger.warning("!" * 60)
+    logger.warning("⚠️⚠️ control_auth.enabled = false — 운영자 확인을 끈 상태입니다.")
+    logger.warning("⚠️⚠️ obs.padelsociety.co.kr 터널로 **누구나** 방송을 켜고 끌 수 있어요. 점검 때만 끄세요.")
+    logger.warning("!" * 60)
+
+# 썸네일 사진은 우리 API 호스트에서만 받는다(thumbnail.PHOTO_HOSTS · SSRF 방지) — 다른 백엔드를 쓰는 PC 만 config 로 바꾼다.
+_photo_hosts = (config.get('thumbnail') or {}).get('photo_hosts')
+if _photo_hosts:
+    thumbnail.PHOTO_HOSTS = frozenset(str(h).strip().lower() for h in _photo_hosts if str(h).strip())
+
+_LOCAL_ADDRS = ('127.0.0.1', '::1')
+# 프록시·터널이 붙이는 머리 — 하나라도 있으면 이 PC 에서 직접 온 요청이 아니다(ssh 터널도 127.0.0.1 로 들어온다).
+_PROXY_HEADERS = ('X-Real-IP', 'X-Forwarded-For', 'Forwarded', 'CF-Connecting-IP')
+
+
+def _is_local_direct(req) -> bool:
+    """이 PC 에서 직접 부른 요청인가 — 127.0.0.1 · 프록시 머리 없음 · 출처가 없거나 허용 목록."""
+    if req.remote_addr not in _LOCAL_ADDRS:
+        return False
+    if any(h in req.headers for h in _PROXY_HEADERS):
+        return False
+    origin = req.headers.get('Origin')
+    if origin:
+        return origin.rstrip('/') in CORS_ORIGINS
+    # 출처가 없는 GET(<img src> 등)도 다른 사이트가 보낸 것이면 들이지 않는다.
+    return req.headers.get('Sec-Fetch-Site', '') not in ('cross-site', 'same-site')
+
+
+def _fetch_profile_role(token: str):
+    """백엔드에 토큰 주인을 묻는다 → (상태, 역할). 테스트가 이 함수를 갈아 끼운다.
+    상태: 'ok'(역할을 읽었다) · 'invalid'(401·403·433 — 틀린·만료·회수된 토큰) · 'down'(못 물어봤다)."""
+    req = urllib.request.Request(
+        f"{AUTH_API_BASE}/api/user/myProfile",
+        headers={'Authorization': f'Bearer {token}', 'Accept': 'application/json'},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = json.loads(resp.read(2_000_000).decode('utf-8') or '{}')
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403, 433):   # 433 = 백엔드의 '토큰 만료'
+            return 'invalid', ''
+        return 'down', f'HTTP {e.code}'
+    except Exception as e:
+        return 'down', str(e)
+    if not isinstance(body, dict) or body.get('isSuccess') is False:
+        return 'invalid', ''
+    data = body.get('data') if isinstance(body.get('data'), dict) else {}
+    return 'ok', str(data.get('role') or 'user')
+
+
+def _check_operator_token(token: str):
+    """토큰을 확인한다 → None(통과) 또는 (상태코드, 응답 dict). 결과는 토큰 해시로 잠깐 기억한다."""
+    key = hashlib.sha256(token.encode('utf-8')).hexdigest()
+    now = time.time()
+    with _auth_lock:
+        ent = dict(_auth_cache.get(key) or {})
+    if not ent or ent.get('until', 0) <= now:
+        state, info = _fetch_profile_role(token)   # info = 역할('ok') 또는 못 물어본 이유('down')
+        now = time.time()
+        if state == 'ok':
+            if info in CONTROL_ROLES:
+                ent = {'verdict': 'ok', 'until': now + _AUTH_OK_TTL, 'last_ok': now}
+            else:
+                ent = {'verdict': 'forbidden', 'until': now + _AUTH_DENY_TTL, 'last_ok': 0}
+        elif state == 'invalid':
+            ent = {'verdict': 'invalid', 'until': now + _AUTH_DENY_TTL, 'last_ok': 0}
+        elif ent.get('last_ok') and now - ent['last_ok'] <= _AUTH_GRACE:
+            logger.warning(f"⚠️ 운영자 확인 서버에 못 닿음({info}) — 12시간 안에 확인된 토큰이라 들입니다")
+            ent = dict(ent, verdict='ok', until=now + _AUTH_GRACE_RECHECK)
+        else:
+            logger.error(f"❌ 운영자 확인 서버에 못 닿음({info}) — 확인된 적 없는 토큰이라 막습니다")
+            return 503, {'success': False, 'error': AUTH_DOWN_MSG, 'auth': 'unavailable'}
+        with _auth_lock:
+            if len(_auth_cache) > 256:   # 오래된 칸 정리 — 통과 기록(last_ok)이 살아 있는 칸은 남긴다
+                for k in [k for k, v in _auth_cache.items()
+                          if v.get('until', 0) <= now and now - (v.get('last_ok') or 0) > _AUTH_GRACE]:
+                    _auth_cache.pop(k, None)
+            _auth_cache[key] = ent
+    if ent['verdict'] == 'ok':
+        return None
+    if ent['verdict'] == 'forbidden':
+        return 403, {'success': False, 'error': AUTH_FORBIDDEN_MSG, 'auth': 'forbidden'}
+    return 401, {'success': False, 'error': AUTH_REQUIRED_MSG, 'auth': 'required'}
+
+
+def _require_operator(fn):
+    """방송을 바꾸는 라우트 앞에 붙인다 — 이 PC 직접 요청이거나 운영자 토큰이어야 통과."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        if CONTROL_AUTH_ENABLED and not _is_local_direct(request):
+            auth = request.headers.get('Authorization', '')
+            token = auth[7:].strip() if auth[:7].lower() == 'bearer ' else ''
+            if not token or len(token) > 4096:
+                fail = (401, {'success': False, 'error': AUTH_REQUIRED_MSG, 'auth': 'required'})
+            else:
+                fail = _check_operator_token(token)
+            if fail:
+                who = request.headers.get('X-Real-IP') or request.remote_addr
+                logger.warning(f"🔒 {request.path} 거절({fail[0]} · {fail[1]['auth']}) — {who}")
+                return jsonify(fail[1]), fail[0]
+        return fn(*args, **kwargs)
+    return wrapper
 
 # ── ps_court_playus.html 서빙 ─────────────────────────────────
 # GitHub에서 최신 파일을 시작 시 다운로드해 메모리에 캐시. OBS PC에 파일 없어도 OK.
@@ -115,9 +256,22 @@ def _index():
     return '❌ ps_court_playus.html 로드 실패. 서버를 재시작해주세요.', 503
 
 
+_RELOAD_MIN_GAP = 20          # 초 — 페이지 다시 받기는 이 간격에 한 번만
+_reload_lock = threading.Lock()
+_last_reload = [0.0]
+
+
 @app.route('/reload-html')
 def _reload_html():
-    """페이지 재다운로드 (최신 버전으로 갱신)."""
+    """페이지 재다운로드 (최신 버전으로 갱신).
+    ⚠️ 운영자 확인을 걸지 않는다 — 배포 절차가 폰 브라우저로 https://obs.padelsociety.co.kr/reload-html 을 여는
+       것이고(backend/nginx/deploy_obs_court.md), 하는 일은 GitHub PS-rank main 의 파일을 다시 받는 것뿐이라 남이 불러도
+       페이지 내용을 바꿀 수 없다. 대신 20초에 한 번만 받는다 — 터널로 두드려 GitHub 요청을 쏟아내지 못하게."""
+    with _reload_lock:
+        now = time.time()
+        if now - _last_reload[0] < _RELOAD_MIN_GAP:
+            return jsonify({'ok': True, 'loaded': _court_html_cache is not None, 'throttled': True})
+        _last_reload[0] = now
     _load_court_html()
     return jsonify({'ok': True, 'loaded': _court_html_cache is not None})
 
@@ -421,6 +575,7 @@ def _refresh_live_meta(broadcast_id: str, title: str, description: str, *, retit
 
 
 @app.route('/start-stream', methods=['POST'])
+@_require_operator
 def start_stream():
     """
     스트리밍 시작
@@ -712,6 +867,7 @@ def _stop_stream_locked(reason: str = '') -> list:
 
 
 @app.route('/stop-stream', methods=['POST'])
+@_require_operator
 def stop_stream():
     """스트리밍 종료. Body(선택): { "void": true } — 끝까지 못 친 경기(태블릿 '매치 취소').
     영상은 지우지 않고 제목·설명에 [무효] 를 붙인다(매치는 태블릿이 지워 순위·PAR·전적에서 빠진다)."""
@@ -770,6 +926,7 @@ def _void_later(video_id: str):
 
 
 @app.route('/void-video', methods=['POST'])
+@_require_operator
 def void_video():
     """이미 끝난 방송의 영상에 [무효] — 방송을 먼저 끄고 나중에 '매치 취소' 를 누른 경우.
     Body: { "watchUrl": "https://www.youtube.com/watch?v=..." } (또는 "videoId")"""
@@ -914,6 +1071,7 @@ def _upload_highlight(path, meta, seconds=0):
 
 
 @app.route('/highlight', methods=['POST'])
+@_require_operator
 def save_highlight():
     """리플레이 버퍼를 클립으로 저장(즉시 응답) + 백엔드 업로드(백그라운드).
     Body(선택): { "seconds": 60 } — 버퍼(권장 90초)에서 뒤쪽 N초만 잘라 업로드."""

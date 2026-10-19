@@ -52,7 +52,7 @@ function tablet(ctx) {
     ${src.match(/var _starting = null;[^\n]*/)[0]}
     ${src.match(/var _startSeq = 0;[^\n]*/)[0]}
     ${['_updateStreamStatus', 'startStream', '_startStreamOnce', 'stopStream', '_stopStreamOnce', 'voidStreamOf',
-       'streamOfAll', 'streamOfGet', 'streamOfSet', 'streamOfDel', 'rosterOf'].map(body).join('\n')}
+       'streamOfAll', 'streamOfGet', 'streamOfSet', 'streamOfDel', 'rosterOf', 'streamHeaders', 'streamAuthFail'].map(body).join('\n')}
     return {
       startStream, stopStream, voidStreamOf, streamOfGet, streamOfSet, streamOfDel, _updateStreamStatus,
       get: () => ({ _streamActive, _liveMatchId, _liveMatchNum, _liveMode, starting: _starting, starts: _starts }),

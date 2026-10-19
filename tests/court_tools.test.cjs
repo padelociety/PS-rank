@@ -47,6 +47,8 @@ const body = (name) => {
     ${src.match(/var _startSeq = 0;[^\n]*/)[0]}
     ${body('stopStream')}
     ${body('_stopStreamOnce')}
+    ${body('streamHeaders')}
+    ${body('streamAuthFail')}
     return { stopStream, nullLeague: () => { selectedLeague = null; } };
   `);
 
@@ -99,6 +101,8 @@ const body = (name) => {
       ${body('streamOfAll')}
       ${body('streamOfGet')}
       ${body('streamOfDel')}
+      ${body('streamHeaders')}
+      ${body('streamAuthFail')}
       return { stopStream, voidStreamOf };
     `);
     const tab = run3({
@@ -121,9 +125,9 @@ const body = (name) => {
     if (!toasts.some((m) => m.includes('[무효] 를 붙여요'))) throw new Error('성공 안내 없음: ' + JSON.stringify(toasts));
   });
 
-  await t('빌드 배지 c16 · BUILD · SW v50 같이', () => {
-    if (!src.includes('<!--COURTBUILD:c16-->') || !src.includes('var BUILD = "c16";')) throw new Error('배지');
-    if (!sw.includes("const CACHE = 'ps-court-v50';")) throw new Error('SW');
+  await t('빌드 배지 c17 · BUILD · SW v51 같이', () => {
+    if (!src.includes('<!--COURTBUILD:c17-->') || !src.includes('var BUILD = "c17";')) throw new Error('배지');
+    if (!sw.includes("const CACHE = 'ps-court-v51';")) throw new Error('SW');
   });
 
   console.log(fails ? `\n실패 ${fails}건\n` : '\n전부 통과\n');
