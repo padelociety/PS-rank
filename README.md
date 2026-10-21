@@ -120,6 +120,26 @@ OBS PC 가 여기서 pull 한다. 고치면 양쪽을 같게 맞출 것(2026-09 
   (`control_auth` · `cors_origins` · `thumbnail.photo_hosts`) — 안 적으면 기본값으로 켜진다.
 - LAN 직접 접속(`http://PC-IP:5000`)은 토큰이 평문으로 와이파이를 지난다 — 가능하면 `https://obs.padelsociety.co.kr` 로 연다.
 
+## 유튜브 끊김 — 지연 · 자동 종료 · 재연결 · 상태 감시 (2026-10-21 · 태블릿 c18 · SW v52)
+
+신고 *"요즘 유투브가 자주 끊긴대"*. 서버 로그엔 켜고 끈 것만 남아 **어디서 끊겼는지 알 수 없었다.** 끊김을 키우던 설정 셋을 고치고,
+방송 중에 어디가 문제인지 보이게 했다.
+
+- **지연 `normal`** — 예전 기본 `ultraLow` 는 시청자 버퍼가 몇 초뿐이라 업로드가 조금만 밀려도 시청자 화면이 돌았다. 이제 15~30초 늦게
+  보이는 대신 잘 안 멈춘다. `config.json` `youtube.latency` 는 `normal`·`low` 만 받는다(`ultraLow` 는 `normal` 로 바꾸고 로그에 남긴다).
+- **YouTube 자동 종료 끔**(`enableAutoStop: False`) — 예전엔 업로드가 1분쯤 끊기면 YouTube 가 방송을 **끝냈고**, OBS 가 다시 붙어도
+  끝난 방송이었다. 이제 방송은 stream_server 가 끝낸다(경기 저장 · [매치 취소]). 끝내기가 실패하면 15초 · 45초 · 2분 · 5분 · 10분 뒤에
+  다시 끝내고(`live_broadcast.json` — git 제외), 시작 전(`created`·`ready`) 방송은 지운다. 서버가 방송 중에 죽었다 뜨면 OBS 가 송출 중일 땐
+  그 방송을 이어받고, 아니면 남은 방송을 끝낸다.
+- **OBS 자동 재연결** — 붙을 때마다 켜져 있는지 보고 꺼져 있거나 짧으면 켠다(재시도 3초 · 25번 · `/health` `broadcast_settings.reconnect`).
+- **방송 상태 감시**(`stream_health.py` — 순수 모듈) — 방송 중 10초마다 OBS 송출 숫자(재연결 · 업로드 드롭 · 혼잡 · 인코딩/화면 밀림 ·
+  RTSP 카메라 상태)를, 1분마다 YouTube 스트림 건강을 읽어 가장 큰 문제 하나를 고른다. `/health` 의 `stream_health` · 로그
+  `⚠️ 방송 상태:`/`✅ 방송 상태 정상으로 돌아옴` · 태블릿 상태 줄 `🔴 LIVE · Match 39 · ⚠️ 업로드 불안정`(새 문제는 한 번 토스트).
+  무엇을 하면 되는지는 `setup/SETUP_LIVESTREAM_PC.md` 8절 '유튜브가 자주 끊긴다' 표.
+- ⚠️ **python 이 바뀌었다 — `stream_server` 재시작이 필요하다. 방송 중엔 하지 말 것.** 태블릿은 재시작 때 c18 을 받는다.
+  이미 열려 있는 방송은 예전 설정(ultraLow · 자동 종료) 그대로다 — 다음 방송부터 바뀐다.
+- 테스트 `tests/test_stream_stability.py` · `tests/stream_handover.test.cjs` ⑥-2.
+
 ## OBS PC 에 새 버전 올리기
 
 ```powershell
@@ -140,4 +160,5 @@ node tests\stream_handover.test.cjs    # 태블릿 — 끄기 기다리기 · �
 node tests\on_air_name.test.cjs        # 태블릿 — 방송 이름(onAir)으로 TV·앱 라이브·유튜브 · 화면은 실명
 python tests\test_make_thumbnail_onair.py  # 썸네일 다시 만들기도 방송 이름 · 닉네임이면 사진 없음
 node tests\par_step.test.cjs           # 태블릿 — 등급(PAR) STEP 2 · 다시하기 이어받기 · 저장 확인 · 완료 화면 PAR 한 줄
+python tests\test_stream_stability.py  # 끊김 — 지연 normal · 자동 종료 끔 · 못 끝낸 방송 다시 끝내기 · OBS 재연결 · 방송 상태 판정
 ```

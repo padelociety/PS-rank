@@ -784,8 +784,9 @@ body {
       <div id="fb-status" style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:4px">🔴 Firebase 연결 중...</div>
       <!-- 빌드 표시 — 태블릿이 최신 파일을 받았는지 눈으로 확인하는 용도.
            배포할 때마다 아래 COURTBUILD 와 스크립트의 BUILD 를 함께 올린다.
-           c17(2026-10-19): 방송 PC(stream_server) 요청에 운영자 토큰 · 서버·회원 글자 이스케이프 · 보드 창 opener 끊기. -->
-      <!--COURTBUILD:c17--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c17</div>
+           c17(2026-10-19): 방송 PC(stream_server) 요청에 운영자 토큰 · 서버·회원 글자 이스케이프 · 보드 창 opener 끊기.
+           c18(2026-10-21): 방송 중 문제(재연결 · 업로드 · 카메라 · PC 과부하 · 유튜브 경고)를 LIVE 줄에 — 서버 /health stream_health. -->
+      <!--COURTBUILD:c18--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c18</div>
       <div class="step-indicator" id="step-label">STEP 1 / 4</div>
       <div class="step-dots">
         <div class="step-dot active" id="dot-1"></div>
@@ -2335,6 +2336,9 @@ let _liveTitle = '';
 let _liveTeams = { a: [], b: [] };
 let _liveMatchId = '';    // 지금 방송이 어느 리그 매치인가(서버 /health) — 상태 줄 'LIVE · Match 39'
 let _liveMatchNum = 0;
+// 방송 중 문제(c18 · 2026-10-21 "유투브가 자주 끊긴대") — 서버 /health stream_health 의 짧은 말·문장.
+// 예전엔 끊겨도 태블릿은 'LIVE' 만 그려서, 시청자만 알고 코트에선 아무도 몰랐다.
+let _liveIssue = { issue: '', short: '', text: '' };
 
 // ── 매치 → 그 매치 방송 영상 주소 (최근 20개) ──
 // [매치 취소] 가 그 경기 영상에 [무효] 를 붙이려고 기억한다. 예전엔 한 칸뿐이라 다음 경기가 덮어썼다 —
@@ -2366,6 +2370,20 @@ function streamOfDel(matchId) {
   try { localStorage.setItem('ps_stream_of', JSON.stringify(m)); } catch (_) {}
 }
 
+// 서버 stream_health → 상태 줄 짧은 말(c18). 문제가 없거나 모양이 이상하면 ''(옛 서버는 칸이 없다).
+function liveIssueLabel(h) {
+  if (!h || typeof h !== 'object' || !h.issue) return '';
+  const s = String(h.short || '').trim();
+  return s ? '⚠️ ' + s : '';
+}
+// 새 문제가 생길 때만 토스트 한 번 — 30초마다 같은 말을 띄우지 않는다. 풀리면 다음 문제를 다시 알린다.
+function noteLiveIssue(next) {
+  const prev = _liveIssue || {};
+  const h = (next && typeof next === 'object') ? next : {};
+  _liveIssue = { issue: String(h.issue || ''), short: String(h.short || ''), text: String(h.text || '') };
+  if (_liveIssue.issue && _liveIssue.issue !== prev.issue && _liveIssue.text) showToast('⚠️ ' + _liveIssue.text);
+}
+
 function _updateStreamStatus(state) {
   const el = document.getElementById('stream-status');
   if (!el) return;
@@ -2378,9 +2396,14 @@ function _updateStreamStatus(state) {
   };
   const info = map[state] || map.offline;
   // 어느 경기 방송인지 같이 적는다 — 태블릿이 Match 41 인데 'LIVE · Match 39' 면 한눈에 보인다.
-  el.textContent = (state === 'live' && _liveMode !== 'free' && _liveMatchNum > 0)
+  let text = (state === 'live' && _liveMode !== 'free' && _liveMatchNum > 0)
     ? `${info.text} · Match ${_liveMatchNum}` : info.text;
-  el.style.color = info.color;
+  // 방송 중 문제가 있으면 끝에 짧게(c18) — 'LIVE · Match 39 · ⚠️ 재연결 중'. 문장 전체는 처음 생길 때 토스트로.
+  const warn = state === 'live' ? liveIssueLabel(_liveIssue) : '';
+  if (warn) text += ' · ' + warn;
+  el.textContent = text;
+  el.title = (state === 'live' && _liveIssue && _liveIssue.text) ? _liveIssue.text : '';
+  el.style.color = warn ? 'var(--gold)' : info.color;
   renderHlRail();
   renderFreeLive();
 }
@@ -2454,6 +2477,7 @@ async function checkStreamServer() {
       _liveTeams = { a: data.team_a || [], b: data.team_b || [] };
       _liveMatchId = data.streaming ? String(data.match_id || '') : '';
       _liveMatchNum = data.streaming ? (Number(data.match_number) || 0) : 0;
+      noteLiveIssue(data.streaming ? data.stream_health : null);
       _updateStreamStatus(data.streaming ? 'live' : 'online');
       if (data.streaming && data.watch_url) _showWatchBtn(data.watch_url);
     }
@@ -2925,7 +2949,7 @@ if ('serviceWorker' in navigator) {
 -->
 <script>
 (function () {
-  var BUILD = "c17";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
+  var BUILD = "c18";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
   var el = document.getElementById('app-build');
   if (el) el.textContent = '앱 ' + BUILD;
 

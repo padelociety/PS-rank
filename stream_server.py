@@ -46,6 +46,7 @@ def get_lan_ip():
     except Exception:
         return 'localhost'
 
+import stream_health
 import thumbnail
 from obs_controller import OBSController
 from youtube_api import YouTubeAPI
@@ -347,6 +348,224 @@ def _clear_state_locked():
         'error': None,
     })
 
+# ── 진행 중인 방송을 디스크에 적어 둔다 (2026-10-21) ─────────────────
+# 유튜브 방송을 자동 종료 없이 만든다(youtube_api — 업로드가 잠깐 끊겨도 같은 방송으로 이어지게). 대신 끝내기는
+# 이 서버 몫이라, 서버가 죽거나 PC 가 꺼지면 그 방송이 '라이브' 로 남는다. 그래서 켤 때 적고 끌 때 지우고,
+# 다음에 서버가 뜰 때 남아 있으면 정리한다(_recover_leftover). 끝내기가 실패한 방송도 여기 남겨 다시 해 본다.
+LIVE_FILE = os.path.join(_DIR, 'live_broadcast.json')
+_live_file_lock = threading.Lock()
+
+
+def _live_file_read() -> dict:
+    """{'current': {방송 상태}|None, 'pending_end': [방송 id…]} — 없거나 못 읽으면 빈 모양."""
+    try:
+        with open(LIVE_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+    cur = data.get('current') if isinstance(data.get('current'), dict) else None
+    pend = [str(x) for x in (data.get('pending_end') or []) if str(x)]
+    return {'current': cur, 'pending_end': pend}
+
+
+def _live_file_write(data: dict):
+    try:
+        if not data.get('current') and not data.get('pending_end'):
+            if os.path.exists(LIVE_FILE):
+                os.remove(LIVE_FILE)
+            return
+        tmp = LIVE_FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.replace(tmp, LIVE_FILE)
+    except Exception as e:
+        logger.warning(f"방송 기록 파일을 못 썼어요(무시): {e}")
+
+
+def _live_file_set_current(state: dict):
+    with _live_file_lock:
+        data = _live_file_read()
+        keys = ('mode', 'broadcast_id', 'watch_url', 'started_at', 'ends_at', 'duration_minutes',
+                'team_a', 'team_b', 'league', 'title', 'match_id', 'match_number', 'category')
+        data['current'] = {k: state.get(k) for k in keys}
+        _live_file_write(data)
+
+
+def _live_file_done(broadcast_id: str, ended: bool):
+    """방송을 끝냈으면(ended) 기록에서 지우고, 못 끝냈으면 '다시 끝낼 것' 에 남긴다."""
+    if not broadcast_id:
+        return
+    with _live_file_lock:
+        data = _live_file_read()
+        if data['current'] and data['current'].get('broadcast_id') == broadcast_id:
+            data['current'] = None
+        pend = [b for b in data['pending_end'] if b != broadcast_id]
+        if not ended:
+            pend.append(broadcast_id)
+        data['pending_end'] = pend[-20:]
+        _live_file_write(data)
+
+
+END_RETRY_DELAYS = (15, 45, 120, 300, 600)   # 끝내기 실패 → 이만큼 쉬고 다시(초). 다 실패하면 다음 서버 시작 때.
+_end_later_ids = set()
+_end_later_lock = threading.Lock()
+
+
+def _end_broadcast_now(broadcast_id: str) -> bool:
+    """유튜브 방송을 끝내고 기록을 맞춘다. 못 끝냈으면 뒤에서 다시 해 본다(_end_later). 끝냈으면 True."""
+    if not broadcast_id:
+        return True
+    try:
+        ended = bool(youtube.end_broadcast(broadcast_id))
+    except Exception as e:
+        logger.warning(f"⚠️ 방송 종료 오류 ({broadcast_id}): {e}")
+        ended = False
+    _live_file_done(broadcast_id, ended)
+    if not ended:
+        _end_later(broadcast_id)
+    return ended
+
+
+def _end_later(broadcast_id: str, delays=None):
+    """끝내기가 실패한 방송을 뒤에서 몇 번 더 끝내 본다(같은 방송에 둘이 돌지 않게). 끝내 실패하면 기록에 남아
+    다음 서버 시작 때 다시 정리한다. 자동 종료를 꺼서(youtube_api) 안 끝내면 '라이브' 로 계속 남는다."""
+    delays = END_RETRY_DELAYS if delays is None else delays
+    with _end_later_lock:
+        if broadcast_id in _end_later_ids:
+            return
+        _end_later_ids.add(broadcast_id)
+
+    def run():
+        try:
+            for wait in delays:
+                time.sleep(wait)
+                with state_lock:
+                    live_again = stream_state.get('active') and stream_state.get('broadcast_id') == broadcast_id
+                if live_again:
+                    return   # 그 사이 같은 방송을 다시 쓰고 있다(되살림) — 끝내지 않는다
+                try:
+                    ended = bool(youtube.end_broadcast(broadcast_id))
+                except Exception:
+                    ended = False
+                if ended:
+                    _live_file_done(broadcast_id, True)
+                    logger.info(f"⏹️ 미뤄 둔 방송 종료 성공 ({broadcast_id})")
+                    return
+            logger.error(f"❌ 방송을 끝내지 못했어요 — 유튜브 스튜디오에서 직접 종료해 주세요 ({broadcast_id})")
+        finally:
+            with _end_later_lock:
+                _end_later_ids.discard(broadcast_id)
+
+    threading.Thread(target=run, daemon=True, name=f'end-{broadcast_id}').start()
+
+
+def _recover_leftover():
+    """서버가 뜰 때 — 지난번에 끝내지 못한 방송을 정리한다.
+    · 기록된 방송이 있고 OBS 가 **아직 송출 중**이면(서버만 죽었다 다시 뜸) 그 방송을 이어받는다 — 태블릿이 다시
+      LIVE 로 보고, 경기 저장이 평소처럼 끈다.
+    · OBS 가 송출 중이 아니면 그 방송을 끝낸다(정전·PC 재시작 — 경기는 이미 끝났다).
+    · '다시 끝낼 것' 에 남은 방송도 끝낸다."""
+    data = _live_file_read()
+    cur = data.get('current')
+    pend = list(data.get('pending_end') or [])
+    if not cur and not pend:
+        return
+    adopted = False
+    if cur and cur.get('broadcast_id'):
+        try:
+            streaming = obs.is_streaming()
+        except Exception:
+            streaming = False
+        if streaming:
+            with stream_op_lock:
+                with state_lock:
+                    if not stream_state['active']:
+                        stream_state.update({k: v for k, v in cur.items() if k in stream_state})
+                        stream_state['active'] = True
+                        stream_state['error'] = None
+                        adopted = True
+            if adopted:
+                logger.info(f"↪️ 서버가 다시 떴어요 — OBS 가 송출 중인 방송을 이어받아요: {cur.get('title') or cur.get('broadcast_id')}")
+        if not adopted:
+            logger.info(f"↩️ 지난번에 끝내지 못한 방송을 정리해요: {cur.get('title') or cur.get('broadcast_id')}")
+            _end_broadcast_now(cur['broadcast_id'])
+    for bid in pend:
+        if adopted and cur and bid == cur.get('broadcast_id'):
+            continue
+        logger.info(f"↩️ 끝내기 실패로 남은 방송을 다시 끝내요: {bid}")
+        _end_broadcast_now(bid)
+
+
+# ── 방송 상태 감시 (2026-10-21 — "유투브가 자주 끊긴대") ───────────────
+# 방송 중 10초마다 OBS 송출 숫자(재연결 · 프레임 손실 · 혼잡 · 인코딩 밀림 · 카메라)를, 1분마다 YouTube 가 보는
+# 스트림 건강을 읽어 stream_health.evaluate 로 '지금 무엇이 문제인가' 를 정한다. /health 의 stream_health 로
+# 태블릿 상태 줄이 그리고, 바뀔 때마다 로그 한 줄. 그동안은 끊겨도 **어디서** 끊겼는지 남는 게 없었다.
+HEALTH_TICK_S = 10
+YOUTUBE_HEALTH_EVERY = 6          # 10초 × 6 = 1분마다 YouTube 에 묻는다(liveStreams.list 1 단위)
+health_state = {'broadcast_id': None, 'health': None, 'reconnects': 0, 'since': None}
+_health_mem = {'prev': None, 'prev_t': 0.0, 'cams': {}, 'yt': None, 'tick': 0, 'issue': '', 'reconnecting': False}
+
+
+def _health_tick(now_t: float = None):
+    """감시 한 바퀴 — 테스트가 직접 부른다. 방송 중이 아니면 기억을 비운다."""
+    now_t = time.time() if now_t is None else now_t
+    with state_lock:
+        active = stream_state['active']
+        bid = stream_state.get('broadcast_id')
+    if not active or not bid:
+        with state_lock:
+            health_state.update({'broadcast_id': None, 'health': None, 'reconnects': 0, 'since': None})
+        _health_mem.update({'prev': None, 'prev_t': 0.0, 'cams': {}, 'yt': None, 'tick': 0, 'issue': '', 'reconnecting': False})
+        return None
+    if health_state.get('broadcast_id') != bid:
+        with state_lock:
+            health_state.update({'broadcast_id': bid, 'health': None, 'reconnects': 0, 'since': None})
+        _health_mem.update({'prev': None, 'prev_t': 0.0, 'cams': {}, 'yt': None, 'tick': 0, 'issue': '', 'reconnecting': False})
+    snap = obs.stream_stats()
+    if snap is None:
+        return None
+    _health_mem['tick'] += 1
+    if _health_mem['tick'] % YOUTUBE_HEALTH_EVERY == 1:
+        yt = youtube.stream_health(bid)
+        if yt is not None:
+            before = stream_health.youtube_issue_lines(_health_mem['yt'])
+            after = stream_health.youtube_issue_lines(yt)
+            if after != before or (yt.get('status') != (_health_mem['yt'] or {}).get('status')):
+                logger.info(f"📺 YouTube 스트림 건강: {yt.get('status') or '?'}"
+                            + (f" — {' · '.join(after)}" if after else ''))
+            _health_mem['yt'] = yt
+    elapsed = (now_t - _health_mem['prev_t']) if _health_mem['prev_t'] else HEALTH_TICK_S
+    prev = _health_mem['prev'] if _health_mem['prev'] is not None else snap
+    h = stream_health.evaluate(prev, snap, elapsed_s=elapsed, camera_bad_ticks=_health_mem['cams'],
+                               youtube=_health_mem['yt'])
+    _health_mem['prev'] = snap
+    _health_mem['prev_t'] = now_t
+    if h['reconnecting'] and not _health_mem['reconnecting']:
+        with state_lock:
+            health_state['reconnects'] = int(health_state.get('reconnects') or 0) + 1
+    _health_mem['reconnecting'] = h['reconnecting']
+    line = stream_health.transition_line(_health_mem['issue'], h['issue'], h)
+    if line:
+        (logger.warning if h['issue'] else logger.info)(line)
+    since = None
+    if h['issue']:
+        since = health_state.get('since') if _health_mem['issue'] == h['issue'] else datetime.now(timezone.utc).isoformat()
+    _health_mem['issue'] = h['issue']
+    with state_lock:
+        if stream_state.get('broadcast_id') == bid:
+            health_state.update({'broadcast_id': bid, 'health': h, 'since': since})
+    return h
+
+
+def _health_loop():
+    while True:
+        try:
+            _health_tick()
+        except Exception as e:
+            logger.warning(f"방송 상태 감시 오류(무시): {e}")
+        time.sleep(HEALTH_TICK_S)
+
+
 # ── 리플레이 버퍼 상시 유지 (라이브 아니어도 하이라이트 가능) ──────────
 # OBS가 켜져 있으면 리플레이 버퍼를 항상 돌려서, 방송 중이 아니어도 언제든
 # 직전 60/90초를 클립으로 저장할 수 있게 한다. 20초마다 상태 확인·필요 시 재시작.
@@ -518,7 +737,27 @@ def health():
         'match_number': st.get('match_number') or 0,
         # 소리 싱크(OBS 연결 때마다 넣는 값) — 원격에서 맞춰졌는지 본다. config 에 없으면 target_ms: null.
         'audio_sync': getattr(obs, 'audio_sync_status', None),
+        # 방송 상태(2026-10-21) — 방송 중일 때만. issue/short/text 가 비면 정상. 태블릿 상태 줄이 short 를 그린다.
+        'stream_health': _health_view() if st['active'] else None,
+        # 끊김을 줄이는 설정이 실제로 먹었나 — 지연(normal 이 기본) · OBS 자동 재연결.
+        'broadcast_settings': {
+            'latency': getattr(youtube, 'latency', ''),
+            'auto_stop': False,
+            'reconnect': getattr(obs, 'reconnect_status', None),
+        },
     })
+
+
+def _health_view():
+    with state_lock:
+        h = dict(health_state.get('health') or {})
+        reconnects = int(health_state.get('reconnects') or 0)
+        since = health_state.get('since')
+    if not h:
+        return {'issue': '', 'short': '', 'text': '', 'reconnects': reconnects, 'since': None}
+    h['reconnects'] = reconnects
+    h['since'] = since
+    return h
 
 
 def _same_match(cur: dict, match_id: str, league: str, match_number: int,
@@ -651,8 +890,9 @@ def _start_stream_locked(mode, team_a, team_b, league, category, match_number,
             with state_lock:
                 _clear_state_locked()
             # 주인 잃은 유튜브 방송은 **여기서(잠금 안에서) 바로** 닫는다 — 뒤 스레드로 돌리면 바로 다음 방송 만들기와
-            # 같은 유튜브 연결을 동시에 써서 만들기가 실패했다(2026-10-08 검토). 실패해도 던지지 않는다(자동 종료가 보험).
-            if stale and youtube.end_broadcast(stale):
+            # 같은 유튜브 연결을 동시에 써서 만들기가 실패했다(2026-10-08 검토). 실패하면 뒤에서 다시 해 본다
+            # (2026-10-21 부터 자동 종료가 없다 — _end_later 가 보험).
+            if stale and _end_broadcast_now(stale):
                 logger.info(f"↩️ 남아 있던 방송 정리: {stale}")
 
     if takeover:
@@ -715,6 +955,8 @@ def _start_stream_locked(mode, team_a, team_b, league, category, match_number,
                 'category': category if mode == 'league' else '',
                 'error': None,
             })
+            recorded = dict(stream_state)
+        _live_file_set_current(recorded)   # 서버가 죽어도 이 방송을 다음에 정리·이어받을 수 있게
         if ends:
             logger.info(f"⏱ 자유 라이브 {minutes}분 — {ends.astimezone().strftime('%H:%M')} 에 자동 종료")
 
@@ -749,11 +991,8 @@ def _start_stream_locked(mode, team_a, team_b, league, category, match_number,
         # 방송을 만든 뒤에 실패했으면 그 방송을 닫는다. 안 그러면 YouTube에 아무것도
         # 안 나가는 빈 방송이 열린 채 남는다(실제로 3시간 떠 있었다).
         if broadcast_id:
-            try:
-                youtube.end_broadcast(broadcast_id)
+            if _end_broadcast_now(broadcast_id):
                 logger.info(f"↩️ 실패한 방송 정리됨 ({broadcast_id})")
-            except Exception:
-                pass
         try:
             obs.stop_stream()
         except Exception:
@@ -848,11 +1087,9 @@ def _stop_stream_locked(reason: str = '') -> list:
         logger.error(f"❌ OBS 종료 실패: {e}")
         errors.append(f"OBS: {e}")
 
-    try:
-        youtube.end_broadcast(broadcast_id)
-    except Exception as e:
-        logger.error(f"❌ YouTube 종료 실패: {e}")
-        errors.append(f"YouTube: {e}")
+    # 유튜브 방송 끝내기 — 못 끝냈으면 뒤에서 다시 해 본다(자동 종료를 껐다 · 2026-10-21). 태블릿엔 경고만.
+    if not _end_broadcast_now(broadcast_id):
+        errors.append("YouTube: 방송 종료가 늦어지고 있어요(서버가 다시 해 봐요)")
 
     # 상태 전체 초기화
     with state_lock:
@@ -1129,9 +1366,10 @@ def _cleanup():
     except Exception:
         pass
     try:
-        youtube.end_broadcast(bid)
+        ended = bool(youtube.end_broadcast(bid))
     except Exception:
-        pass
+        ended = False
+    _live_file_done(bid, ended)   # 못 끝냈으면 기록에 남아 다음 시작 때 정리된다
     logger.info("✅ 정리 완료")
 
 atexit.register(_cleanup)
@@ -1192,6 +1430,12 @@ if __name__ == '__main__':
     threading.Thread(target=_buffer_keepalive, daemon=True).start()
     # 자유 라이브 시간 만료 워치독 — 태블릿이 꺼져도 서버가 끈다
     threading.Thread(target=_auto_stop_loop, daemon=True).start()
+    # 방송 상태 감시 — 재연결·업로드·카메라·YouTube 경고를 /health 와 로그에(2026-10-21)
+    threading.Thread(target=_health_loop, daemon=True, name='health').start()
+    # 지난번에 끝내지 못한 방송 정리·이어받기 — OBS 가 늦게 뜰 수 있어 조금 기다렸다가(2026-10-21)
+    _rec = threading.Timer(20.0, _recover_leftover)
+    _rec.daemon = True
+    _rec.start()
 
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True,
             ssl_context=ssl_ctx if ssl_ctx else None)

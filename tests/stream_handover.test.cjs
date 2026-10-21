@@ -51,10 +51,11 @@ function tablet(ctx) {
     ${src.match(/var _starts = \[\];[^\n]*/)[0]}
     ${src.match(/var _starting = null;[^\n]*/)[0]}
     ${src.match(/var _startSeq = 0;[^\n]*/)[0]}
-    ${['_updateStreamStatus', 'startStream', '_startStreamOnce', 'stopStream', '_stopStreamOnce', 'voidStreamOf',
+    ${src.match(/let _liveIssue = [^\n]*/)[0]}
+    ${['liveIssueLabel', 'noteLiveIssue', '_updateStreamStatus', 'startStream', '_startStreamOnce', 'stopStream', '_stopStreamOnce', 'voidStreamOf',
        'streamOfAll', 'streamOfGet', 'streamOfSet', 'streamOfDel', 'rosterOf', 'streamHeaders', 'streamAuthFail'].map(body).join('\n')}
     return {
-      startStream, stopStream, voidStreamOf, streamOfGet, streamOfSet, streamOfDel, _updateStreamStatus,
+      startStream, stopStream, voidStreamOf, streamOfGet, streamOfSet, streamOfDel, _updateStreamStatus, noteLiveIssue,
       get: () => ({ _streamActive, _liveMatchId, _liveMatchNum, _liveMode, starting: _starting, starts: _starts }),
       setLive: (num, mode, id) => { _liveMatchNum = num; _liveMode = mode; if (id !== undefined) _liveMatchId = id; },
       leave: () => { selectedMatch = null; },
@@ -218,6 +219,32 @@ const mkCtx = (over) => {
     tab._updateStreamStatus('live');
     if (ctx.els['stream-status'].textContent !== '🔴 LIVE') throw new Error(ctx.els['stream-status'].textContent);
     if (!body('checkStreamServer').includes('_liveMatchNum = data.streaming ? (Number(data.match_number) || 0) : 0')) throw new Error('/health 의 match_number 를 안 읽는다');
+  });
+
+  await t('⑥-2 (c18) 방송 중 문제를 LIVE 줄에 짧게 · 새 문제만 토스트 한 번 · 풀리면 지운다', () => {
+    const ctx = mkCtx({});
+    const tab = tablet(ctx);
+    tab.setLive(39, 'league');
+    const h = { issue: 'reconnecting', short: '재연결 중', text: '방송 재연결 중 — 인터넷(업로드)이 끊겼어요' };
+    tab.noteLiveIssue(h);
+    tab._updateStreamStatus('live');
+    const el = ctx.els['stream-status'];
+    if (el.textContent !== '🔴 LIVE · Match 39 · ⚠️ 재연결 중') throw new Error(el.textContent);
+    if (el.style.color !== 'var(--gold)') throw new Error('경고 색 ' + el.style.color);
+    if (el.title !== h.text) throw new Error('긴 문장은 title 에 ' + el.title);
+    if (ctx.toasts.filter((m) => m.includes('재연결')).length !== 1) throw new Error('토스트 ' + JSON.stringify(ctx.toasts));
+    tab.noteLiveIssue(h);   // 30초 뒤 같은 문제 — 또 띄우지 않는다
+    if (ctx.toasts.filter((m) => m.includes('재연결')).length !== 1) throw new Error('같은 문제를 또 띄웠다');
+    tab.noteLiveIssue({ issue: '', short: '', text: '' });
+    tab._updateStreamStatus('live');
+    if (el.textContent !== '🔴 LIVE · Match 39' || el.style.color !== '#E53E3E') throw new Error('풀렸는데 ' + el.textContent);
+    tab.noteLiveIssue(null);   // 옛 서버 — stream_health 칸이 없다
+    tab._updateStreamStatus('live');
+    if (el.textContent !== '🔴 LIVE · Match 39') throw new Error('옛 서버 ' + el.textContent);
+    tab.noteLiveIssue(h);
+    tab._updateStreamStatus('online');   // 방송이 끝나면 경고를 안 그린다
+    if (el.textContent.includes('⚠️')) throw new Error('방송 없음인데 경고 ' + el.textContent);
+    if (!body('checkStreamServer').includes('noteLiveIssue(data.streaming ? data.stream_health : null)')) throw new Error('/health 의 stream_health 를 안 읽는다');
   });
 
   await t('⑦ 켜는 중(10~20초)에 [매치 취소] — 끄기를 버리지 않고 다 켜진 뒤 그 경기 방송을 끄고 [무효] (검토)', async () => {
