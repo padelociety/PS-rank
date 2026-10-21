@@ -109,6 +109,7 @@ def load_server():
     # stream_server 가 직접 import 하는 우리 모듈은 같이 옮겨 놓는다 (OBS·YouTube 는
     # 아래에서 가짜로 바꿔 끼우지만, 썸네일은 실물이 돌아도 되고 돌아야 한다).
     shutil.copy(os.path.join(ROOT, 'thumbnail.py'), tmp)
+    shutil.copy(os.path.join(ROOT, 'stream_health.py'), tmp)   # 방송 상태 판정(순수) — 실물이 돈다
     with io.open(os.path.join(tmp, 'config.json'), 'w', encoding='utf-8') as f:
         json.dump({'obs': {}, 'youtube': {}, 'highlight': {}}, f)
     # 시작 시 GitHub 에서 페이지를 받는다 — 네트워크 없이도 되게 로컬 파일을 둔다.

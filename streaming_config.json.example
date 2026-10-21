@@ -26,8 +26,8 @@
   "youtube": {
     "_설명": "방송 공개 설정: public(공개) / unlisted(링크 공유) / private(비공개)",
     "privacy": "public",
-    "_latency_설명": "ultraLow(초저지연) / low(저지연) / normal(일반) — ultraLow은 해상도 제한 있음",
-    "latency": "ultraLow"
+    "_latency_설명": "normal(일반 · 15~30초 늦게 · 끊김 가장 적음 — 기본) / low(저지연 · 몇 초 늦게). ultraLow(초저지연)는 시청자 화면이 자주 멈춰 받지 않는다(적어 두면 normal 로 방송)",
+    "latency": "normal"
   },
   "highlight": {
     "_설명": "하이라이트 클립 업로드 — upload_key는 서버 .env HIGHLIGHT_UPLOAD_KEY와 동일해야 함",

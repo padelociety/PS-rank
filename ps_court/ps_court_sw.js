@@ -1,5 +1,5 @@
-// v51 = 태블릿 c17(2026-10-19): 방송 PC 요청에 운영자 토큰 · 서버 글자 이스케이프. 태블릿 BUILD 와 같이 올린다.
-const CACHE = 'ps-court-v51';
+// v52 = 태블릿 c18(2026-10-21): 방송 중 문제(재연결·업로드·카메라)를 LIVE 줄에. 태블릿 BUILD 와 같이 올린다.
+const CACHE = 'ps-court-v52';
 
 self.addEventListener('install', e => {
   e.waitUntil(

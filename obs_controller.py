@@ -36,6 +36,11 @@ class OBSController:
         self.audio_sync_inputs = [str(x) for x in (obs_cfg.get('audio_sync_inputs') or []) if str(x).strip()]
         # /health 가 보여 줄 마지막 적용 결과 — 원격에서 '맞춰졌나' 를 확인하는 유일한 창.
         self.audio_sync_status = {'target_ms': self.audio_sync_offset_ms, 'applied': [], 'error': ''}
+        # /health 가 보여 줄 OBS 자동 재연결 설정(연결할 때마다 맞춘다 — ensure_reconnect).
+        self.reconnect_status = {'reconnect': None, 'retry_delay': None, 'max_retries': None, 'changed': [], 'error': ''}
+        # 카메라(네트워크 미디어 소스) 판정 캐시 — {입력 이름: True/False}. 설정을 매번 읽지 않게(5분마다 다시).
+        self._net_inputs = {}
+        self._net_inputs_at = 0.0
         self.client = None
         # OBS WebSocket(ReqClient)은 스레드 안전하지 않음 — 키프알라이브 스레드와
         # 하이라이트 요청이 동시에 접근하면 응답이 꼬여 엉뚱한 예외가 남(예: 버퍼가
@@ -69,6 +74,7 @@ class OBSController:
                     version = self.client.get_version()
                     logger.info(f"✅ OBS 연결됨 (v{version.obs_version})")
                     self.apply_audio_sync()
+                    self.ensure_reconnect()
                     return
                 except Exception as e:
                     last_error = e
@@ -155,6 +161,129 @@ class OBSController:
                 logger.warning("⚠️ 소리 싱크 — 소리가 있는 OBS 입력이 없습니다(카메라 소리 소스 확인)")
         self.audio_sync_status = status
         return status
+
+    # ── 자동 재연결 ───────────────────────────────────────────────
+    # OBS 설정 → 고급 → '자동으로 다시 연결'. 꺼져 있으면 업로드가 한 번만 흔들려도 송출이 **멈추고 그대로** 끝난다
+    # (2026-10-21 *"유투브가 자주 끊긴대"*). OBS 는 송출을 시작할 때마다 이 값을 읽으므로, 연결할 때마다 맞춰 두면
+    # 다음 송출부터 먹는다. 재시도 사이 간격은 OBS 가 늘려 가므로(1.5배씩) 25번이면 몇 분을 버틴다 — 그동안
+    # 유튜브 방송은 자동 종료를 꺼 두어 다시 붙으면 같은 방송으로 이어진다(youtube_api).
+    RECONNECT_WANT = {'Reconnect': 'true'}
+    RETRY_DELAY_MAX = 10     # 이보다 길게 잡혀 있으면 3초로 — 첫 재시도까지 화면이 너무 오래 멈춘다
+    RETRY_DELAY_SET = '3'
+    MAX_RETRIES_MIN = 20     # 이보다 적으면 25로
+    MAX_RETRIES_SET = '25'
+
+    def _profile_param(self, name):
+        resp = self.client.get_profile_parameter('Output', name)
+        val = getattr(resp, 'parameter_value', None)
+        if val in (None, ''):
+            val = getattr(resp, 'default_parameter_value', None)
+        return '' if val is None else str(val)
+
+    def ensure_reconnect(self):
+        """OBS '자동으로 다시 연결' 을 켜 둔다(필요하면 재시도 간격·횟수도). **연결될 때마다** 부른다(connect 안).
+        ⚠️ 방송을 막지 않는다 — 오류는 로그와 reconnect_status 로만 남긴다."""
+        status = {'reconnect': None, 'retry_delay': None, 'max_retries': None, 'changed': [], 'error': ''}
+        with self._lock:
+            if not self.client:
+                status['error'] = 'OBS 미연결'
+                self.reconnect_status = status
+                return status
+            try:
+                cur = {n: self._profile_param(n) for n in ('Reconnect', 'RetryDelay', 'MaxRetries')}
+                want = {}
+                if cur['Reconnect'].strip().lower() not in ('true', '1'):
+                    want['Reconnect'] = 'true'
+                try:
+                    if int(cur['RetryDelay'] or 0) > self.RETRY_DELAY_MAX:
+                        want['RetryDelay'] = self.RETRY_DELAY_SET
+                except ValueError:
+                    want['RetryDelay'] = self.RETRY_DELAY_SET
+                try:
+                    if int(cur['MaxRetries'] or 0) < self.MAX_RETRIES_MIN:
+                        want['MaxRetries'] = self.MAX_RETRIES_SET
+                except ValueError:
+                    want['MaxRetries'] = self.MAX_RETRIES_SET
+                for name, val in want.items():
+                    self.client.set_profile_parameter('Output', name, val)
+                    status['changed'].append(f"{name}: {cur[name] or '(없음)'} → {val}")
+                    cur[name] = val
+                if status['changed']:
+                    logger.info(f"🔁 OBS 자동 재연결 맞춤 — {', '.join(status['changed'])}")
+                status['reconnect'] = cur['Reconnect'].strip().lower() in ('true', '1')
+                status['retry_delay'] = int(cur['RetryDelay'] or 0) if str(cur['RetryDelay']).isdigit() else None
+                status['max_retries'] = int(cur['MaxRetries'] or 0) if str(cur['MaxRetries']).isdigit() else None
+            except Exception as e:
+                status['error'] = f'자동 재연결 설정을 못 맞춤: {e}'
+                logger.warning(f"⚠️ {status['error']} (OBS 설정 → 고급 → '자동으로 다시 연결' 을 직접 켜 주세요)")
+        self.reconnect_status = status
+        return status
+
+    # ── 송출 숫자 (방송 상태 감시) ─────────────────────────────────
+    NET_INPUT_RECHECK_S = 300
+
+    def _network_inputs(self):
+        """네트워크 카메라(RTSP 등)인 미디어 소스 이름들. 5분마다 다시 본다. 잠금 안에서 부른다."""
+        import stream_health
+        now = time.time()
+        if self._net_inputs and now - self._net_inputs_at < self.NET_INPUT_RECHECK_S:
+            return [n for n, net in self._net_inputs.items() if net]
+        found = {}
+        try:
+            names = self._input_names(self.client.get_input_list('ffmpeg_source'))
+        except Exception:
+            names = []
+        for name in names:
+            try:
+                st = getattr(self.client.get_input_settings(name), 'input_settings', None) or {}
+            except Exception:
+                st = {}
+            found[name] = stream_health.is_network_input(st)
+        self._net_inputs = found
+        self._net_inputs_at = now
+        return [n for n, net in found.items() if net]
+
+    def stream_stats(self):
+        """방송 상태 감시용 숫자 한 벌(stream_health.evaluate 가 읽는 모양) · 못 읽으면 None. **예외를 던지지 않는다.**
+        누적 숫자(bytes·프레임)는 부르는 쪽이 10초 차이로 본다."""
+        with self._lock:
+            if not self.client:
+                try:
+                    self.connect(retries=1, delay=0)
+                except Exception:
+                    return None
+            try:
+                st = self.client.get_stream_status()
+            except Exception:
+                self.disconnect()
+                return None
+            out = {
+                'active': bool(getattr(st, 'output_active', False)),
+                'reconnecting': bool(getattr(st, 'output_reconnecting', False)),
+                'congestion': float(getattr(st, 'output_congestion', 0) or 0),
+                'bytes': int(getattr(st, 'output_bytes', 0) or 0),
+                'net_skipped': int(getattr(st, 'output_skipped_frames', 0) or 0),
+                'net_total': int(getattr(st, 'output_total_frames', 0) or 0),
+                'media': {},
+            }
+            try:
+                g = self.client.get_stats()
+                out.update({
+                    'cpu': float(getattr(g, 'cpu_usage', 0) or 0),
+                    'fps': float(getattr(g, 'active_fps', 0) or 0),
+                    'enc_skipped': int(getattr(g, 'output_skipped_frames', 0) or 0),
+                    'enc_total': int(getattr(g, 'output_total_frames', 0) or 0),
+                    'render_skipped': int(getattr(g, 'render_skipped_frames', 0) or 0),
+                    'render_total': int(getattr(g, 'render_total_frames', 0) or 0),
+                })
+            except Exception:
+                pass
+            for name in self._network_inputs():
+                try:
+                    out['media'][name] = str(getattr(self.client.get_media_input_status(name), 'media_state', '') or '')
+                except Exception:
+                    out['media'][name] = 'OBS_MEDIA_STATE_ERROR'
+            return out
 
     def disconnect(self):
         """연결을 끊습니다."""

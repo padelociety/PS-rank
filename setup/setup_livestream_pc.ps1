@@ -265,7 +265,7 @@ $CONFIG_TEMPLATE = @'
   },
   "youtube": {
     "privacy": "public",
-    "latency": "ultraLow"
+    "latency": "normal"
   },
   "highlight": {
     "api_base": "https://api.padelsociety.co.kr",

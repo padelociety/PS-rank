@@ -180,7 +180,7 @@ Start-Process powershell -Verb RunAs -ArgumentList '-NoExit','-NoProfile','-Exec
     "port": 4455,
     "password": "PUT_OBS_WEBSOCKET_PASSWORD_HERE"   // ← 3단계에서 OBS가 만들어준 비밀번호
   },
-  "youtube": { "privacy": "public", "latency": "ultraLow" },
+  "youtube": { "privacy": "public", "latency": "normal" },
   "highlight": {
     "api_base": "https://api.padelsociety.co.kr",
     "upload_key": "PUT_HIGHLIGHT_UPLOAD_KEY_HERE"   // ← VPS의 HIGHLIGHT_UPLOAD_KEY 와 완전히 같은 값
@@ -303,8 +303,11 @@ stream_server가 20초마다 버퍼 상태를 확인해 꺼져 있으면 다시 
 - 기본(캔버스) 해상도 = 출력(조정된) 해상도 = `1920x1080`
 - **FPS: 30** 권장
 
-> `config.json`의 `"latency": "ultraLow"`(초저지연)는 YouTube에서 해상도·프레임 제한이
-> 있다. 화질이 계속 떨어지면 `"low"` 로 바꾼다.
+> `config.json`의 `"latency"` 는 **`"normal"`(기본 · 15~30초 늦게 보인다)**. 시청자 쪽 버퍼가
+> 넉넉해서 코트 업로드가 잠깐 흔들려도 화면이 멈추지 않는다. 지연이 너무 길면 `"low"`(그 사이).
+> ⚠️ **`"ultraLow"`(초저지연)는 받지 않는다** — 2026-10 "유튜브가 자주 끊긴다" 의 원인 중 하나였다
+> (버퍼가 몇 초뿐이라 업로드가 조금만 밀려도 시청자 화면이 돈다). 적어 두면 `normal` 로 바꾸고
+> 로그에 남긴다.
 
 ### 3-6. 소스와 소리
 
@@ -440,6 +443,13 @@ Get-PnpDevice -Class Camera,Media,Image -PresentOnly | Select-Object Status, Cla
 >
 > YouTube 인증은 OBS가 아니라 **stream_server가 따로 한다**(5단계, `youtube_token.pickle`).
 > OBS 쪽 로그인은 이 구성에선 쓸 일이 없다.
+
+**자동 재연결은 stream_server 가 켠다** — 설정 → 고급 → 자동 재연결(켬 · 재시도 3초 · 25번).
+OBS 에 붙을 때마다 확인해 꺼져 있거나 너무 짧으면 고친다(`/health` → `broadcast_settings.reconnect`).
+업로드가 잠깐 끊겨도 OBS 가 같은 방송에 다시 붙는다.
+
+**네트워크가 약한 코트**면 설정 → 고급 → 네트워크의 **'혼잡 관리를 위해 비트레이트를 동적으로 변경'**
+을 켠다(손으로 — 서버는 건드리지 않는다). 업로드가 밀릴 때 프레임을 버리는 대신 화질을 잠깐 낮춘다.
 
 ### 3-9. 확인
 
@@ -710,6 +720,37 @@ Start-Process "$env:ProgramFiles\obs-studio\bin\64bit\obs64.exe" `
 - 임시 복구: `youtube_token.pickle` 삭제 후 5단계 재인증
 - 그 외: YouTube 채널의 라이브 스트리밍 권한 / 일일 한도(방송 생성은 하루 제한이 있다)
 
+### 유튜브가 자주 끊긴다 (2026-10-21 · 태블릿 c18)
+
+**서버가 알아서 하는 것**(따로 할 일 없음 — stream_server 를 새 코드로 재시작만):
+
+- **지연 `normal`** — 3-5 참고. 예전 `ultraLow` 는 시청자 버퍼가 몇 초뿐이었다.
+- **YouTube 자동 종료를 껐다** — 예전엔 업로드가 1분쯤 끊기면 YouTube 가 방송을 **끝냈고**, OBS 가
+  다시 붙어도 끝난 방송이라 시청자에겐 '방송 종료' 였다. 이제 방송은 stream_server 가 끝낸다(경기 저장·
+  [매치 취소]). 끝내기가 실패하면 15초 · 45초 · 2분 · 5분 · 10분 뒤에 다시 끝낸다(`live_broadcast.json`).
+- **OBS 자동 재연결** — 3-8 참고.
+- **방송 중에 서버가 죽었다 다시 떠도** — OBS 가 아직 송출 중이면 그 방송을 이어받고, 아니면 남은 방송을
+  끝낸다(`live_broadcast.json` 을 20초 뒤에 읽는다).
+
+**어디서 끊기는지 보기** — 방송 중 10초마다 OBS 숫자를 읽고 1분마다 YouTube 스트림 상태를 묻는다.
+
+- 태블릿 상태 줄: `🔴 LIVE · Match 39 · ⚠️ 업로드 불안정` (태블릿이 30초마다 확인 · 새 문제가 처음 뜰 때 한 번 긴 문장으로 토스트)
+- `GET /health` 의 `stream_health`(방송 중일 때만) — `issue`·`text`·`net_drop_pct`(업로드 드롭 %)·
+  `encode_skip_pct`·`kbps`·`cpu`·`camera`·`youtube`·`reconnects`(이번 방송 재연결 횟수)
+- 로그 `logs\` 의 `⚠️ 방송 상태:` / `✅ 방송 상태 정상으로 돌아옴` 줄(숫자가 같이 찍힌다)
+
+| 태블릿 말 | 뜻 | 할 일 |
+|---|---|---|
+| 재연결 중 | OBS → YouTube 업로드가 끊겼다 | 코트 인터넷(공유기·회선). 다시 붙으면 **같은 방송**으로 이어진다 |
+| 카메라 끊김 | RTSP 카메라 영상이 20초 넘게 안 들어온다 | 카메라 전원·PoE·랜선 · 3-6 '소스가 비활성일 때 파일 닫기' **해제** |
+| 업로드 불안정 | 보낼 프레임의 2% 이상을 버렸다 | 업로드 속도가 비트레이트의 1.5배 이상인지(speedtest) · 비트레이트 낮추기(3-2) · 3-8 '비트레이트 동적 변경' |
+| PC 과부하 | 인코더가 밀려 프레임을 건너뛴다 | 하드웨어 인코더(3-2) · 다른 프로그램 끄기 |
+| 화면 밀림 | OBS 화면 그리기가 밀린다 | GPU 부하 — 브라우저 소스·필터 줄이기 |
+| 유튜브 경고 | YouTube 가 받는 영상이 이상하다고 한다 | 문장 끝 이유대로(예: 키프레임 간격 2초 — 3-2) |
+
+> 아무 경고 없이 시청자만 끊긴다면 그건 시청자 쪽 인터넷이거나 YouTube 쪽이다 — `stream_health` 가
+> 계속 비어 있으면 코트 쪽은 깨끗하게 보내고 있었다는 뜻이다.
+
 ### Windows Update로 재부팅됐다
 
 자동 로그온 + 작업 3개가 다시 뜨므로 보통은 알아서 복구된다.
@@ -735,6 +776,7 @@ Start-Process "$env:ProgramFiles\obs-studio\bin\64bit\obs64.exe" `
 | `C:\dev\PS-rank\config.json` | **금지** | OBS 비번 + 업로드 키 |
 | `C:\dev\PS-rank\client_secrets.json` | **금지** | YouTube OAuth |
 | `C:\dev\PS-rank\youtube_token.pickle` | **금지** | 5단계에서 생성 |
+| `C:\dev\PS-rank\live_broadcast.json` | 제외 | 지금 방송·못 끝낸 방송(서버가 다시 끝낸다) — 지우지 말 것 |
 | `C:\dev\PS-rank\.venv\` | 제외 | Python 패키지 |
 | `C:\dev\PS-rank\logs\` | 제외 | 14일 자동 정리 |
 | `%USERPROFILE%\.ssh\obs_tunnel_ed25519` | — | 터널 개인키 |
