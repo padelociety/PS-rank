@@ -831,7 +831,7 @@ async function loadData() {
     recentData.sort((a,b)=>b.date.localeCompare(a.date)||+b.match-+a.match);
     recentData=recentData.slice(0,20);
 
-    const now=new Date().toLocaleTimeString('ko-KR');
+    const now=new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
     document.getElementById('updated-recent').textContent=now+' 업데이트';
     document.getElementById('rank-status').style.display='none';
     document.getElementById('rank-content').style.display='block';
