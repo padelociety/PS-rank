@@ -337,7 +337,7 @@ async function loadRank() {
     recentData.sort((a,b) => b.date.localeCompare(a.date) || +b.match - +a.match);
     recentData = recentData.slice(0,10);
 
-    document.getElementById('updated').textContent='마지막 업데이트: '+new Date().toLocaleTimeString('ko-KR');
+    document.getElementById('updated').textContent='마지막 업데이트: '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
     document.getElementById('status').style.display='none';
     document.getElementById('rank-wrap').style.display='block';
     renderRank();
@@ -407,7 +407,7 @@ function renderRecent() {
   });
   document.getElementById('recent-status').style.display='none';
   list.style.display='flex';
-  document.getElementById('updated-recent').textContent='마지막 업데이트: '+new Date().toLocaleTimeString('ko-KR');
+  document.getElementById('updated-recent').textContent='마지막 업데이트: '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
 }
 
 // ── 페어 체커 ──────────────────────────────────────
