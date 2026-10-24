@@ -8,6 +8,7 @@ OBS Studio를 원격으로 제어합니다 (obs-websocket 5.x)
   - 포트: 4455 (기본값)
 """
 
+import json
 import logging
 import os
 import threading
@@ -38,6 +39,12 @@ class OBSController:
         self.audio_sync_status = {'target_ms': self.audio_sync_offset_ms, 'applied': [], 'error': ''}
         # /health 가 보여 줄 OBS 자동 재연결 설정(연결할 때마다 맞춘다 — ensure_reconnect).
         self.reconnect_status = {'reconnect': None, 'retry_delay': None, 'max_retries': None, 'changed': [], 'error': ''}
+        # OBS 인코딩 설정과 고칠 칸(2026-10-24 — refresh_encoding). /health 의 obs_encoding · 방송 상태 문장의 '고칠 것'.
+        #   advice: None = 아직 못 읽음 · [] = 권장값 그대로
+        self.encoding_status = {'config': {}, 'summary': '', 'advice': None, 'error': '', 'at': 0.0}
+        # OBS 설정 폴더 — 프로필의 streamEncoder.json(프리셋 등 웹소켓으로 못 읽는 칸)을 여기서 읽는다.
+        appdata = os.environ.get('APPDATA') or ''
+        self.obs_config_dir = obs_cfg.get('config_dir') or (os.path.join(appdata, 'obs-studio') if appdata else '')
         # 카메라(네트워크 미디어 소스) 판정 캐시 — {입력 이름: True/False}. 설정을 매번 읽지 않게(5분마다 다시).
         self._net_inputs = {}
         self._net_inputs_at = 0.0
@@ -75,6 +82,7 @@ class OBSController:
                     logger.info(f"✅ OBS 연결됨 (v{version.obs_version})")
                     self.apply_audio_sync()
                     self.ensure_reconnect()
+                    self.refresh_encoding(force=True)
                     return
                 except Exception as e:
                     last_error = e
@@ -218,6 +226,145 @@ class OBSController:
                 logger.warning(f"⚠️ {status['error']} (OBS 설정 → 고급 → '자동으로 다시 연결' 을 직접 켜 주세요)")
         self.reconnect_status = status
         return status
+
+    # ── 인코딩 설정 점검 (2026-10-24 — "라이브 인코딩 문제 아직도 계속된다") ───────────────
+    # '인코딩이 밀린다' 는 알려 줬지만 OBS 의 어느 설정 때문인지는 아무도 안 봤다. 연결할 때와 방송 중 5분마다 읽어
+    # stream_health.encoding_advice 로 고칠 칸을 고른다. ⚠️ 읽기만 한다 — 인코더·해상도는 바꾸지 않는다(바꾸려면 OBS 를
+    # 다시 띄워야 하고, 이 PC 에 어떤 하드웨어 인코더가 있는지 서버는 모른다).
+    ENCODING_REFRESH_S = 300
+    ENC_KEYS = ('preset', 'preset2', 'multipass', 'lookahead', 'target_usage', 'rate_control', 'bitrate', 'keyint_sec')
+
+    def _param(self, category, name):
+        resp = self.client.get_profile_parameter(category, name)
+        val = getattr(resp, 'parameter_value', None)
+        if val in (None, ''):
+            val = getattr(resp, 'default_parameter_value', None)
+        return '' if val is None else str(val)
+
+    @staticmethod
+    def _ini_value(path, section, key):
+        """OBS ini 한 칸(BOM·대소문자 무시) · 없으면 ''."""
+        try:
+            with open(path, encoding='utf-8-sig') as f:
+                lines = f.read().splitlines()
+        except OSError:
+            return ''
+        inside = False
+        for line in lines:
+            t = line.strip()
+            if t.startswith('[') and t.endswith(']'):
+                inside = t[1:-1].strip().lower() == section.lower()
+                continue
+            if inside and '=' in t:
+                k, v = t.split('=', 1)
+                if k.strip().lower() == key.lower():
+                    return v.strip()
+        return ''
+
+    def _profile_dir(self, profile_name=''):
+        """지금 프로필 폴더 — user.ini(OBS 31+)·global.ini 의 [Basic] ProfileDir → 이름이 같은 프로필 → 프로필이 하나뿐이면 그것.
+        못 정하면 ''(여럿 중에 짐작하지 않는다)."""
+        root = self.obs_config_dir
+        profiles = os.path.join(root, 'basic', 'profiles') if root else ''
+        if not profiles or not os.path.isdir(profiles):
+            return ''
+        for ini in ('user.ini', 'global.ini'):
+            d = self._ini_value(os.path.join(root, ini), 'Basic', 'ProfileDir')
+            if d and os.path.isdir(os.path.join(profiles, d)):
+                return os.path.join(profiles, d)
+        names = sorted(n for n in os.listdir(profiles) if os.path.isdir(os.path.join(profiles, n)))
+        if profile_name:
+            for n in names:
+                if self._ini_value(os.path.join(profiles, n, 'basic.ini'), 'General', 'Name') == profile_name:
+                    return os.path.join(profiles, n)
+        return os.path.join(profiles, names[0]) if len(names) == 1 else ''
+
+    def read_encoding(self):
+        """OBS 인코딩 설정 → stream_health.encoding_advice 가 읽는 cfg. 잠금 안에서 부른다. 못 읽은 칸은 넣지 않는다."""
+        import stream_health
+        cfg = {'mode': self._param('Output', 'Mode') or 'Simple'}
+        adv = cfg['mode'].strip().lower() == 'advanced'
+        if adv:
+            cfg['encoder'] = self._param('AdvOut', 'Encoder')
+            cfg['rec_encoder'] = self._param('AdvOut', 'RecEncoder')
+        else:
+            cfg['encoder'] = self._param('SimpleOutput', 'StreamEncoder')
+            cfg['rec_quality'] = self._param('SimpleOutput', 'RecQuality')
+        try:
+            v = self.client.get_video_settings()
+            num = float(getattr(v, 'fps_numerator', 0) or 0)
+            den = float(getattr(v, 'fps_denominator', 0) or 0)
+            if num and den:
+                cfg['fps'] = round(num / den, 2)
+            cfg['base'] = [int(getattr(v, 'base_width', 0) or 0), int(getattr(v, 'base_height', 0) or 0)]
+            cfg['output'] = [int(getattr(v, 'output_width', 0) or 0), int(getattr(v, 'output_height', 0) or 0)]
+        except Exception:
+            pass
+        cfg['scale'] = self._param('Video', 'ScaleType')
+        enc = {}
+        kind = stream_health.encoder_kind(cfg.get('encoder'))
+        if adv:
+            # 고급 모드의 방송 인코더 세부(프리셋·2패스·룩어헤드)는 웹소켓으로 못 읽는다 — 프로필의 streamEncoder.json.
+            name = ''
+            try:
+                name = str(getattr(self.client.get_profile_list(), 'current_profile_name', '') or '')
+            except Exception:
+                pass
+            prof = self._profile_dir(name)
+            path = os.path.join(prof, 'streamEncoder.json') if prof else ''
+            if path and os.path.isfile(path):
+                try:
+                    with open(path, encoding='utf-8-sig') as f:
+                        enc = json.load(f) or {}
+                except (OSError, ValueError):
+                    enc = {}
+        else:
+            simple_key = {'x264': ('preset', 'Preset'), 'nvenc': ('preset2', 'NVENCPreset2'),
+                          'qsv': ('target_usage', 'QSVPreset'), 'amf': ('preset', 'AMDPreset')}.get(kind)
+            if simple_key:
+                enc[simple_key[0]] = self._param('SimpleOutput', simple_key[1])
+        cfg['enc'] = {k: enc[k] for k in self.ENC_KEYS if isinstance(enc, dict) and k in enc and enc[k] not in (None, '')}
+        cams = []
+        for nm in self._network_inputs():
+            try:
+                st = getattr(self.client.get_input_settings(nm), 'input_settings', None) or {}
+            except Exception:
+                continue  # 그사이 지운 소스(목록은 5분 캐시) — 판정하지 않는다
+            if stream_health.is_network_input(st) and st.get('hw_decode') is not True:
+                cams.append(nm)
+        cfg['sw_decode_cameras'] = cams
+        return cfg
+
+    def refresh_encoding(self, force=False):
+        """인코딩 설정을 다시 읽어 encoding_status 를 고친다(5분에 한 번 · force 면 바로). **예외를 던지지 않는다.**
+        못 읽으면 지난 값을 둔다(연결이 없을 때) 또는 error 를 적는다."""
+        import stream_health
+        cur = self.encoding_status or {}
+        if not force and cur.get('at') and time.time() - cur['at'] < self.ENCODING_REFRESH_S:
+            return cur
+        with self._lock:
+            if not self.client:
+                return cur
+            try:
+                cfg = self.read_encoding()
+                advice = stream_health.encoding_advice(cfg)
+                new = {'config': cfg, 'summary': stream_health.encoding_summary(cfg), 'advice': advice,
+                       'error': '', 'at': time.time()}
+            except Exception as e:
+                new = {'config': {}, 'summary': '', 'advice': None, 'error': f'인코딩 설정을 못 읽음: {e}', 'at': time.time()}
+        before = (cur.get('summary'), [a.get('key') for a in (cur.get('advice') or [])], cur.get('error'))
+        after = (new['summary'], [a.get('key') for a in (new['advice'] or [])], new['error'])
+        self.encoding_status = new
+        if before != after:
+            if new['error']:
+                logger.warning(f"⚠️ {new['error']}")
+            else:
+                logger.info(f"🎛️ OBS 인코딩: {new['summary'] or '?'}")
+                for a in new['advice'] or []:
+                    logger.warning(f"   ⚠️ 고칠 것: {a.get('text')}")
+                if new['advice'] == []:
+                    logger.info('   ✅ 인코딩 설정은 권장값이에요')
+        return new
 
     # ── 송출 숫자 (방송 상태 감시) ─────────────────────────────────
     NET_INPUT_RECHECK_S = 300
