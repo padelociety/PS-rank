@@ -536,8 +536,11 @@ def _health_tick(now_t: float = None):
             _health_mem['yt'] = yt
     elapsed = (now_t - _health_mem['prev_t']) if _health_mem['prev_t'] else HEALTH_TICK_S
     prev = _health_mem['prev'] if _health_mem['prev'] is not None else snap
+    # OBS 인코딩 설정에서 고칠 칸(2026-10-24) — '인코딩 밀림'·'화면 밀림' 문장 끝에 붙는다. 5분에 한 번 다시 읽는다.
+    refresh = getattr(obs, 'refresh_encoding', None)
+    advice = (refresh() or {}).get('advice') if callable(refresh) else None
     h = stream_health.evaluate(prev, snap, elapsed_s=elapsed, camera_bad_ticks=_health_mem['cams'],
-                               youtube=_health_mem['yt'])
+                               youtube=_health_mem['yt'], advice=advice)
     _health_mem['prev'] = snap
     _health_mem['prev_t'] = now_t
     if h['reconnecting'] and not _health_mem['reconnecting']:
@@ -745,7 +748,22 @@ def health():
             'auto_stop': False,
             'reconnect': getattr(obs, 'reconnect_status', None),
         },
+        # OBS 인코딩 설정과 고칠 칸(2026-10-24 — 인코딩 밀림의 원인). advice: [] = 권장값 · null = 아직 못 읽음.
+        'obs_encoding': _encoding_view(),
     })
+
+
+def _encoding_view():
+    st = getattr(obs, 'encoding_status', None) or {}
+    if not st:
+        return None
+    return {
+        'summary': st.get('summary') or '',
+        'advice': [{'key': a.get('key'), 'text': a.get('text')} for a in (st.get('advice') or [])]
+        if st.get('advice') is not None else None,
+        'config': st.get('config') or {},
+        'error': st.get('error') or '',
+    }
 
 
 def _health_view():
