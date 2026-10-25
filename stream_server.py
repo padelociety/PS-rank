@@ -750,7 +750,16 @@ def health():
         },
         # OBS 인코딩 설정과 고칠 칸(2026-10-24 — 인코딩 밀림의 원인). advice: [] = 권장값 · null = 아직 못 읽음.
         'obs_encoding': _encoding_view(),
+        # 마지막 OBS 송출 끄기(2026-10-25) — stopped · forced(강제 종료를 보냈나) · reconnecting · seconds. 로그 줄은 서버 로그에만.
+        'obs_stop': _stop_view(),
     })
+
+
+def _stop_view():
+    rep = getattr(obs, 'stop_report', None)
+    if not isinstance(rep, dict):
+        return None
+    return {k: rep.get(k) for k in ('at', 'reached', 'stopped', 'forced', 'reconnecting', 'seconds')}
 
 
 def _encoding_view():
@@ -809,9 +818,18 @@ def _ensure_obs_idle():
     logger.warning("⚠️ 서버엔 방송이 없는데 OBS 가 송출 중 — 지난 방송 키일 수 있어 먼저 끕니다")
     if not obs.stop_stream():
         raise RuntimeError(
-            "OBS 가 이전 방송을 계속 내보내고 있어 새 방송을 열지 못했어요. "
-            "OBS 에서 [방송 중단] 을 누른 뒤 다시 시작해 주세요."
+            "OBS 가 이전 방송을 계속 내보내고 있어 새 방송을 열지 못했어요. " + _obs_stop_hint()
         )
+
+
+def _obs_stop_hint() -> str:
+    """OBS 를 못 껐을 때 사람이 할 일(2026-10-25 — '종료 중' 에서 멈춤). obs.stop_report 를 읽는다(옛 컨트롤러면 예전 문장)."""
+    rep = getattr(obs, 'stop_report', None) or {}
+    if rep.get('reached') is False:
+        return 'OBS 가 켜져 있는지 확인해 주세요(방송 PC).'
+    if rep.get('forced'):
+        return "OBS 가 '종료 중' 에서 멈췄어요 — 방송 PC 에서 OBS 를 껐다 켜 주세요."
+    return 'OBS 에서 [방송 중단] 을 누른 뒤 다시 시작해 주세요.'
 
 
 def _refresh_live_meta(broadcast_id: str, title: str, description: str, *, retitle: bool,
@@ -1008,13 +1026,14 @@ def _start_stream_locked(mode, team_a, team_b, league, category, match_number,
 
         # 방송을 만든 뒤에 실패했으면 그 방송을 닫는다. 안 그러면 YouTube에 아무것도
         # 안 나가는 빈 방송이 열린 채 남는다(실제로 3시간 떠 있었다).
-        if broadcast_id:
-            if _end_broadcast_now(broadcast_id):
-                logger.info(f"↩️ 실패한 방송 정리됨 ({broadcast_id})")
+        # ⚠️ OBS 를 먼저 끄고 방송을 닫는다(2026-10-25 — 끄기 절과 같은 순서).
         try:
             obs.stop_stream()
         except Exception:
             pass
+        if broadcast_id:
+            if _end_broadcast_now(broadcast_id):
+                logger.info(f"↩️ 실패한 방송 정리됨 ({broadcast_id})")
 
         with state_lock:
             _clear_state_locked()   # 실패 시 롤백 — 반쯤 채운 칸(제목·매치)을 남기지 않는다
@@ -1100,12 +1119,14 @@ def _stop_stream_locked(reason: str = '') -> list:
     try:
         if obs.stop_stream() is False:
             logger.error("❌ OBS 송출을 끄지 못했어요 — 다음 방송을 열 때 다시 끕니다")
-            errors.append("OBS: 송출을 끄지 못했어요(OBS 를 확인해 주세요)")
+            errors.append(f"OBS: 송출을 끄지 못했어요 — {_obs_stop_hint()}")
     except Exception as e:
         logger.error(f"❌ OBS 종료 실패: {e}")
         errors.append(f"OBS: {e}")
 
-    # 유튜브 방송 끝내기 — 못 끝냈으면 뒤에서 다시 해 본다(자동 종료를 껐다 · 2026-10-21). 태블릿엔 경고만.
+    # 유튜브 방송 끝내기 — **OBS 를 끈 뒤에**(2026-10-25). 아직 보내는 중에 끝내면 YouTube 가 연결을 끊고 OBS 가
+    # '종료 중' 인 채로 다시 붙으려 하다 멈춘다(다음 경기가 안 열렸다). obs.stop_stream 이 강제 종료까지 기다리고 돌아온다.
+    # 못 끝냈으면 뒤에서 다시 해 본다(자동 종료를 껐다 · 2026-10-21). 태블릿엔 경고만.
     if not _end_broadcast_now(broadcast_id):
         errors.append("YouTube: 방송 종료가 늦어지고 있어요(서버가 다시 해 봐요)")
 

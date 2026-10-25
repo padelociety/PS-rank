@@ -6,6 +6,7 @@ OBS 가 켜져 있는 이 PC 에서:
     C:\\dev\\PS-rank\\.venv\\Scripts\\python.exe C:\\dev\\PS-rank\\obs_check.py
     ... obs_check.py --seconds 30     # 송출 숫자를 30초 동안 잰다(기본 10초)
     ... obs_check.py --no-sample      # 설정만
+    ... obs_check.py --obs-log        # + 최근 OBS 로그의 송출·출력·인코더 줄(OBS 가 '종료 중' 에서 멈췄을 때)
 
 무엇을 하나:
   ① OBS 인코딩 설정(출력 모드 · 방송 인코더 · 프리셋 · 녹화 인코더 · FPS · 해상도 · 카메라 디코딩)을 읽어 한 줄로
@@ -57,6 +58,19 @@ def report_lines(status: dict, health: dict = None, seconds: float = 0) -> list:
     return out
 
 
+def stream_state_line(ctl) -> str:
+    """지금 OBS 송출 상태 한 줄 — 꺼짐 / 송출 중 / 재연결 중. 못 물으면 그렇게 말한다."""
+    try:
+        st = ctl.client.get_stream_status()
+    except Exception as e:
+        return f'OBS 송출: (상태를 못 읽음 — {e})'
+    if not getattr(st, 'output_active', False):
+        return 'OBS 송출: 꺼짐'
+    if getattr(st, 'output_reconnecting', False):
+        return "OBS 송출: 재연결 중 — 서버에 방송이 없는데 이러면 OBS 에서 [방송 중단] 을 한 번 더(강제 종료)"
+    return 'OBS 송출: 송출 중'
+
+
 def _load_config(path):
     with open(path, encoding='utf-8-sig') as f:
         return json.load(f)
@@ -66,6 +80,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description='OBS 인코딩 점검(읽기만)')
     ap.add_argument('--seconds', type=float, default=10.0, help='송출 숫자를 재는 시간(초)')
     ap.add_argument('--no-sample', action='store_true', help='설정만 본다')
+    ap.add_argument('--obs-log', action='store_true', help="최근 OBS 로그의 송출·출력·인코더 줄을 같이 보인다")
     ap.add_argument('--config', default=os.path.join(_DIR, 'config.json'))
     args = ap.parse_args(argv)
 
@@ -86,6 +101,7 @@ def main(argv=None):
         return 1
 
     print(f"OBS 인코딩 점검 — {time.strftime('%Y-%m-%d %H:%M')}")
+    print(stream_state_line(ctl))
     status = ctl.refresh_encoding(force=True)
     health = None
     if not args.no_sample:
@@ -100,6 +116,11 @@ def main(argv=None):
                 print('(지금 방송 중이 아니에요 — 송출 숫자는 0 이 정상이에요. 인코딩 밀림은 방송 중에 다시 재 주세요)')
     for line in report_lines(status, health, args.seconds):
         print(line)
+    if args.obs_log:
+        lines = ctl.obs_log_lines(80)
+        print(f"\n최근 OBS 로그(송출·출력·인코더 줄 {len(lines)}개):" if lines else '\n최근 OBS 로그를 못 찾았어요(obs.config_dir 확인)')
+        for ln in lines:
+            print('  ' + ln)
     ctl.disconnect()
     return 0
 

@@ -42,6 +42,9 @@ class OBSController:
         # OBS 인코딩 설정과 고칠 칸(2026-10-24 — refresh_encoding). /health 의 obs_encoding · 방송 상태 문장의 '고칠 것'.
         #   advice: None = 아직 못 읽음 · [] = 권장값 그대로
         self.encoding_status = {'config': {}, 'summary': '', 'advice': None, 'error': '', 'at': 0.0}
+        # 마지막 송출 끄기가 어떻게 끝났나(2026-10-25 — '종료 중' 에서 멈춤). /health 의 obs_stop.
+        #   stopped · forced(두 번째 끄기 = OBS 강제 종료를 보냈나) · reconnecting(끌 때 재연결 중이었나) · seconds · log(멈췄을 때 OBS 로그 끝)
+        self.stop_report = None
         # OBS 설정 폴더 — 프로필의 streamEncoder.json(프리셋 등 웹소켓으로 못 읽는 칸)을 여기서 읽는다.
         appdata = os.environ.get('APPDATA') or ''
         self.obs_config_dir = obs_cfg.get('config_dir') or (os.path.join(appdata, 'obs-studio') if appdata else '')
@@ -513,17 +516,72 @@ class OBSController:
             self.client.start_stream()
             logger.info("▶️  OBS 스트리밍 시작됨")
 
-    def stop_stream(self, timeout: float = 10.0) -> bool:
+    # 끄기 기다림(2026-10-25). OBS 의 '방송 중단' 은 남은 영상을 다 보내고 멈춘다 — 업로드가 밀려 있으면 그게 길어지고
+    # (OBS 기본 상한 30초), 그동안 OBS 버튼은 '종료 중' 이다. 예전엔 10초만 기다리고 YouTube 방송을 끝냈는데, 그러면 아직
+    # 보내던 연결이 끊겨 OBS 가 **'종료 중' 인 채로 다시 붙으려 하다 멈췄고**, 다음 경기 켜기가 '이전 방송을 계속 내보낸다' 로
+    # 막혔다("라이브가 하나 끝나고 두번째 리그할때 연결이 안되네? Obs보면 종료중이라고 뜨고 종료가 안되더라고").
+    # 그래서: 조금 기다려 보고(경기는 이미 끝났다 — 마지막 몇 초는 버려도 된다) 안 멈추면 **한 번 더 끈다** — '종료 중' 에
+    # 다시 누르는 끄기는 OBS 가 **강제 종료**로 받는다(남은 영상을 버리고 바로 멈춘다 · OBS 화면에서 [방송 중단] 을 한 번 더
+    # 누르는 것과 같다). YouTube 방송은 그 **뒤에** 끝낸다(stream_server — 이 함수가 돌아온 다음).
+    STOP_GRACE_S = 5.0
+    STOP_FORCE_WAIT_S = 15.0
+
+    def stop_stream(self, timeout: float = None, grace: float = None) -> bool:
         """OBS 송출을 끈다. **정말 꺼진 걸 확인했으면 True**, 못 껐거나 확인을 못 했으면 False.
+        grace 초 안에 안 멈추면 한 번 더 끈다(OBS 강제 종료) · 그 뒤 timeout 초를 더 기다린다.
 
         ⚠️ 2026-10-08: 예전엔 연결(client)이 없으면 **아무것도 안 하고** 돌아갔다. 키프알라이브가
            OBS 응답 오류 한 번에 client 를 비우고(ensure_replay_buffer) 20초 뒤에야 다시 붙는데, 그
            사이에 경기가 끝나면 OBS 는 지난 방송 키로 계속 내보내고 서버는 '껐다' 고 믿었다.
            그래서 연결이 없으면 붙여서 끄고, 송출이 실제로 멈출 때까지 기다린다(StopStream 은 요청만
            받고 돌아온다 — 바로 다음 순간엔 아직 송출 중이다)."""
-        # ⚠️ 연결이 **있는데 죽어 있으면**(소켓 끊김·응답 꼬임) 요청이 던진다 — 그때는 연결을 버리고 새로 붙어
-        #    한 번 더 보낸다(2026-10-08 검토). 비어 있는지만 보면 죽은 연결로 끄기를 못 보내고 OBS 는 계속 송출한다.
-        sent = False
+        timeout = self.STOP_FORCE_WAIT_S if timeout is None else float(timeout)
+        grace = self.STOP_GRACE_S if grace is None else float(grace)
+        t0 = time.time()
+        report = {'at': t0, 'reached': True, 'stopped': False, 'forced': False, 'reconnecting': None, 'seconds': 0.0,
+                  'log': []}
+        sent = self._send_stop(report)
+        if sent is None:  # 이미 꺼져 있었다
+            report.update(stopped=True)
+            self.stop_report = report
+            return True
+        if not sent:
+            # OBS 에 닿지 않는다 — 끄기도 강제 종료도 못 보낸다. 예전처럼 바로 False(기다리면 태블릿 기다림을 넘긴다).
+            report.update(reached=False, seconds=round(time.time() - t0, 1))
+            self.stop_report = report
+            return False
+        stopped = self.wait_until_stopped(min(grace, timeout) if grace > 0 else 0)
+        if not stopped:
+            # '종료 중' 에서 안 끝난다 — 한 번 더 끈다(OBS 는 이걸 강제 종료로 받는다).
+            logger.warning(f"⚠️ OBS 가 {grace:.0f}초 안에 '종료 중' 을 못 끝냈어요"
+                           + (" (재연결 중이었어요)" if report.get('reconnecting') else '')
+                           + " — 한 번 더 끕니다(강제 종료)")
+            again = self._send_stop(report)
+            if again is None:
+                stopped = True
+            else:
+                report['forced'] = bool(again)
+                stopped = self.wait_until_stopped(timeout)
+        report['reached'] = True
+        report['stopped'] = bool(stopped)
+        report['seconds'] = round(time.time() - t0, 1)
+        if stopped:
+            logger.info("⏹️  OBS 스트리밍 종료됨" + (" (강제 종료)" if report['forced'] else ''))
+        else:
+            logger.error(f"❌ OBS 송출이 강제 종료 뒤에도 멈추지 않았어요({report['seconds']:.0f}초) — OBS 가 '종료 중' 에서 "
+                         "멈춘 것 같아요. OBS 를 껐다 켜 주세요")
+            report['log'] = self.obs_log_lines(60)
+            for line in report['log']:
+                logger.error(f"   OBS 로그 │ {line}")
+        self.stop_report = report
+        # 예전처럼 끝나면 연결을 놓는다(다음 시작은 새로 붙는다).
+        self.disconnect()
+        return stopped
+
+    def _send_stop(self, report=None):
+        """StopStream 을 한 번 보낸다. True = 보냄 · False = 못 보냄 · None = 이미 꺼져 있음.
+        ⚠️ 연결이 **있는데 죽어 있으면**(소켓 끊김·응답 꼬임) 요청이 던진다 — 그때는 연결을 버리고 새로 붙어
+           한 번 더 보낸다(2026-10-08 검토). 비어 있는지만 보면 죽은 연결로 끄기를 못 보내고 OBS 는 계속 송출한다."""
         with self._lock:
             for attempt in range(2):
                 if not self.client:
@@ -537,24 +595,41 @@ class OBSController:
                     status = self.client.get_stream_status()
                     if not status.output_active:
                         logger.info("스트리밍이 이미 종료됐어요.")
-                        return True
+                        return None
+                    if report is not None:
+                        rec = getattr(status, 'output_reconnecting', None)
+                        if isinstance(rec, bool):
+                            report['reconnecting'] = bool(report.get('reconnecting')) or rec
                     self.client.stop_stream()
                     logger.info("⏹️  OBS 스트리밍 종료 요청")
-                    sent = True
-                    break
+                    return True
                 except Exception as e:
                     logger.warning(f"스트리밍 종료 중 오류 — 다시 붙어서 한 번 더: {e}")
                     self.disconnect()
-        if not sent:
-            logger.error("❌ OBS 에 끄기를 보내지 못했어요")
-        stopped = self.wait_until_stopped(timeout)
-        if stopped:
-            logger.info("⏹️  OBS 스트리밍 종료됨")
-        else:
-            logger.error(f"❌ OBS 송출이 {timeout:.0f}초 안에 멈추지 않았어요")
-        # 예전처럼 끝나면 연결을 놓는다(다음 시작은 새로 붙는다).
-        self.disconnect()
-        return stopped
+        logger.error("❌ OBS 에 끄기를 보내지 못했어요")
+        return False
+
+    def obs_log_lines(self, limit: int = 60) -> list:
+        """가장 최근 OBS 로그(%APPDATA%\\obs-studio\\logs)의 끝 — 송출·출력·인코더·재연결 줄만. 못 읽으면 [].
+        '종료 중' 에서 멈췄을 때 그 순간 OBS 가 무엇을 하고 있었는지 남기려고 쓴다(읽기만)."""
+        root = self.obs_config_dir
+        logs = os.path.join(root, 'logs') if root else ''
+        try:
+            files = [os.path.join(logs, n) for n in os.listdir(logs) if n.lower().endswith('.txt')]
+        except OSError:
+            return []
+        if not files:
+            return []
+        newest = max(files, key=lambda p: os.path.getmtime(p))
+        try:
+            with open(newest, encoding='utf-8', errors='replace') as f:
+                lines = f.read().splitlines()
+        except OSError:
+            return []
+        keys = ('rtmp', 'stream', 'output', 'reconnect', 'stopping', 'stopped', 'encoder', 'qsv', 'nvenc', 'amf',
+                'replay', 'error', 'warning', 'disconnect', 'socket', 'shutdown', 'timeout', 'failed')
+        picked = [ln for ln in lines[-400:] if any(k in ln.lower() for k in keys)]
+        return [ln.rstrip() for ln in picked[-max(1, int(limit)):]]
 
     def wait_until_stopped(self, timeout: float = 10.0) -> bool:
         """송출이 '실제로' 멈췄는지 확인. 연결이 끊겨 확인할 수 없으면 False 다(꺼졌다고 단정하지 않는다)."""
