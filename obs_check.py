@@ -6,7 +6,8 @@ OBS 가 켜져 있는 이 PC 에서:
     C:\\dev\\PS-rank\\.venv\\Scripts\\python.exe C:\\dev\\PS-rank\\obs_check.py
     ... obs_check.py --seconds 30     # 송출 숫자를 30초 동안 잰다(기본 10초)
     ... obs_check.py --no-sample      # 설정만
-    ... obs_check.py --obs-log        # + 최근 OBS 로그의 송출·출력·인코더 줄(OBS 가 '종료 중' 에서 멈췄을 때)
+    ... obs_check.py --obs-log        # + OBS 로그(마지막으로 방송한 파일 · 그 방송부터)의 송출·출력·인코더 줄 · 비밀번호는 가림
+                                       #   OBS 를 다시 띄운 뒤에 돌려도 멈췄던 앞 파일을 읽는다
 
 무엇을 하나:
   ① OBS 인코딩 설정(출력 모드 · 방송 인코더 · 프리셋 · 녹화 인코더 · FPS · 해상도 · 카메라 디코딩)을 읽어 한 줄로
@@ -117,8 +118,12 @@ def main(argv=None):
     for line in report_lines(status, health, args.seconds):
         print(line)
     if args.obs_log:
-        lines = ctl.obs_log_lines(80)
-        print(f"\n최근 OBS 로그(송출·출력·인코더 줄 {len(lines)}개):" if lines else '\n최근 OBS 로그를 못 찾았어요(obs.config_dir 확인)')
+        path = ctl.obs_log_file()
+        lines = ctl.obs_log_lines(80, path=path) if path else []
+        if lines:
+            print(f"\nOBS 로그 {os.path.basename(path)} — 마지막 방송부터 송출·출력·인코더 줄 {len(lines)}개(비밀번호는 가림):")
+        else:
+            print('\nOBS 로그를 못 찾았어요(obs.config_dir 확인)')
         for ln in lines:
             print('  ' + ln)
     ctl.disconnect()

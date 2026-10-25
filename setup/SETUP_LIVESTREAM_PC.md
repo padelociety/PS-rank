@@ -786,8 +786,11 @@ Start-Process "$env:ProgramFiles\obs-studio\bin\64bit\obs64.exe" `
 C:\dev\PS-rank\.venv\Scripts\python.exe C:\dev\PS-rank\obs_check.py --no-sample --obs-log
 ```
 
-맨 위 `OBS 송출:` 줄(꺼짐 · 송출 중 · **재연결 중**)과 아래 최근 OBS 로그의 송출·출력·인코더 줄이 무엇이 OBS 를 붙잡고
+맨 위 `OBS 송출:` 줄(꺼짐 · 송출 중 · **재연결 중**)과 아래 OBS 로그의 송출·출력·인코더 줄이 무엇이 OBS 를 붙잡고
 있었는지 말해 준다(`Reconnecting` 이 보이면 종료 중에 다시 붙으려던 것 · 인코더 오류면 인코더 쪽).
+OBS 를 다시 띄운 뒤에 돌려도 된다 — 새 파일엔 방송이 없으니 **마지막으로 방송한 앞 파일**을 그 방송부터 읽는다.
+⚠️ OBS 는 RTSP 카메라 주소를 비밀번호째 로그에 적는다 — 점검 화면·서버 로그로 옮길 때는 `아이디:***@` 로 가린다.
+OBS 로그 파일(`%APPDATA%\obs-studio\logs\*.txt`)을 그대로 남에게 보내지 말 것.
 
 ### 'PC 과부하'(인코딩 밀림)가 계속된다 (2026-10-24)
 
