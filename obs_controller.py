@@ -11,6 +11,7 @@ OBS Studio를 원격으로 제어합니다 (obs-websocket 5.x)
 import json
 import logging
 import os
+import re
 import threading
 import time
 
@@ -609,27 +610,59 @@ class OBSController:
         logger.error("❌ OBS 에 끄기를 보내지 못했어요")
         return False
 
-    def obs_log_lines(self, limit: int = 60) -> list:
-        """가장 최근 OBS 로그(%APPDATA%\\obs-studio\\logs)의 끝 — 송출·출력·인코더·재연결 줄만. 못 읽으면 [].
-        '종료 중' 에서 멈췄을 때 그 순간 OBS 가 무엇을 하고 있었는지 남기려고 쓴다(읽기만)."""
+    # OBS 로그 읽기(2026-10-25). ⚠️ OBS 는 RTSP 카메라 주소를 **비밀번호째** 로그에 적는다(`rtsp://admin:…@192.168.1.7`) —
+    # 서버 로그·점검 화면으로 옮길 때는 반드시 가린다(`mask_secrets`). 사람이 그 화면을 대화·채팅에 붙여 넣는다.
+    _SECRET_URL = re.compile(r'([a-z][a-z0-9+.-]*://[^:/@\s]+):[^@\s]+@', re.IGNORECASE)
+    _LOG_KEYS = ('rtmp', 'stream', 'output', 'reconnect', 'stopping', 'stopped', 'encoder', 'qsv', 'nvenc', 'amf',
+                 'replay', 'error', 'warning', 'disconnect', 'socket', 'shutdown', 'timeout', 'failed')
+    # 시작할 때 늘 찍히는 줄(모듈·장치 목록) — 멈춘 이유와 상관없다.
+    _LOG_NOISE = ('failed to initialize module', 'failed to load', 'loadlibrary failed', 'version info size',
+                  '[obs_module_', 'not supported', '.dll', 'available encoders', 'video encoders', 'audio encoders',
+                  'output resolution', 'output 0:', 'coreaudio')
+    LOG_LOOKBACK_FILES = 6
+
+    @classmethod
+    def mask_secrets(cls, text: str) -> str:
+        """주소 안의 '아이디:비밀번호@' 를 '아이디:***@' 로."""
+        return cls._SECRET_URL.sub(r'\1:***@', str(text or ''))
+
+    def obs_log_file(self) -> str:
+        """읽을 OBS 로그 파일 — 최근 파일들 중 **방송을 한 번이라도 켠**('==== Streaming Start') 가장 새 것.
+        OBS 를 다시 띄우면 새 파일이 생기는데, 멈췄던 장면은 그 앞 파일에 있다(2026-10-25 — 다시 띄운 뒤 점검하니
+        새 파일만 읽어 멈춘 장면을 놓쳤다). 방송한 파일이 없으면 가장 새 파일 · 못 읽으면 ''."""
         root = self.obs_config_dir
         logs = os.path.join(root, 'logs') if root else ''
         try:
             files = [os.path.join(logs, n) for n in os.listdir(logs) if n.lower().endswith('.txt')]
         except OSError:
+            return ''
+        files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+        for path in files[:self.LOG_LOOKBACK_FILES]:
+            try:
+                with open(path, encoding='utf-8', errors='replace') as f:
+                    if '==== Streaming Start' in f.read():
+                        return path
+            except OSError:
+                continue
+        return files[0] if files else ''
+
+    def obs_log_lines(self, limit: int = 60, path: str = None) -> list:
+        """OBS 로그(obs_log_file)의 **마지막 방송부터** — 송출·출력·인코더·재연결 줄만 · 비밀번호는 가린다. 못 읽으면 [].
+        '종료 중' 에서 멈췄을 때 그 순간 OBS 가 무엇을 하고 있었는지 남기려고 쓴다(읽기만)."""
+        path = self.obs_log_file() if path is None else path
+        if not path:
             return []
-        if not files:
-            return []
-        newest = max(files, key=lambda p: os.path.getmtime(p))
         try:
-            with open(newest, encoding='utf-8', errors='replace') as f:
+            with open(path, encoding='utf-8', errors='replace') as f:
                 lines = f.read().splitlines()
         except OSError:
             return []
-        keys = ('rtmp', 'stream', 'output', 'reconnect', 'stopping', 'stopped', 'encoder', 'qsv', 'nvenc', 'amf',
-                'replay', 'error', 'warning', 'disconnect', 'socket', 'shutdown', 'timeout', 'failed')
-        picked = [ln for ln in lines[-400:] if any(k in ln.lower() for k in keys)]
-        return [ln.rstrip() for ln in picked[-max(1, int(limit)):]]
+        starts = [i for i, ln in enumerate(lines) if '==== Streaming Start' in ln]
+        if starts:
+            lines = lines[starts[-1]:]
+        picked = [ln for ln in lines[-600:]
+                  if any(k in ln.lower() for k in self._LOG_KEYS) and not any(n in ln.lower() for n in self._LOG_NOISE)]
+        return [self.mask_secrets(ln.rstrip()) for ln in picked[-max(1, int(limit)):]]
 
     def wait_until_stopped(self, timeout: float = 10.0) -> bool:
         """송출이 '실제로' 멈췄는지 확인. 연결이 끊겨 확인할 수 없으면 False 다(꺼졌다고 단정하지 않는다)."""

@@ -273,6 +273,46 @@ check(not any('audio settings reset' in x for x in log) and not any('옛 파일'
       '상관없는 줄 · 옛 로그 파일은 안 싣는다', log)
 c2 = OBSController({'obs': {'config_dir': os.path.join(tmp, 'none')}})
 check(c2.obs_log_lines() == [], 'OBS 로그 폴더가 없으면 []')
+
+print('\n[11-2] OBS 를 다시 띄운 뒤에도 멈췄던 앞 파일을 읽는다 · 비밀번호를 가린다 · 시작 잡음은 뺀다 (2026-10-25)')
+# 신고 그대로: 멈춘 OBS 를 다시 띄우고 점검하니 새 파일(방송 없음)만 읽어 'Crash or unclean shutdown' 과 모듈 목록만 나왔다.
+#   그리고 카메라 RTSP 주소가 비밀번호째 찍혔다.
+with open(newest, 'w', encoding='utf-8') as f:
+    f.write('\n'.join([
+        '19:00:00.500: [rtmp stream: \'adv_stream\'] 앞 방송(잘려야 한다)',
+        '19:00:01.000: ==== Streaming Start ===============================================',
+        '19:00:01.200:         input:                   rtsp://admin:QkEpf2501@192.168.1.7:554/Streaming/Channels/101',
+        '19:31:00.000: [rtmp stream: \'adv_stream\'] User stopped the stream',
+        '19:31:10.000: Output \'adv_stream\': Reconnecting in 3.00 seconds..',
+    ]) + '\n')
+restart = os.path.join(logs, '2026-10-25 19-40-00.txt')
+with open(restart, 'w', encoding='utf-8') as f:
+    f.write('\n'.join([
+        '19:40:00.000: Crash or unclean shutdown detected',
+        "19:40:01.000: Failed to initialize module 'aja.dll'",
+        '19:40:01.100: LoadLibrary failed for \'nvEncodeAPI64.dll\': The specified module could not be found.',
+        '19:40:01.200:     obs-outputs.dll',
+        '19:40:02.000: ==== Replay Buffer Start ===========================================',
+    ]) + '\n')
+os.utime(newest, (100, 100))
+os.utime(restart, (200, 200))
+c3 = OBSController({'obs': {'config_dir': tmp}})
+check(c3.obs_log_file() == newest, "가장 새 파일에 방송이 없으면(다시 띄운 직후) 마지막으로 방송한 앞 파일", c3.obs_log_file())
+lines = c3.obs_log_lines()
+check(any('User stopped the stream' in x for x in lines) and not any('앞 방송' in x for x in lines),
+      '그 파일의 **마지막 방송부터**', lines)
+check(any('rtsp://admin:***@192.168.1.7' in x for x in lines) and not any('QkEpf2501' in x for x in lines),
+      '카메라 주소의 비밀번호를 가린다', lines)
+noisy = c3.obs_log_lines(path=restart)
+check(not any('aja.dll' in x or 'nvEncodeAPI64' in x or 'obs-outputs.dll' in x for x in noisy)
+      and any('Replay Buffer Start' in x for x in noisy), '시작 때 늘 찍히는 모듈 줄은 뺀다', noisy)
+check(OBSController.mask_secrets('rtmp://a.rtmp.youtube.com/live2') == 'rtmp://a.rtmp.youtube.com/live2',
+      '비밀번호 없는 주소는 그대로')
+os.remove(newest)
+os.remove(os.path.join(logs, '2026-10-24 19-00-00.txt'))
+check(c3.obs_log_file() == restart, '방송한 파일이 없으면 가장 새 파일')
+src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'obs_check.py'), encoding='utf-8').read()
+check('obs_log_file()' in src and 'obs_log_lines(80, path=path)' in src, '점검 화면도 같은 파일 고르기 · 가림을 쓴다')
 shutil.rmtree(tmp, ignore_errors=True)
 
 print('\n[12] 끄기와 강제 종료 사이에 꺼졌으면 True(두 번째는 안 보낸다)')
