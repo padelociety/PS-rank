@@ -281,7 +281,7 @@ with open(newest, 'w', encoding='utf-8') as f:
     f.write('\n'.join([
         '19:00:00.500: [rtmp stream: \'adv_stream\'] 앞 방송(잘려야 한다)',
         '19:00:01.000: ==== Streaming Start ===============================================',
-        '19:00:01.200:         input:                   rtsp://admin:QkEpf2501@192.168.1.7:554/Streaming/Channels/101',
+        '19:00:01.200:         input:                   rtsp://admin:FakePass123@192.168.1.7:554/Streaming/Channels/101',
         '19:31:00.000: [rtmp stream: \'adv_stream\'] User stopped the stream',
         '19:31:10.000: Output \'adv_stream\': Reconnecting in 3.00 seconds..',
     ]) + '\n')
@@ -301,7 +301,7 @@ check(c3.obs_log_file() == newest, "가장 새 파일에 방송이 없으면(다
 lines = c3.obs_log_lines()
 check(any('User stopped the stream' in x for x in lines) and not any('앞 방송' in x for x in lines),
       '그 파일의 **마지막 방송부터**', lines)
-check(any('rtsp://admin:***@192.168.1.7' in x for x in lines) and not any('QkEpf2501' in x for x in lines),
+check(any('rtsp://admin:***@192.168.1.7' in x for x in lines) and not any('FakePass123' in x for x in lines),
       '카메라 주소의 비밀번호를 가린다', lines)
 noisy = c3.obs_log_lines(path=restart)
 check(not any('aja.dll' in x or 'nvEncodeAPI64' in x or 'obs-outputs.dll' in x for x in noisy)
