@@ -1391,13 +1391,15 @@ def save_highlight():
 # 🎬 → 인스타 스토리 (2026-11-01 · 미리보기 후 올리기)
 # ════════════════════════════════════════════════════════════════
 # 사용자: "하이라이트 저장 버튼 누르면 바로 인스타에 올리는 기능 … 인스타 스토리" → 센터 공식 계정 · 미리보기 후 올리기.
-# 이 PC 가 하는 일은 **세로판 만들기**뿐이다: 태블릿이 최근 클립의 [인스타 스토리]를 누르면 그 클립을 9:16 · 60초 이하로
-# 다시 인코딩해 백엔드(POST /api/highlight/:id/story-file)에 올린다. 미리보기·[올리기]·인스타 게시는 태블릿 ↔ 백엔드
-# (backend utils/instagramStory) 몫이다.
-# ⚠️ **재인코딩이라 CPU 를 쓴다** — 방송 중이면 송출과 겹친다. 그래서 누를 때만 만들고(저장할 때마다 만들지 않는다) ·
-#    한 번에 하나 · 720x1280 · 스레드 2 · 윈도우는 낮은 우선순위(BELOW_NORMAL)로 돌린다.
+# 이 PC 가 하는 일은 **스토리용 파일 만들기**뿐이다: 태블릿이 최근 클립의 [인스타 스토리]를 누르면 그 클립을 60초 이하로
+# 맞춰(가로 그대로 — 인스타가 위아래를 검게 채운다) 백엔드(POST /api/highlight/:id/story-file)에 올린다. 미리보기·[올리기]·
+# 인스타 게시는 태블릿 ↔ 백엔드(backend utils/instagramStory) 몫이다.
+# 2026-11-01 사용자 *"세로로 안바꾸고 그냥 사진처럼 올려도 되는데"* — 처음엔 9:16 으로 다시 인코딩했다(방송 PC CPU 를 썼다).
+# 이제 **재인코딩 없음**(스트림 복사) — 수 초 · 방송과 겹쳐도 부담이 없다.
+# ⚠️ 스토리 영상은 **60초까지**. 복사로 자르면 시작이 키프레임에 맞춰 조금 앞당겨지므로 뒤쪽 STORY_TAKE_S(57초)부터 잡고
+#    -t 로 60초를 넘지 않게 끝을 막는다(끝은 패킷 단위라 키프레임과 무관 — 명장면인 마지막 순간이 안 잘린다).
 STORY_MAX_S = 60          # 인스타 스토리 영상 한 장 최대 길이
-STORY_W, STORY_H = 720, 1280
+STORY_TAKE_S = 57         # 이보다 긴 클립은 뒤쪽 이만큼부터(키프레임 여유 3초)
 RECENT_MAX = 10
 _recent_highlights = []   # 최신 먼저 — {id, path, seconds, title, at}
 _story_jobs = {}          # 하이라이트 id → {state: making|ready|failed, error, url}
@@ -1417,40 +1419,24 @@ def _remember_highlight(hid, path, seconds, meta):
         del _recent_highlights[RECENT_MAX:]
 
 
-def _story_filter():
-    """가로 영상 → 세로 9:16: 같은 영상을 크게 흐려 배경으로 깔고 가운데에 원본을 폭 맞춤으로 얹는다(잘리는 곳 없음)."""
-    return (
-        '[0:v]split=2[a][b];'
-        f'[a]scale={STORY_W}:{STORY_H}:force_original_aspect_ratio=increase,crop={STORY_W}:{STORY_H},boxblur=20:2[bg];'
-        f'[b]scale={STORY_W}:-2[fg];'
-        '[bg][fg]overlay=(W-w)/2:(H-h)/2,fps=30,format=yuv420p[v]'
-    )
-
-
 def _story_cmd(path, seconds, out):
-    take = min(int(seconds or 0) or STORY_MAX_S, STORY_MAX_S)
-    return [
-        _ffmpeg_exe(), '-y', '-sseof', f'-{take}', '-i', path,
-        '-filter_complex', _story_filter(), '-map', '[v]', '-map', '0:a?', '-t', str(take),
-        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-profile:v', 'high', '-threads', '2',
-        '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2',
-        '-movflags', '+faststart', out,
-    ]
+    """스트림 복사(재인코딩 없음). 길이를 모르거나(0 = 버퍼 전체) 57초보다 길면 뒤쪽 57초부터 · 늘 60초 이하 · faststart."""
+    secs = int(seconds or 0)
+    head = ['-sseof', f'-{STORY_TAKE_S}'] if (secs == 0 or secs > STORY_TAKE_S) else []
+    return [_ffmpeg_exe(), '-y', *head, '-i', path, '-t', str(STORY_MAX_S - 0.1),
+            '-c', 'copy', '-movflags', '+faststart', out]
 
 
 def _story_clip(path, seconds):
-    """세로판 파일 경로를 돌려준다. 실패하면 RuntimeError(사람이 읽을 말)."""
+    """스토리용 파일 경로를 돌려준다. 실패하면 RuntimeError(사람이 읽을 말)."""
     import subprocess
     base, _ = os.path.splitext(path)
     out = f"{base}_story.mp4"
-    kwargs = {}
-    if os.name == 'nt':
-        kwargs['creationflags'] = getattr(subprocess, 'BELOW_NORMAL_PRIORITY_CLASS', 0x4000)
-    r = subprocess.run(_story_cmd(path, seconds, out), capture_output=True, timeout=300, **kwargs)
+    r = subprocess.run(_story_cmd(path, seconds, out), capture_output=True, timeout=120)
     if r.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) == 0:
         tail = (r.stderr or b'').decode('utf-8', 'ignore').strip().splitlines()[-1:] or ['']
-        raise RuntimeError(f"세로 영상을 만들지 못했어요(ffmpeg {r.returncode}) {tail[0][:120]}")
-    logger.info(f"📱 스토리 세로판 생성: {os.path.basename(out)}")
+        raise RuntimeError(f"스토리용 영상을 만들지 못했어요(ffmpeg {r.returncode}) {tail[0][:120]}")
+    logger.info(f"📱 스토리용 영상 생성: {os.path.basename(out)}")
     return out
 
 
@@ -1476,13 +1462,13 @@ def _make_and_upload_story(item):
         except Exception:
             pass
         if not r.ok:
-            raise RuntimeError(body.get('message') or f'서버가 세로 영상을 받지 않았어요(HTTP {r.status_code})')
+            raise RuntimeError(body.get('message') or f'서버가 스토리용 영상을 받지 않았어요(HTTP {r.status_code})')
         url = ((body.get('data') or {}).get('storyUrl')) or ''
         with _story_lock:
             _story_jobs[hid] = {'state': 'ready', 'error': '', 'url': url}
-        logger.info(f"☁️ 스토리 세로판 업로드 완료: {hid}")
+        logger.info(f"☁️ 스토리용 영상 업로드 완료: {hid}")
     except Exception as e:
-        logger.error(f"스토리 세로판 실패({hid}): {e}")
+        logger.error(f"스토리용 영상 실패({hid}): {e}")
         with _story_lock:
             _story_jobs[hid] = {'state': 'failed', 'error': str(e)[:300], 'url': ''}
 
@@ -1508,7 +1494,7 @@ def recent_highlights():
 @app.route('/highlight/<hid>/story', methods=['POST'])
 @_require_operator
 def make_story(hid):
-    """세로판 만들기 시작(뒤에서) — 이미 만들었으면 그대로 · 다른 클립을 만드는 중이면 409."""
+    """스토리용 파일 만들기 시작(뒤에서) — 이미 만들었으면 그대로 · 다른 클립을 만드는 중이면 409."""
     hid = str(hid)[:64]
     data = request.get_json(silent=True) or {}
     with _story_lock:
@@ -1523,7 +1509,7 @@ def make_story(hid):
         if job.get('state') == 'ready' and not data.get('remake'):
             return jsonify({'success': True, 'story': dict(job)})
         if any(j.get('state') == 'making' for j in _story_jobs.values()):
-            return jsonify({'success': False, 'error': '다른 클립의 세로 영상을 만드는 중이에요 — 끝나면 다시 눌러 주세요.'}), 409
+            return jsonify({'success': False, 'error': '다른 클립을 준비하는 중이에요 — 끝나면 다시 눌러 주세요.'}), 409
         _story_jobs[hid] = {'state': 'making', 'error': '', 'url': ''}
     threading.Thread(target=_make_and_upload_story, args=(item,), daemon=True).start()
     return jsonify({'success': True, 'story': _story_view(hid)})
