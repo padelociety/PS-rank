@@ -1396,7 +1396,8 @@ def save_highlight():
 # 사용자: "하이라이트 저장 버튼 누르면 바로 인스타에 올리는 기능 … 인스타 스토리" → 센터 공식 계정 · 미리보기 후 올리기.
 # 이 PC 가 하는 일은 **스토리용 파일 만들기**뿐이다: 클립이 서버에 올라가면 **바로 저절로**(태블릿을 기다리지 않는다) 마지막 랠리의
 # 서브 3초 전부터 클립 끝(버튼을 누른 순간)까지 잘라(가로 그대로 — 인스타가 위아래를 검게 채운다 · 60초 이하) 백엔드
-# (POST /api/highlight/:id/story-file)에 올린다. 태블릿은 그게 준비되면 미리보기를 바로 띄우고, 사람이 [올리기]를 한 번 누른다
+# (POST /api/highlight/:id/story-file)에 올린다. 서버가 슈퍼어드민에게 예약앱 알림을 보내고, **관리자가** 미리 보고 [올리기]를 한 번 누른다
+# (사용자 *"관리자인 내가 한번 누르기를 해야할거같은데?"* — 태블릿은 준비·상태만)
 # (2026-11-01 사용자 *"마지막 랠리 시작을 잡아주는건 좋을거같아 … 인스타 자동업데이트"* → '자동 준비 + 한 번 누르기').
 # 랠리 찾기는 rally_cut.py(라켓 소리 · numpy — 없으면 마지막 57초). 세로 변환·공 따라가기는 시험해 보고 접었다(사용자 *"공 따라가는건 안되겠다"*).
 # ⚠️ 재인코딩 없음(스트림 복사) — 몇 초 · 방송과 겹쳐도 부담이 없다. 한 번에 하나씩(_story_make_lock) 차례로 만든다.
@@ -1476,6 +1477,11 @@ def _make_and_upload_story(item):
                 f"{api}/api/highlight/{hid}/story-file",
                 headers={'x-upload-key': key},
                 files={'file': (os.path.basename(out), f, 'video/mp4')},
+                # 어디를 잘랐나 — 관리자 예약앱 미리보기의 '✂️' 한 줄(서버 storyCut)
+                data={'cutStart': str(win.get('start') if win.get('start') is not None else ''),
+                      'cutServe': str(win.get('serve') if win.get('serve') is not None else ''),
+                      'cutDuration': str(win.get('duration') if win.get('duration') is not None else ''),
+                      'cutWhy': str(win.get('why') or '')},
                 timeout=180,
             )
         body = {}

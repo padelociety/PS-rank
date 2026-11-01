@@ -2490,8 +2490,9 @@ async function saveHighlight(seconds, btn) {
 // 사용자: "하이라이트 저장 버튼 누르면 바로 인스타에 올리는 기능 … 인스타 스토리" → 센터 공식 계정 · **미리보기 후 올리기**.
 // **자동 준비 + 한 번 누르기**(사용자 *"마지막 랠리 시작을 잡아주는건 좋을거같아 … 인스타 자동업데이트"*):
 // ① 🎬 저장 → 방송 PC 가 업로드 뒤 **저절로** 마지막 랠리 서브 3초 전 ~ 버튼 누른 순간(가로 그대로 · 60초 이하 · rally_cut.py)을 서버에 올린다
-// ② 이 태블릿이 그 클립을 기다렸다가(igWatchNew) 서버에 인스타가 연결돼 있으면 **미리보기를 바로 띄운다**
-// ③ [인스타 스토리에 올리기] 한 번 → 서버(POST /api/highlight/:id/story)가 센터 인스타에 게시 — 끝날 때까지 지켜본다.
+// ② 서버가 **슈퍼어드민에게 예약앱 알림** → 관리자가 미리 보고 [올리기] 한 번(사용자 *"관리자인 내가 한번 누르기를 해야할거같은데?"*).
+//    이 태블릿(league_operator)은 준비되면 토스트만 · 미리보기·상태는 볼 수 있다(서버 canPost 가 false 면 버튼 없음).
+// ③ 슈퍼어드민으로 로그인한 화면이면 여기서도 [인스타 스토리에 올리기] → 서버(POST /api/highlight/:id/story)가 게시.
 // 레일의 [📱 인스타 스토리] 로 지난 클립을 골라 올릴 수도 있다(GET /highlights/recent).
 // ⚠️ 누르기 전엔 아무것도 올라가지 않는다. 한 클립은 한 번만(서버가 막는다). 음악·태그·스티커는 API 로 못 붙인다.
 let _igGen = 0;          // 창을 닫거나 다른 클립을 고르면 늘린다 — 늦게 온 응답이 지금 화면을 덮지 않게
@@ -2561,6 +2562,8 @@ async function igWatchNew() {
     let v = null;
     try { v = ((await psFetch(`/highlight/${encodeURIComponent(fresh.id)}/story`)) || {}).data || null; } catch (_) { return; }
     if (!v || !v.enabled || v.status === 'posted') return;          // 인스타 연결 전 · 이미 올림 — 띄우지 않는다
+    // 올리기는 관리자(슈퍼어드민)가 예약앱 알림에서 한다 — 이 태블릿 계정이 못 올리면 알림만(사용자 "관리자인 내가 한번 누르기")
+    if (!v.canPost) { showToast('📱 인스타 스토리 준비 완료 — 관리자가 예약앱에서 확인하고 올려요'); return; }
     if (document.getElementById('ig-modal').classList.contains('show')) { showToast('📱 새 하이라이트가 인스타 스토리에 올릴 준비가 됐어요'); return; }
     const gen = ++_igGen; _igPick = fresh.id;
     document.getElementById('ig-modal').classList.add('show');
@@ -2614,6 +2617,7 @@ async function igShowPreview(id, gen, win) {
   if (v.status === 'posted') { igSet(video + note, `✅ 이미 올렸어요 (${igHm(v.postedAt)})`, 'var(--green)'); return v; }
   if (v.status === 'posting') { igSet(video + note, '⏳ 인스타에 올리는 중...', 'var(--gold)'); return v; }
   if (!v.enabled) { igSet(video + note, '🔌 서버에 센터 인스타 연결이 아직 안 돼 있어요 — 관리자에게 알려 주세요.', 'var(--gold)', 'disabled'); return v; }
+  if (!v.canPost) { igSet(video + note, v.status === 'failed' ? '⚠️ 지난번 실패: ' + (v.error || '') + ' — 관리자가 예약앱에서 다시 올릴 수 있어요' : '📲 올리기는 관리자가 해요 — 예약앱 알림에서 미리 보고 [올리기]', v.status === 'failed' ? 'var(--red)' : 'var(--text-dim)'); return v; }
   igSet(video + note, v.status === 'failed' ? '⚠️ 지난번 실패: ' + (v.error || '') + ' — 다시 올릴 수 있어요' : '미리 보고 괜찮으면 [올리기]', v.status === 'failed' ? 'var(--red)' : 'var(--text-dim)', true);
   return v;
 }
