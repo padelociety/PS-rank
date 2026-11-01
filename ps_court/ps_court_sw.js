@@ -1,5 +1,5 @@
 // v52 = 태블릿 c18(2026-10-21): 방송 중 문제(재연결·업로드·카메라)를 LIVE 줄에. 태블릿 BUILD 와 같이 올린다.
-const CACHE = 'ps-court-v52';
+const CACHE = 'ps-court-v53';
 
 self.addEventListener('install', e => {
   e.waitUntil(

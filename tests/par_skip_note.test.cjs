@@ -47,9 +47,9 @@ t('저장·토글 둘 다 이유를 보여 준다', () => {
   if (!src.includes('const warnMsg = res && res.data && res.data.parWarning;')) throw new Error('토글 경고');
 });
 t('빌드 c18 · SW v52', () => {
-  if (!src.includes('<!--COURTBUILD:c18-->') || !src.includes('var BUILD = "c18";')) throw new Error('배지');
+  if (!src.includes('<!--COURTBUILD:c19-->') || !src.includes('var BUILD = "c19";')) throw new Error('배지');
   const sw = fs.readFileSync(path.join(__dirname, '..', 'ps_court', 'ps_court_sw.js'), 'utf8');
-  if (!sw.includes("const CACHE = 'ps-court-v52';")) throw new Error('SW');
+  if (!sw.includes("const CACHE = 'ps-court-v53';")) throw new Error('SW');
 });
 console.log(fails ? `\n실패 ${fails}건\n` : '\n전부 통과\n');
 process.exit(fails ? 1 : 0);

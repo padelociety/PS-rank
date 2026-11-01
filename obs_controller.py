@@ -436,6 +436,98 @@ class OBSController:
                     out['media'][name] = 'OBS_MEDIA_STATE_ERROR'
             return out
 
+    # ── 방송 화면 검사 · 카메라 다시 열기 (2026-11-01 — 초록 화면) ─────────────
+    # 송출 숫자·카메라 '재생 중' 은 다 정상인데 유튜브엔 초록 화면만 나갔다. 화면을 직접 작게 찍어 본다.
+    MEDIA_RESTART = 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART'
+
+    def camera_sources(self):
+        """카메라 소스 [(이름, 하드웨어 디코딩 켜짐 True/False)] — 네트워크 미디어 소스(RTSP 등). 없으면 미디어 소스 전부.
+        **예외를 던지지 않는다**(못 읽으면 [])."""
+        import stream_health
+        with self._lock:
+            if not self.client:
+                try:
+                    self.connect(retries=1, delay=0)
+                except Exception:
+                    return []
+            try:
+                names = self._input_names(self.client.get_input_list('ffmpeg_source'))
+            except Exception:
+                return []
+            out, rest = [], []
+            for name in names:
+                try:
+                    st = getattr(self.client.get_input_settings(name), 'input_settings', None) or {}
+                except Exception:
+                    continue
+                hw = st.get('hw_decode') is True   # 칸이 없으면 OBS 기본값(꺼짐)
+                (out if stream_health.is_network_input(st) else rest).append((name, hw))
+            return out or rest
+
+    def program_scene(self) -> str:
+        """지금 방송에 나가는 장면 이름 · 못 읽으면 ''."""
+        with self._lock:
+            if not self.client:
+                return ''
+            try:
+                r = self.client.get_current_program_scene()
+            except Exception:
+                return ''
+            return str(getattr(r, 'current_program_scene_name', '') or getattr(r, 'scene_name', '') or '')
+
+    def frame_pixels(self, source: str, width: int = 32, height: int = 18):
+        """소스(또는 장면) 화면을 작게 찍어 RGB 점 목록으로 · 못 찍으면 None. **예외를 던지지 않는다.**"""
+        import base64
+        import io
+        if not source:
+            return None
+        try:
+            from PIL import Image
+        except Exception:
+            return None
+        with self._lock:
+            if not self.client:
+                return None
+            try:
+                r = self.client.get_source_screenshot(source, 'png', int(width), int(height), -1)
+            except Exception:
+                return None
+        data = str(getattr(r, 'image_data', '') or '')
+        if ',' in data[:64]:
+            data = data.split(',', 1)[1]
+        try:
+            img = Image.open(io.BytesIO(base64.b64decode(data))).convert('RGB')
+            return list(img.getdata())
+        except Exception:
+            return None
+
+    def restart_camera(self, name: str) -> bool:
+        """미디어 소스를 다시 연다(OBS 소스 속성 [확인] 과 같은 효과 — 디코더를 새로 만든다)."""
+        with self._lock:
+            if not self.client:
+                return False
+            try:
+                self.client.trigger_media_input_action(name, self.MEDIA_RESTART)
+                logger.info(f"📷 카메라 다시 열기: {name}")
+                return True
+            except Exception as e:
+                logger.warning(f"⚠️ 카메라 다시 열기 실패({name}): {e}")
+                return False
+
+    def set_hw_decode(self, name: str, on: bool) -> bool:
+        """소스 속성 '가능한 경우 하드웨어 디코딩 사용' 을 바꾼다(바꾸면 OBS 가 소스를 다시 연다 · OBS 장면 파일에 남는다)."""
+        with self._lock:
+            if not self.client:
+                return False
+            try:
+                self.client.set_input_settings(name, {'hw_decode': bool(on)}, True)
+                logger.info(f"📷 하드웨어 디코딩 {'켬' if on else '끔'}: {name}")
+                self._net_inputs_at = 0.0   # 인코딩 점검의 카메라 목록도 새로
+                return True
+            except Exception as e:
+                logger.warning(f"⚠️ 하드웨어 디코딩 바꾸기 실패({name}): {e}")
+                return False
+
     def disconnect(self):
         """연결을 끊습니다."""
         with self._lock:

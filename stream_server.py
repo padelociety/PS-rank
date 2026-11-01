@@ -503,7 +503,103 @@ def _recover_leftover():
 HEALTH_TICK_S = 10
 YOUTUBE_HEALTH_EVERY = 6          # 10초 × 6 = 1분마다 YouTube 에 묻는다(liveStreams.list 1 단위)
 health_state = {'broadcast_id': None, 'health': None, 'reconnects': 0, 'since': None}
-_health_mem = {'prev': None, 'prev_t': 0.0, 'cams': {}, 'yt': None, 'tick': 0, 'issue': '', 'reconnecting': False}
+_health_mem = {'prev': None, 'prev_t': 0.0, 'cams': {}, 'yt': None, 'tick': 0, 'issue': '', 'reconnecting': False,
+               'frame': None}
+
+
+# ── 방송 화면 검사 (2026-11-01 — "유투브 또 이러네ㅜㅜ 나 외부여서 가서 고치지도 못하는데") ─────
+# 유튜브엔 초록 화면만 나가는데 송출 숫자·카메라 '재생 중' 은 다 정상이었다(카메라 영상을 푸는 디코더가 빈 프레임을
+# 낸다). 방송 중 20초마다 카메라 소스를 32x18 로 찍어 한 가지 색이면 — 두 번 연속 → 그 카메라를 다시 열고, 그래도면
+# 하드웨어 디코딩을 끈다(stream_health.camera_frame_step). 카메라가 멀쩡한데 방송 장면이 단색이면 알리기만 한다.
+# 사람이 누르는 길도 있다: POST /camera-restart(운영자) — 태블릿 [📷 카메라 다시 연결] · 밖에서는 폰으로 obs 주소.
+_frame_lock = threading.Lock()
+_frame_mem = {'bad': {}, 'notes': {}, 'restarts': {}}
+camera_frame_state = {'at': None, 'sources': [], 'program': None, 'last_action': '', 'last_action_at': None}
+PROGRAM_KEY = '방송 화면'
+
+
+def _frame_verdicts(sources):
+    """[(이름, hw)] → [{name, hw, ok, uniform, green, color, share, label}] — 못 찍은 소스는 ok=False."""
+    out = []
+    for name, hw in sources:
+        v = stream_health.frame_verdict(obs.frame_pixels(name))
+        v.update({'name': name, 'hw': hw, 'label': stream_health.frame_label(v)})
+        out.append(v)
+    return out
+
+
+def _note_action(text: str):
+    logger.warning(f"📷 {text}")
+    with state_lock:
+        camera_frame_state['last_action'] = text
+        camera_frame_state['last_action_at'] = datetime.now(timezone.utc).isoformat()
+
+
+def _frame_check():
+    """화면 검사 한 바퀴 → evaluate 의 frame 인자({'bad': [...], 'note': ...}). 테스트가 직접 부른다."""
+    with _frame_lock:
+        srcs = obs.camera_sources()
+        cams = _frame_verdicts(srcs)
+        bad = _frame_mem['bad']
+        notes = _frame_mem['notes']
+        names = {c['name'] for c in cams}
+        for k in list(bad.keys()):
+            if k not in names and k != PROGRAM_KEY:
+                bad.pop(k, None)
+                notes.pop(k, None)
+        for c in cams:
+            name = c['name']
+            if not c['ok']:
+                continue                      # 못 찍었으면 판정하지 않는다(세지도 풀지도 않는다)
+            if not c['uniform']:
+                if bad.get(name, 0) >= stream_health.FRAME_GRACE:
+                    logger.info(f"✅ 카메라 화면 돌아옴: {name}")
+                bad.pop(name, None)
+                notes.pop(name, None)
+                continue
+            bad[name] = bad.get(name, 0) + 1
+            step = stream_health.camera_frame_step(bad[name], c['hw'])
+            if step == 'restart' and obs.restart_camera(name):
+                n = _frame_mem['restarts'][name] = _frame_mem['restarts'].get(name, 0) + 1
+                notes[name] = f"카메라를 다시 열었어요({n}번)"
+                _note_action(f"{name} — {c['label']} → 카메라 다시 열기")
+            elif step == 'hw_off' and obs.set_hw_decode(name, False):
+                c['hw'] = False
+                notes[name] = '하드웨어 디코딩을 끄고 다시 열었어요'
+                _note_action(f"{name} — {c['label']} → 하드웨어 디코딩 끔")
+        cam_bad = [c['name'] for c in cams if bad.get(c['name'], 0) >= stream_health.FRAME_GRACE]
+        # 카메라가 멀쩡한데(또는 카메라 소스가 없는데) 방송 장면이 단색 — 장면·소스 배치 문제. 알리기만 한다.
+        prog = None
+        if not cam_bad:
+            scene = obs.program_scene()
+            if scene:
+                prog = stream_health.frame_verdict(obs.frame_pixels(scene))
+                prog.update({'name': scene, 'label': stream_health.frame_label(prog)})
+                if prog['ok'] and prog['uniform']:
+                    bad[PROGRAM_KEY] = bad.get(PROGRAM_KEY, 0) + 1
+                    notes[PROGRAM_KEY] = (f"카메라는 정상 — OBS 장면 '{scene}' 을 확인해 주세요" if cams
+                                          else f"카메라 소스를 못 찾았어요 — OBS 장면 '{scene}' 을 확인해 주세요")
+                elif prog['ok']:
+                    bad.pop(PROGRAM_KEY, None)
+                    notes.pop(PROGRAM_KEY, None)
+        else:
+            bad.pop(PROGRAM_KEY, None)
+            notes.pop(PROGRAM_KEY, None)
+        bad_names = cam_bad + ([PROGRAM_KEY] if bad.get(PROGRAM_KEY, 0) >= stream_health.FRAME_GRACE else [])
+        note = ''
+        for n in bad_names:
+            if notes.get(n):
+                note = notes[n]
+                break
+        with state_lock:
+            camera_frame_state.update({
+                'at': datetime.now(timezone.utc).isoformat(),
+                'sources': [{k: c.get(k) for k in ('name', 'ok', 'uniform', 'green', 'color', 'share', 'hw', 'label')}
+                            for c in cams],
+                'program': ({k: prog.get(k) for k in ('name', 'ok', 'uniform', 'color', 'share', 'label')}
+                            if prog else None),
+            })
+        return {'bad': bad_names, 'note': note}
 
 
 def _health_tick(now_t: float = None):
@@ -515,12 +611,14 @@ def _health_tick(now_t: float = None):
     if not active or not bid:
         with state_lock:
             health_state.update({'broadcast_id': None, 'health': None, 'reconnects': 0, 'since': None})
-        _health_mem.update({'prev': None, 'prev_t': 0.0, 'cams': {}, 'yt': None, 'tick': 0, 'issue': '', 'reconnecting': False})
+        _health_mem.update({'prev': None, 'prev_t': 0.0, 'cams': {}, 'yt': None, 'tick': 0, 'issue': '', 'reconnecting': False,
+                            'frame': None})
         return None
     if health_state.get('broadcast_id') != bid:
         with state_lock:
             health_state.update({'broadcast_id': bid, 'health': None, 'reconnects': 0, 'since': None})
-        _health_mem.update({'prev': None, 'prev_t': 0.0, 'cams': {}, 'yt': None, 'tick': 0, 'issue': '', 'reconnecting': False})
+        _health_mem.update({'prev': None, 'prev_t': 0.0, 'cams': {}, 'yt': None, 'tick': 0, 'issue': '', 'reconnecting': False,
+                            'frame': None})
     snap = obs.stream_stats()
     if snap is None:
         return None
@@ -539,8 +637,14 @@ def _health_tick(now_t: float = None):
     # OBS 인코딩 설정에서 고칠 칸(2026-10-24) — '인코딩 밀림'·'화면 밀림' 문장 끝에 붙는다. 5분에 한 번 다시 읽는다.
     refresh = getattr(obs, 'refresh_encoding', None)
     advice = (refresh() or {}).get('advice') if callable(refresh) else None
+    # 방송 화면 검사(2026-11-01 — 초록 화면) — 20초마다. 사이 바퀴는 지난 결과를 그대로 쓴다.
+    if _health_mem['tick'] % stream_health.FRAME_CHECK_EVERY == 1 or _health_mem['frame'] is None:
+        try:
+            _health_mem['frame'] = _frame_check()
+        except Exception as e:
+            logger.warning(f"화면 검사 오류(무시): {e}")
     h = stream_health.evaluate(prev, snap, elapsed_s=elapsed, camera_bad_ticks=_health_mem['cams'],
-                               youtube=_health_mem['yt'], advice=advice)
+                               youtube=_health_mem['yt'], advice=advice, frame=_health_mem['frame'])
     _health_mem['prev'] = snap
     _health_mem['prev_t'] = now_t
     if h['reconnecting'] and not _health_mem['reconnecting']:
@@ -752,7 +856,16 @@ def health():
         'obs_encoding': _encoding_view(),
         # 마지막 OBS 송출 끄기(2026-10-25) — stopped · forced(강제 종료를 보냈나) · reconnecting · seconds. 로그 줄은 서버 로그에만.
         'obs_stop': _stop_view(),
+        # 방송 화면 검사(2026-11-01 — 초록 화면) — 카메라마다 마지막 판정(label 이 비면 정상) · 서버가 마지막으로 한 일.
+        'camera_frame': _frame_view(),
     })
+
+
+def _frame_view():
+    with state_lock:
+        v = dict(camera_frame_state)
+    v['sources'] = [dict(x) for x in (v.get('sources') or [])]
+    return v
 
 
 def _stop_view():
@@ -1379,6 +1492,62 @@ def save_highlight():
     # 저장(폴링 ~수 초)+업로드는 통째로 백그라운드 — 요청은 즉시 반환(헬스체크 안 막힘)
     threading.Thread(target=_save_and_upload_highlight, args=(meta, seconds), daemon=True).start()
     return jsonify({'success': True, 'seconds': seconds or None})
+
+
+CAMERA_SETTLE_S = 4.0   # 다시 연 카메라가 첫 화면을 낼 때까지
+
+
+@app.route('/camera-restart', methods=['POST'])
+@_require_operator
+def camera_restart():
+    """카메라 다시 연결(2026-11-01) — 카메라 소스를 다시 열고 몇 초 뒤 화면을 다시 본다. 그래도 한 가지 색이고 하드웨어
+    디코딩이 켜져 있으면 끄고(다시 열린다) 한 번 더 본다. 방송 중이 아니어도 된다.
+    Body(선택): { "hwDecodeOff": true } — 바로 하드웨어 디코딩부터 끈다."""
+    data = request.get_json(silent=True) or {}
+    force_off = bool(data.get('hwDecodeOff'))
+    with _frame_lock:
+        srcs = obs.camera_sources()
+        if not srcs:
+            return jsonify({'success': False,
+                            'error': 'OBS 에서 카메라(미디어 소스)를 못 찾았어요 — OBS 가 켜져 있는지 확인해 주세요'}), 400
+        before = {c['name']: c for c in _frame_verdicts(srcs)}
+        hw_off = []
+        for name, hw in srcs:
+            if force_off and hw and obs.set_hw_decode(name, False):
+                hw_off.append(name)
+            else:
+                obs.restart_camera(name)
+        time.sleep(CAMERA_SETTLE_S)
+        srcs = obs.camera_sources() or srcs
+        after = {c['name']: c for c in _frame_verdicts(srcs)}
+        retry = [n for n, hw in srcs if hw and after.get(n, {}).get('uniform') and n not in hw_off]
+        for name in retry:
+            if obs.set_hw_decode(name, False):
+                hw_off.append(name)
+        if retry:
+            time.sleep(CAMERA_SETTLE_S)
+            after.update({c['name']: c for c in _frame_verdicts([(n, False) for n in retry])})
+        for name in after:
+            _frame_mem['bad'].pop(name, None)     # 감시는 처음부터 다시 센다
+            _frame_mem['notes'].pop(name, None)
+        rows = []
+        for name, _hw in srcs:
+            a = after.get(name) or {}
+            rows.append({'name': name, 'before': (before.get(name) or {}).get('label') or '',
+                         'after': a.get('label') or '', 'checked': bool(a.get('ok')), 'hw_off': name in hw_off})
+    still = [r['name'] for r in rows if r['after']]
+    if still:
+        label = next(r['after'] for r in rows if r['after'])
+        text = (f"다시 열었는데 아직 {label}이에요({', '.join(still)}) — "
+                "카메라 전원·랜선을 확인하거나 OBS 를 다시 켜 주세요")
+    elif not any(r['checked'] for r in rows):
+        text = '카메라를 다시 열었어요 — 화면은 확인하지 못했어요(유튜브에서 봐 주세요)'
+    else:
+        text = '카메라를 다시 열었어요 — 화면 정상'
+    if hw_off:
+        text += f" · 하드웨어 디코딩을 껐어요({', '.join(hw_off)})"
+    _note_action(f"[카메라 다시 연결] {text}")
+    return jsonify({'success': True, 'ok': not still, 'text': text, 'sources': rows})
 
 
 @app.route('/status', methods=['GET'])

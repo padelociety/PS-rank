@@ -140,6 +140,20 @@ OBS PC 가 여기서 pull 한다. 고치면 양쪽을 같게 맞출 것(2026-09 
   이미 열려 있는 방송은 예전 설정(ultraLow · 자동 종료) 그대로다 — 다음 방송부터 바뀐다.
 - 테스트 `tests/test_stream_stability.py` · `tests/stream_handover.test.cjs` ⑥-2.
 
+## 초록 화면 — 방송 화면 검사 · 카메라 다시 연결 (2026-11-01 · 태블릿 c19 · SW v53)
+
+신고 *"유투브 또 이러네ㅜㅜ 나 외부여서 가서 고치지도 못하는데"* — 유튜브엔 초록 화면만 나가는데 `/health` 숫자는 전부 정상이었다
+(카메라 영상을 푸는 하드웨어 디코더가 빈 프레임을 냈다 — 송출 숫자·카메라 '재생 중' 으로는 안 보인다).
+
+- **방송 중 20초마다 화면을 찍는다**(`stream_health.frame_verdict` · `obs_controller.frame_pixels` — 32x18 스크린샷) — 카메라가
+  두 번 연속 한 가지 색이면 **다시 열고**, 네 번째면 **하드웨어 디코딩을 끈다**(`camera_frame_step`). 카메라가 멀쩡한데 방송 장면만
+  단색이면 알리기만 한다. 상태 줄 `⚠️ 카메라 화면 깨짐` · `/health` `camera_frame` · 로그 `📷`.
+- **`POST /camera-restart`**(운영자 토큰) — 다시 열고 4초 뒤 확인 · 그래도 단색이면 하드웨어 디코딩 끄고 다시 확인 → `{ok, text, sources}` ·
+  `{hwDecodeOff:true}` 면 바로 끈다. 태블릿 **[📷 카메라 다시 연결]**(하이라이트 레일 아래) · 밖에선 폰으로 `https://obs.padelsociety.co.kr`.
+- 인코딩 점검이 더는 '카메라 하드웨어 디코딩 켜기' 를 권하지 않는다(10-24 에 권했다 — 켠 뒤 초록 화면).
+- ⚠️ **python 변경 — stream_server 재시작 필요(방송 중 금지).** 테스트 `tests/test_camera_frame.py`. 사람이 할 일은
+  `setup/SETUP_LIVESTREAM_PC.md` 8절 '유튜브에 초록 화면만 나간다'.
+
 ## OBS PC 에 새 버전 올리기
 
 ```powershell
