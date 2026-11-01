@@ -10,3 +10,6 @@ requests>=2.31.0
 imageio-ffmpeg>=0.4.9
 # 라이브 썸네일 합성 (thumbnail.py) — 없으면 썸네일만 조용히 건너뛴다
 Pillow>=10.0.0
+
+# 인스타 스토리 — 마지막 랠리 시작 찾기(rally_cut.py). 없으면 마지막 57초로 대신한다
+numpy>=1.24

@@ -2473,7 +2473,8 @@ async function saveHighlight(seconds, btn) {
       throw new Error(data.error || '저장 실패');
     }
     renderHlRail(`✅ ${seconds}초 저장됨 — 잠시 후 앱에서 확인`);
-    showToast(`🎬 ${seconds}초 하이라이트 저장 중 — 잠시 후 앱에서 확인 · 📱 인스타 스토리로도 올릴 수 있어요`);
+    showToast(`🎬 ${seconds}초 하이라이트 저장 중 — 준비되면 인스타 스토리 미리보기가 떠요`);
+    igWatchNew();
   } catch (e) {
     if (!e.shown) showToast('⚠️ ' + (e.message || '하이라이트 저장 실패'));
     console.error('highlight -', e);
@@ -2487,9 +2488,11 @@ async function saveHighlight(seconds, btn) {
 
 // ── 📱 인스타 스토리 (c19 · 2026-11-01) ──────────────────────────
 // 사용자: "하이라이트 저장 버튼 누르면 바로 인스타에 올리는 기능 … 인스타 스토리" → 센터 공식 계정 · **미리보기 후 올리기**.
-// ① 방송 PC 의 최근 클립(GET /highlights/recent) 중 하나를 고른다 ② 방송 PC 가 60초 이하로 맞춘 파일(가로 그대로 · 재인코딩 없음)을 서버에 올린다
-//    (POST/GET /highlight/:id/story — 몇 초) ③ 서버 상태(GET /api/highlight/:id/story)의 그 영상을 여기서 재생해 보고
-// ④ [인스타 스토리에 올리기] → 서버(POST /api/highlight/:id/story)가 센터 인스타에 게시 — 끝날 때까지 지켜본다.
+// **자동 준비 + 한 번 누르기**(사용자 *"마지막 랠리 시작을 잡아주는건 좋을거같아 … 인스타 자동업데이트"*):
+// ① 🎬 저장 → 방송 PC 가 업로드 뒤 **저절로** 마지막 랠리 서브 3초 전 ~ 버튼 누른 순간(가로 그대로 · 60초 이하 · rally_cut.py)을 서버에 올린다
+// ② 이 태블릿이 그 클립을 기다렸다가(igWatchNew) 서버에 인스타가 연결돼 있으면 **미리보기를 바로 띄운다**
+// ③ [인스타 스토리에 올리기] 한 번 → 서버(POST /api/highlight/:id/story)가 센터 인스타에 게시 — 끝날 때까지 지켜본다.
+// 레일의 [📱 인스타 스토리] 로 지난 클립을 골라 올릴 수도 있다(GET /highlights/recent).
 // ⚠️ 누르기 전엔 아무것도 올라가지 않는다. 한 클립은 한 번만(서버가 막는다). 음악·태그·스티커는 API 로 못 붙인다.
 let _igGen = 0;          // 창을 닫거나 다른 클립을 고르면 늘린다 — 늦게 온 응답이 지금 화면을 덮지 않게
 let _igPick = null;      // 고른 하이라이트 id
@@ -2538,9 +2541,46 @@ async function igLoadRecent() {
     if (gen === _igGen) igSet('', '⚠️ ' + (e.message || '최근 클립을 못 불러왔어요'), 'var(--red)');
   }
 }
+// 🎬 저장 뒤: 새 클립의 스토리용 파일이 준비되면 미리보기를 연다(창이 이미 열려 있으면 알림만). 서버에 인스타가 연결 전이면 조용히 둔다.
+let _igWatch = 0;
+async function igWatchNew() {
+  const my = ++_igWatch;
+  const list = async () => {
+    const r = await fetch(`${STREAM_SERVER}/highlights/recent`, { headers: streamHeaders(), signal: AbortSignal.timeout(8000) }).catch(() => null);
+    const d = r ? await r.json().catch(() => ({})) : {};
+    return d.success ? (d.items || []) : null;
+  };
+  const before = new Set(((await list()) || []).map((x) => x.id));   // 업로드는 몇 초 걸려서 지금 목록엔 아직 없다
+  for (let i = 0; i < 60; i++) {                                     // 3초 × 60 = 3분
+    await igSleep(3000);
+    if (my !== _igWatch) return;                                     // 그 사이 또 저장했으면 새 감시가 맡는다
+    const items = await list();
+    const fresh = (items || []).find((x) => !before.has(x.id));
+    if (!fresh || !fresh.story || fresh.story.state === 'making' || !fresh.story.state) continue;
+    if (fresh.story.state === 'failed') { showToast('⚠️ 인스타 스토리용 영상을 못 만들었어요 — ' + (fresh.story.error || '')); return; }
+    let v = null;
+    try { v = ((await psFetch(`/highlight/${encodeURIComponent(fresh.id)}/story`)) || {}).data || null; } catch (_) { return; }
+    if (!v || !v.enabled || v.status === 'posted') return;          // 인스타 연결 전 · 이미 올림 — 띄우지 않는다
+    if (document.getElementById('ig-modal').classList.contains('show')) { showToast('📱 새 하이라이트가 인스타 스토리에 올릴 준비가 됐어요'); return; }
+    const gen = ++_igGen; _igPick = fresh.id;
+    document.getElementById('ig-modal').classList.add('show');
+    await igShowPreview(fresh.id, gen, fresh.story);
+    return;
+  }
+}
+// 어디를 잘랐는지 한 줄(방송 PC 가 준 window)
+function igWindowLine(w) {
+  if (!w || !w.why) return '';
+  const len = w.duration ? Math.max(0, Math.round(w.duration - (w.start || 0))) : 0;
+  const t = w.why === 'rally' ? `마지막 랠리(서브 ${Number(w.serve).toFixed(1)}초) 3초 전부터 버튼 누른 순간까지 · ${len}초`
+    : w.why === 'rally_cut60' ? `랠리가 길어 마지막 ${len}초만 (스토리는 60초까지)`
+    : w.why === 'no_numpy' ? `방송 PC 에 numpy 가 없어 마지막 ${len}초 (pip install -r requirements.txt)`
+    : `랠리를 못 찾아 마지막 ${len}초`;
+  return `<div class="ig-note" style="margin-top:4px">✂️ ${psEsc(t)}</div>`;
+}
 async function igPickClip(id) {
   const gen = ++_igGen; _igPick = id;
-  igSet('', '⏳ 스토리용 영상 준비 중 — 몇 초면 돼요 (60초가 넘으면 뒤쪽 60초만)', 'var(--gold)');
+  igSet('', '⏳ 스토리용 영상 준비 중 — 마지막 랠리를 찾아 자르고 있어요 (몇 초)', 'var(--gold)');
   try {
     const res = await fetch(`${STREAM_SERVER}/highlight/${encodeURIComponent(id)}/story`, { method: 'POST', headers: streamHeaders(), body: '{}', signal: AbortSignal.timeout(8000) });
     const data = await res.json().catch(() => ({}));
@@ -2559,17 +2599,17 @@ async function igPickClip(id) {
     }
     if (gen !== _igGen) return;
     if (story.state !== 'ready') throw new Error(story.error || '스토리용 영상을 만들지 못했어요');
-    await igShowPreview(id, gen);
+    await igShowPreview(id, gen, story);
   } catch (e) {
     if (gen === _igGen) igSet(`<button class="ig-item" onclick="igLoadRecent()"><b>← 클립 목록</b></button>`, '⚠️ ' + (e.message || '실패'), 'var(--red)');
   }
 }
 // 서버 상태로 미리보기를 그린다 — 올렸는지 · 인스타 연결 전인지도 서버가 말한다
-async function igShowPreview(id, gen) {
+async function igShowPreview(id, gen, win) {
   const body = await psFetch(`/highlight/${encodeURIComponent(id)}/story`);
   if (gen !== _igGen) return null;
   const v = (body && body.data) || {};
-  const video = v.storyUrl ? `<video class="ig-video" src="${psEsc(v.storyUrl)}" controls autoplay muted playsinline loop></video>` : '';
+  const video = (v.storyUrl ? `<video class="ig-video" src="${psEsc(v.storyUrl)}" controls autoplay muted playsinline loop></video>` : '') + igWindowLine(win);
   const note = `<div class="ig-note">센터 인스타 스토리에 이 모습 그대로 올라가요 — 가로 영상이라 위아래는 검게 비어요(24시간). 음악·사람 태그·스티커는 붙지 않아요.</div>`;
   if (v.status === 'posted') { igSet(video + note, `✅ 이미 올렸어요 (${igHm(v.postedAt)})`, 'var(--green)'); return v; }
   if (v.status === 'posting') { igSet(video + note, '⏳ 인스타에 올리는 중...', 'var(--gold)'); return v; }
