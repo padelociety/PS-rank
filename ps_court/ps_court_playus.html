@@ -768,6 +768,18 @@ body {
 .modal-status { font-size: 13px; font-weight: 700; margin-top: 14px; min-height: 18px; }
 .modal-btns { display:flex; gap: 10px; margin-top: 20px; }
 .modal-btns .btn { padding: 14px; font-size: 15px; }
+/* ── 📱 인스타 스토리 (c19 · 2026-11-01) — 최근 클립 → 세로판 미리보기 → [올리기] ── */
+.hl-rail-ig {
+  border:1px solid var(--border); border-radius:var(--radius-sm); cursor:pointer; width:100%; padding:12px 0;
+  background:var(--surface2); color:var(--text); font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-weight:900; font-size:15px;
+}
+.hl-rail.off .hl-rail-ig { opacity:.25; pointer-events:none; }
+.ig-list { display:flex; flex-direction:column; gap:8px; margin-top:6px; }
+.ig-item { display:flex; align-items:center; gap:10px; padding:12px; border-radius:var(--radius-sm); border:1px solid var(--border); background:var(--surface2); cursor:pointer; text-align:left; color:var(--text); font-family:inherit; }
+.ig-item b { font-size:14px; } .ig-item small { display:block; font-size:12px; color:var(--text-dim); font-weight:700; margin-top:2px; }
+.ig-item .ig-tag { margin-left:auto; font-size:11px; font-weight:800; color:var(--gold); white-space:nowrap; }
+.ig-video { display:block; width:min(240px,60vw); aspect-ratio:9/16; max-width:100%; margin:6px auto 0; border-radius:12px; background:#000; }
+.ig-note { font-size:12px; font-weight:700; color:var(--text-dim); line-height:1.5; margin-top:10px; }
 </style>
 </head>
 <body>
@@ -786,7 +798,7 @@ body {
            배포할 때마다 아래 COURTBUILD 와 스크립트의 BUILD 를 함께 올린다.
            c17(2026-10-19): 방송 PC(stream_server) 요청에 운영자 토큰 · 서버·회원 글자 이스케이프 · 보드 창 opener 끊기.
            c18(2026-10-21): 방송 중 문제(재연결 · 업로드 · 카메라 · PC 과부하 · 유튜브 경고)를 LIVE 줄에 — 서버 /health stream_health. -->
-      <!--COURTBUILD:c18--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c18</div>
+      <!--COURTBUILD:c19--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c19</div>
       <div class="step-indicator" id="step-label">STEP 1 / 4</div>
       <div class="step-dots">
         <div class="step-dot active" id="dot-1"></div>
@@ -874,6 +886,7 @@ body {
   <button class="hl-rail-btn" onclick="saveHighlight(30, this)">30초<small>직전 30초</small></button>
   <button class="hl-rail-btn" onclick="saveHighlight(60, this)">60초<small>직전 1분</small></button>
   <button class="hl-rail-btn" onclick="saveHighlight(90, this)">90초<small>직전 1분 30초</small></button>
+  <button class="hl-rail-ig" onclick="openIgStory()">📱 인스타 스토리</button>
   <div class="hl-rail-state" id="hl-rail-state">📡 스트리밍 서버 확인 중...</div>
 </aside>
 </div>
@@ -922,6 +935,19 @@ body {
     <div class="modal-btns">
       <button class="btn btn-back" style="flex:0 0 auto" onclick="closeFreeLive()">닫기</button>
       <button class="btn btn-primary" id="fl-start-btn" onclick="startFreeLive()">▶️ 라이브 시작</button>
+    </div>
+  </div>
+</div>
+
+<!-- 📱 인스타 스토리 (c19) — 최근 클립 고르기 → 세로판 만들기(방송 PC) → 미리보기 → [올리기](백엔드가 센터 인스타에 게시) -->
+<div class="modal-overlay" id="ig-modal">
+  <div class="modal">
+    <h3>📱 인스타 스토리</h3>
+    <div id="ig-body"></div>
+    <div class="modal-status" id="ig-status"></div>
+    <div class="modal-btns">
+      <button class="btn btn-back" style="flex:0 0 auto" onclick="closeIgStory()">닫기</button>
+      <button class="btn btn-primary" id="ig-post-btn" style="display:none" onclick="igPost()">인스타 스토리에 올리기</button>
     </div>
   </div>
 </div>
@@ -2447,7 +2473,7 @@ async function saveHighlight(seconds, btn) {
       throw new Error(data.error || '저장 실패');
     }
     renderHlRail(`✅ ${seconds}초 저장됨 — 잠시 후 앱에서 확인`);
-    showToast(`🎬 ${seconds}초 하이라이트 저장 중 — 잠시 후 앱에서 확인`);
+    showToast(`🎬 ${seconds}초 하이라이트 저장 중 — 잠시 후 앱에서 확인 · 📱 인스타 스토리로도 올릴 수 있어요`);
   } catch (e) {
     if (!e.shown) showToast('⚠️ ' + (e.message || '하이라이트 저장 실패'));
     console.error('highlight -', e);
@@ -2457,6 +2483,126 @@ async function saveHighlight(seconds, btn) {
     window._hlBusy = false;
     renderHlRail();
   }, 2500);
+}
+
+// ── 📱 인스타 스토리 (c19 · 2026-11-01) ──────────────────────────
+// 사용자: "하이라이트 저장 버튼 누르면 바로 인스타에 올리는 기능 … 인스타 스토리" → 센터 공식 계정 · **미리보기 후 올리기**.
+// ① 방송 PC 의 최근 클립(GET /highlights/recent) 중 하나를 고른다 ② 방송 PC 가 세로판(9:16 · 60초 이하)을 만들어 서버에 올린다
+//    (POST/GET /highlight/:id/story — 30초~1분) ③ 서버 상태(GET /api/highlight/:id/story)의 세로판을 여기서 재생해 보고
+// ④ [인스타 스토리에 올리기] → 서버(POST /api/highlight/:id/story)가 센터 인스타에 게시 — 끝날 때까지 지켜본다.
+// ⚠️ 누르기 전엔 아무것도 올라가지 않는다. 한 클립은 한 번만(서버가 막는다). 음악·태그·스티커는 API 로 못 붙인다.
+let _igGen = 0;          // 창을 닫거나 다른 클립을 고르면 늘린다 — 늦게 온 응답이 지금 화면을 덮지 않게
+let _igPick = null;      // 고른 하이라이트 id
+const igHm = (iso) => { const t = Date.parse(iso || ''); return Number.isFinite(t) ? new Date(t + 9 * 3600e3).toISOString().slice(11, 16) : ''; };
+const igSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function igSet(bodyHtml, status, color, postBtn) {
+  document.getElementById('ig-body').innerHTML = bodyHtml;
+  const st = document.getElementById('ig-status');
+  st.textContent = status || ''; st.style.color = color || 'var(--text-dim)';
+  const b = document.getElementById('ig-post-btn');
+  b.style.display = postBtn ? '' : 'none';
+  b.disabled = postBtn === 'disabled';
+}
+function openIgStory() {
+  _igGen++; _igPick = null;
+  document.getElementById('ig-modal').classList.add('show');
+  igLoadRecent();
+}
+function closeIgStory() {
+  _igGen++; _igPick = null;
+  const v = document.querySelector('#ig-body video'); if (v) v.pause();
+  document.getElementById('ig-modal').classList.remove('show');
+}
+async function igLoadRecent() {
+  const gen = _igGen;
+  igSet('', '최근 클립을 불러오는 중...');
+  try {
+    const res = await fetch(`${STREAM_SERVER}/highlights/recent`, { headers: streamHeaders(), signal: AbortSignal.timeout(8000) });
+    const data = await res.json().catch(() => ({}));
+    if (gen !== _igGen) return;
+    if (!data.success) {
+      if (streamAuthFail(res, data)) { closeIgStory(); return; }
+      throw new Error(data.error || '방송 PC 에 닿지 못했어요');
+    }
+    const items = data.items || [];
+    if (!items.length) {
+      igSet('', "아직 올릴 클립이 없어요 — 🎬 하이라이트를 저장하고 1분쯤 뒤 다시 열어 주세요. (방송 서버를 다시 켜면 목록이 비어요)");
+      return;
+    }
+    const tag = (st) => (st && st.state === 'ready' ? '세로판 준비됨' : st && st.state === 'making' ? '만드는 중' : st && st.state === 'failed' ? '실패 — 다시' : '');
+    igSet(`<div class="ig-note" style="margin-top:0">올릴 클립을 골라 주세요. 세로 영상으로 바꿔 미리 보여 드려요 — <b>[올리기]를 누르기 전엔 올라가지 않아요.</b></div>
+      <div class="ig-list">${items.map((x) => `<button class="ig-item" onclick="igPickClip('${psEsc(x.id)}')">
+        <div><b>${psEsc(x.title || '하이라이트')}</b><small>${psEsc(igHm(x.at))} · ${x.seconds ? psEsc(String(x.seconds)) + '초' : '전체'}</small></div>
+        <span class="ig-tag">${psEsc(tag(x.story))}</span></button>`).join('')}</div>`, '');
+  } catch (e) {
+    if (gen === _igGen) igSet('', '⚠️ ' + (e.message || '최근 클립을 못 불러왔어요'), 'var(--red)');
+  }
+}
+async function igPickClip(id) {
+  const gen = ++_igGen; _igPick = id;
+  igSet('', '📐 세로 영상 만드는 중 — 30초~1분 걸려요 (방송 PC)', 'var(--gold)');
+  try {
+    const res = await fetch(`${STREAM_SERVER}/highlight/${encodeURIComponent(id)}/story`, { method: 'POST', headers: streamHeaders(), body: '{}', signal: AbortSignal.timeout(8000) });
+    const data = await res.json().catch(() => ({}));
+    if (gen !== _igGen) return;
+    if (!data.success) {
+      if (streamAuthFail(res, data)) { closeIgStory(); return; }
+      throw new Error(data.error || '세로 영상을 만들지 못했어요');
+    }
+    let story = data.story || {};
+    for (let i = 0; story.state === 'making' && i < 120; i++) {
+      await igSleep(3000);
+      if (gen !== _igGen) return;
+      const r2 = await fetch(`${STREAM_SERVER}/highlight/${encodeURIComponent(id)}/story`, { headers: streamHeaders(), signal: AbortSignal.timeout(8000) }).catch(() => null);
+      const d2 = r2 ? await r2.json().catch(() => ({})) : {};
+      if (d2.success) story = d2.story || {};
+    }
+    if (gen !== _igGen) return;
+    if (story.state !== 'ready') throw new Error(story.error || '세로 영상을 만들지 못했어요');
+    await igShowPreview(id, gen);
+  } catch (e) {
+    if (gen === _igGen) igSet(`<button class="ig-item" onclick="igLoadRecent()"><b>← 클립 목록</b></button>`, '⚠️ ' + (e.message || '실패'), 'var(--red)');
+  }
+}
+// 서버 상태로 미리보기를 그린다 — 올렸는지 · 인스타 연결 전인지도 서버가 말한다
+async function igShowPreview(id, gen) {
+  const body = await psFetch(`/highlight/${encodeURIComponent(id)}/story`);
+  if (gen !== _igGen) return null;
+  const v = (body && body.data) || {};
+  const video = v.storyUrl ? `<video class="ig-video" src="${psEsc(v.storyUrl)}" controls autoplay muted playsinline loop></video>` : '';
+  const note = `<div class="ig-note">센터 인스타 스토리에 이 영상 그대로 올라가요(24시간). 음악·사람 태그·스티커는 붙지 않아요.</div>`;
+  if (v.status === 'posted') { igSet(video + note, `✅ 이미 올렸어요 (${igHm(v.postedAt)})`, 'var(--green)'); return v; }
+  if (v.status === 'posting') { igSet(video + note, '⏳ 인스타에 올리는 중...', 'var(--gold)'); return v; }
+  if (!v.enabled) { igSet(video + note, '🔌 서버에 센터 인스타 연결이 아직 안 돼 있어요 — 관리자에게 알려 주세요.', 'var(--gold)', 'disabled'); return v; }
+  igSet(video + note, v.status === 'failed' ? '⚠️ 지난번 실패: ' + (v.error || '') + ' — 다시 올릴 수 있어요' : '미리 보고 괜찮으면 [올리기]', v.status === 'failed' ? 'var(--red)' : 'var(--text-dim)', true);
+  return v;
+}
+async function igPost() {
+  const id = _igPick; if (!id) return;
+  const gen = _igGen;
+  const btn = document.getElementById('ig-post-btn');
+  btn.disabled = true;
+  const st = document.getElementById('ig-status');
+  st.textContent = '⏳ 인스타에 올리는 중 — 인스타가 영상을 처리하느라 1~2분 걸릴 수 있어요'; st.style.color = 'var(--gold)';
+  try {
+    await psFetch(`/highlight/${encodeURIComponent(id)}/story`, { method: 'POST', body: '{}' });
+  } catch (e) {
+    if (gen !== _igGen) return;
+    if (e.status === 401) { showToast('🔒 운영자 로그인이 필요해요 (⚙ 설정)'); closeIgStory(); openSettings(); return; }
+    st.textContent = '⚠️ ' + (e.message || '올리지 못했어요'); st.style.color = 'var(--red)';
+    btn.disabled = false;
+    return;
+  }
+  for (let i = 0; i < 90; i++) {
+    await igSleep(4000);
+    if (gen !== _igGen) return;
+    let v = null;
+    try { v = ((await psFetch(`/highlight/${encodeURIComponent(id)}/story`)) || {}).data || null; } catch (_) {}
+    if (gen !== _igGen) return;
+    if (v && v.status === 'posted') { st.textContent = '✅ 센터 인스타 스토리에 올렸어요'; st.style.color = 'var(--green)'; btn.style.display = 'none'; showToast('📱 인스타 스토리에 올렸어요'); return; }
+    if (v && v.status === 'failed') { st.textContent = '⚠️ ' + (v.error || '올리지 못했어요'); st.style.color = 'var(--red)'; btn.disabled = false; return; }
+  }
+  if (gen === _igGen) { st.textContent = '⏳ 아직 처리 중이에요 — 잠시 뒤 다시 열어 확인해 주세요'; st.style.color = 'var(--gold)'; }
 }
 
 let _healthFailCount = 0;
@@ -2949,7 +3095,7 @@ if ('serviceWorker' in navigator) {
 -->
 <script>
 (function () {
-  var BUILD = "c18";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
+  var BUILD = "c19";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
   var el = document.getElementById('app-build');
   if (el) el.textContent = '앱 ' + BUILD;
 
