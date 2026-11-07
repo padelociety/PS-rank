@@ -1343,6 +1343,15 @@ def _upload_highlight(path, meta, seconds=0):
             )
         if r.ok:
             logger.info(f"☁️ 하이라이트 업로드 완료: {os.path.basename(path)}")
+            try:
+                hid = str(((r.json() or {}).get('data') or {}).get('id') or '')
+            except Exception:
+                hid = ''
+            if hid:
+                item = _remember_highlight(hid, path, seconds, meta)
+                # 바로 저절로 스토리용 파일을 만든다(태블릿이 준비되면 미리보기를 띄운다) — config.highlight.auto_story: false 면 끈다
+                if HIGHLIGHT_CFG.get('auto_story', True) is not False:
+                    threading.Thread(target=_make_and_upload_story, args=(item,), daemon=True).start()
         else:
             logger.error(f"하이라이트 업로드 실패 {r.status_code}: {r.text[:200]}")
     except Exception as e:
@@ -1382,6 +1391,163 @@ def save_highlight():
     # 저장(폴링 ~수 초)+업로드는 통째로 백그라운드 — 요청은 즉시 반환(헬스체크 안 막힘)
     threading.Thread(target=_save_and_upload_highlight, args=(meta, seconds), daemon=True).start()
     return jsonify({'success': True, 'seconds': seconds or None})
+
+
+# ════════════════════════════════════════════════════════════════
+# 🎬 → 인스타 스토리 (2026-11-01 · 미리보기 후 올리기)
+# ════════════════════════════════════════════════════════════════
+# 사용자: "하이라이트 저장 버튼 누르면 바로 인스타에 올리는 기능 … 인스타 스토리" → 센터 공식 계정 · 미리보기 후 올리기.
+# 이 PC 가 하는 일은 **스토리용 파일 만들기**뿐이다: 클립이 서버에 올라가면 **바로 저절로**(태블릿을 기다리지 않는다) 마지막 랠리의
+# 서브 3초 전부터 클립 끝(버튼을 누른 순간)까지 잘라(가로 그대로 — 인스타가 위아래를 검게 채운다 · 60초 이하) 백엔드
+# (POST /api/highlight/:id/story-file)에 올린다. 서버가 슈퍼어드민에게 예약앱 알림을 보내고, **관리자가** 미리 보고 [올리기]를 한 번 누른다
+# (사용자 *"관리자인 내가 한번 누르기를 해야할거같은데?"* — 태블릿은 준비·상태만)
+# (2026-11-01 사용자 *"마지막 랠리 시작을 잡아주는건 좋을거같아 … 인스타 자동업데이트"* → '자동 준비 + 한 번 누르기').
+# 랠리 찾기는 rally_cut.py(라켓 소리 · numpy — 없으면 마지막 57초). 세로 변환·공 따라가기는 시험해 보고 접었다(사용자 *"공 따라가는건 안되겠다"*).
+# ⚠️ 재인코딩 없음(스트림 복사) — 몇 초 · 방송과 겹쳐도 부담이 없다. 한 번에 하나씩(_story_make_lock) 차례로 만든다.
+# ⚠️ 스토리 영상은 **60초까지**. 복사로 자르면 시작이 키프레임에 맞춰 조금 앞당겨지므로 rally_cut 이 57초 안으로 잡고 -t 로 60초를 넘지 않게 막는다.
+import rally_cut
+STORY_MAX_S = 60          # 인스타 스토리 영상 한 장 최대 길이
+RECENT_MAX = 10
+_recent_highlights = []   # 최신 먼저 — {id, path, seconds, title, at}
+_story_jobs = {}          # 하이라이트 id → {state: making|ready|failed, error, url, start, serve, why}
+_story_lock = threading.Lock()
+_story_make_lock = threading.Lock()
+
+
+def _remember_highlight(hid, path, seconds, meta):
+    """백엔드가 받아 준 클립을 기억한다(이 PC 의 파일 경로 · 태블릿 '최근 클립' 목록)."""
+    item = {
+        'id': hid, 'path': path, 'seconds': int(seconds or 0),
+        'title': (meta or {}).get('title') or '하이라이트',
+        'at': (meta or {}).get('recordedAt') or datetime.now(timezone.utc).isoformat(),
+    }
+    with _story_lock:
+        _recent_highlights[:] = [x for x in _recent_highlights if x['id'] != hid]
+        _recent_highlights.insert(0, item)
+        del _recent_highlights[RECENT_MAX:]
+    return item
+
+
+def _clip_duration(path):
+    """클립 길이(초) — ffmpeg -i 의 Duration 줄. 모르면 0."""
+    import subprocess
+    try:
+        r = subprocess.run([_ffmpeg_exe(), '-hide_banner', '-i', path], capture_output=True, timeout=20)
+        m = re.search(r'Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)', (r.stderr or b'').decode('utf-8', 'ignore'))
+        if m:
+            return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+    except Exception:
+        pass
+    return 0.0
+
+
+def _story_cmd(path, start, out):
+    """스트림 복사(재인코딩 없음) — start 초부터 끝까지 · 늘 60초 이하 · faststart."""
+    head = ['-ss', f'{float(start):.2f}'] if start and start > 0 else []
+    return [_ffmpeg_exe(), '-y', *head, '-i', path, '-t', str(STORY_MAX_S - 0.1),
+            '-c', 'copy', '-movflags', '+faststart', out]
+
+
+def _story_clip(path, seconds):
+    """스토리용 파일 → (경로, {start, serve, why}). 실패하면 RuntimeError(사람이 읽을 말)."""
+    import subprocess
+    dur = _clip_duration(path) or float(seconds or 0) or 60.0
+    start, serve, why = rally_cut.find_window(_ffmpeg_exe(), path, dur)
+    base, _ = os.path.splitext(path)
+    out = f"{base}_story.mp4"
+    r = subprocess.run(_story_cmd(path, start, out), capture_output=True, timeout=120)
+    if r.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) == 0:
+        tail = (r.stderr or b'').decode('utf-8', 'ignore').strip().splitlines()[-1:] or ['']
+        raise RuntimeError(f"스토리용 영상을 만들지 못했어요(ffmpeg {r.returncode}) {tail[0][:120]}")
+    logger.info(f"📱 스토리용 영상: {os.path.basename(out)} · {why} · 서브 {serve} · {start}초부터 {dur:.1f}초까지")
+    return out, {'start': start, 'serve': serve, 'why': why, 'duration': round(dur, 1)}
+
+
+def _make_and_upload_story(item):
+    hid = item['id']
+    with _story_lock:
+        _story_jobs[hid] = {'state': 'making', 'error': '', 'url': ''}
+    try:
+        with _story_make_lock:
+            out, win = _story_clip(item['path'], item['seconds'])
+        import requests
+        api = (HIGHLIGHT_CFG.get('api_base') or 'https://api.padelsociety.co.kr').rstrip('/')
+        key = HIGHLIGHT_CFG.get('upload_key') or ''
+        if not key:
+            raise RuntimeError('이 PC 설정에 하이라이트 업로드 키가 없어요(config.highlight.upload_key)')
+        with open(out, 'rb') as f:
+            r = requests.post(
+                f"{api}/api/highlight/{hid}/story-file",
+                headers={'x-upload-key': key},
+                files={'file': (os.path.basename(out), f, 'video/mp4')},
+                # 어디를 잘랐나 — 관리자 예약앱 미리보기의 '✂️' 한 줄(서버 storyCut)
+                data={'cutStart': str(win.get('start') if win.get('start') is not None else ''),
+                      'cutServe': str(win.get('serve') if win.get('serve') is not None else ''),
+                      'cutDuration': str(win.get('duration') if win.get('duration') is not None else ''),
+                      'cutWhy': str(win.get('why') or '')},
+                timeout=180,
+            )
+        body = {}
+        try:
+            body = r.json() or {}
+        except Exception:
+            pass
+        if not r.ok:
+            raise RuntimeError(body.get('message') or f'서버가 스토리용 영상을 받지 않았어요(HTTP {r.status_code})')
+        url = ((body.get('data') or {}).get('storyUrl')) or ''
+        with _story_lock:
+            _story_jobs[hid] = {'state': 'ready', 'error': '', 'url': url, **win}
+        logger.info(f"☁️ 스토리용 영상 업로드 완료: {hid}")
+    except Exception as e:
+        logger.error(f"스토리용 영상 실패({hid}): {e}")
+        with _story_lock:
+            _story_jobs[hid] = {'state': 'failed', 'error': str(e)[:300], 'url': ''}
+
+
+def _story_view(hid):
+    with _story_lock:
+        job = dict(_story_jobs.get(hid) or {'state': '', 'error': '', 'url': ''})
+    return job
+
+
+@app.route('/highlights/recent', methods=['GET'])
+@_require_operator
+def recent_highlights():
+    """태블릿 '최근 클립' — 이 PC 가 올린 클립(재시작하면 비어 있다)."""
+    with _story_lock:
+        items = [dict(x) for x in _recent_highlights]
+    return jsonify({'success': True, 'items': [
+        {'id': x['id'], 'title': x['title'], 'seconds': x['seconds'], 'at': x['at'], 'story': _story_view(x['id'])}
+        for x in items
+    ]})
+
+
+@app.route('/highlight/<hid>/story', methods=['POST'])
+@_require_operator
+def make_story(hid):
+    """스토리용 파일 만들기 시작(뒤에서) — 이미 만들었거나 만드는 중이면 그대로. 보통은 업로드 뒤 저절로 만들어져 있다."""
+    hid = str(hid)[:64]
+    data = request.get_json(silent=True) or {}
+    with _story_lock:
+        item = next((dict(x) for x in _recent_highlights if x['id'] == hid), None)
+        if not item:
+            return jsonify({'success': False, 'error': '이 방송 PC 에 그 클립이 없어요 — 방송 서버를 다시 켠 뒤라면 새로 저장해 주세요.'}), 404
+        if not os.path.exists(item['path']):
+            return jsonify({'success': False, 'error': '클립 파일이 이 PC 에서 지워졌어요 — 새로 저장해 주세요.'}), 404
+        job = _story_jobs.get(hid) or {}
+        if job.get('state') == 'making':
+            return jsonify({'success': True, 'story': dict(job)})
+        if job.get('state') == 'ready' and not data.get('remake'):
+            return jsonify({'success': True, 'story': dict(job)})
+        _story_jobs[hid] = {'state': 'making', 'error': '', 'url': ''}   # 다른 클립을 만드는 중이면 그 뒤에 차례로(_story_make_lock)
+    threading.Thread(target=_make_and_upload_story, args=(item,), daemon=True).start()
+    return jsonify({'success': True, 'story': _story_view(hid)})
+
+
+@app.route('/highlight/<hid>/story', methods=['GET'])
+@_require_operator
+def story_state(hid):
+    return jsonify({'success': True, 'story': _story_view(str(hid)[:64])})
 
 
 @app.route('/status', methods=['GET'])
