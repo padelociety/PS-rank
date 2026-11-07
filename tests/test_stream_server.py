@@ -40,6 +40,8 @@ class FakeOBS:
     def connect(self, *a, **k): pass
     def set_stream_settings(self, rtmp, key):
         self.calls.append('set'); self.pending_key = key
+    def refresh_cameras(self):
+        self.calls.append('refresh'); return {'restarted': [], 'ready': [], 'error': '', 'seconds': 0}
     def start_stream(self):
         self.calls.append('start')
         if self.streaming:

@@ -740,6 +740,7 @@ def health():
         'match_number': st.get('match_number') or 0,
         # 소리 싱크(OBS 연결 때마다 넣는 값) — 원격에서 맞춰졌는지 본다. config 에 없으면 target_ms: null.
         'audio_sync': getattr(obs, 'audio_sync_status', None),
+        'camera_refresh': getattr(obs, 'camera_refresh_status', None),
         # 방송 상태(2026-10-21) — 방송 중일 때만. issue/short/text 가 비면 정상. 태블릿 상태 줄이 short 를 그린다.
         'stream_health': _health_view() if st['active'] else None,
         # 끊김을 줄이는 설정이 실제로 먹었나 — 지연(normal 이 기본) · OBS 자동 재연결.
@@ -956,6 +957,8 @@ def _start_stream_locked(mode, team_a, team_b, league, category, match_number,
         # 2. OBS 설정 + 스트리밍 시작
         obs.connect()
         obs.set_stream_settings(rtmp_url, stream_key)
+        # 카메라 소스를 다시 시작해 소리 밀림을 매 경기 처음으로 되돌린다(2026-11-07 · 실패해도 방송은 켠다).
+        obs.refresh_cameras()
         obs.start_stream()
 
         # OBS가 진짜로 송출을 시작했는지 확인한다. 여기를 안 보면 OBS가 대화상자를

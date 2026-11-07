@@ -412,6 +412,14 @@ Get-PnpDevice -Class Camera,Media,Image -PresentOnly | Select-Object Status, Cla
 - 쓰지 않는 오디오 장치는 **설정 → 오디오**에서 '사용 안 함'으로 (기본 데스크톱 소리가
   섞여 나가는 사고 방지)
 
+**소리가 화면보다 늦을 때**(2026-11-07 *"라이브 소리 또 느려짐"*) — 두 가지를 같이 쓴다:
+- **처음부터 일정하게 늦다** → 싱크 값을 **카메라 소스에만**: `.\.venv\Scripts\python.exe setup\set_audio_sync.py -640 "미디어"`
+  (이름 없이 넣으면 점수판 콜·마이크까지 당겨진다 · 확인은 `/health` 의 `audio_sync`).
+- **오래 켜 둘수록 점점 늦다**(RTSP 카메라) → 서버가 **방송을 켤 때마다 카메라 소스를 다시 시작**한다
+  (`obs_controller.refresh_cameras` · 네트워크 카메라 미디어 소스만 · 영상이 다시 들어올 때까지 최대 8초 기다린다 ·
+  실패해도 방송은 켠다 · 결과는 `/health` 의 `camera_refresh`). 끄려면 `config.json` `obs.camera_refresh_on_start: false`.
+  방송 **도중**에 밀리면 OBS 에서 카메라 소스를 우클릭 → [다시 시작]으로 같은 것을 손으로 한다.
+
 > 씬이 여러 개면 **방송에 쓸 씬을 활성(Program) 씬으로 두고 끝낸다.**
 > stream_server는 씬을 자동으로 바꾸지 않는다 — 켜져 있는 씬 그대로 나간다.
 
