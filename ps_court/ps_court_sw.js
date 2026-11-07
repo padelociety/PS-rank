@@ -1,5 +1,6 @@
+// v53 = 태블릿 c19(2026-11-01): 📱 인스타 스토리(최근 클립 → 세로판 미리보기 → 올리기). 태블릿 BUILD 와 같이 올린다.
 // v52 = 태블릿 c18(2026-10-21): 방송 중 문제(재연결·업로드·카메라)를 LIVE 줄에. 태블릿 BUILD 와 같이 올린다.
-const CACHE = 'ps-court-v52';
+const CACHE = 'ps-court-v53';
 
 self.addEventListener('install', e => {
   e.waitUntil(
