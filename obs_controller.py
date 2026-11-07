@@ -52,6 +52,11 @@ class OBSController:
         # 카메라(네트워크 미디어 소스) 판정 캐시 — {입력 이름: True/False}. 설정을 매번 읽지 않게(5분마다 다시).
         self._net_inputs = {}
         self._net_inputs_at = 0.0
+        # 방송을 켤 때마다 카메라(네트워크 미디어 소스)를 다시 시작한다(2026-11-07 — refresh_cameras).
+        #   camera_refresh_on_start : 기본 켬. false 면 건드리지 않는다.
+        self.camera_refresh_on_start = obs_cfg.get('camera_refresh_on_start', True) is not False
+        # /health 가 보여 줄 마지막 카메라 새로 고침 결과.
+        self.camera_refresh_status = None
         self.client = None
         # OBS WebSocket(ReqClient)은 스레드 안전하지 않음 — 키프알라이브 스레드와
         # 하이라이트 요청이 동시에 접근하면 응답이 꼬여 엉뚱한 예외가 남(예: 버퍼가
@@ -393,6 +398,63 @@ class OBSController:
         self._net_inputs = found
         self._net_inputs_at = now
         return [n for n, net in found.items() if net]
+
+    # ── 카메라 새로 고침 (방송 켜기 직전) ─────────────────────────
+    # 2026-11-07 "라이브 소리 또 느려짐" — RTSP 카메라(ffmpeg_source)는 오래 켜 두면 소리가 화면보다 조금씩 더 밀린다.
+    # 고정 싱크 값(apply_audio_sync)은 처음 어긋남만 맞추고 밀리는 것은 못 막는다. 그래서 방송을 켤 때마다 카메라 소스를
+    # 다시 시작해 매 경기를 처음 상태로 시작한다(OBS 에서 소스를 껐다 켜는 것과 같다 · 싱크 오프셋은 그대로 남는다).
+    CAMERA_RESTART_ACTION = 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART'
+    CAMERA_READY_WAIT_S = 8.0
+
+    def refresh_cameras(self, wait_s: float = None):
+        """네트워크 카메라 소스를 다시 시작하고 영상이 다시 들어올 때까지(최대 wait_s) 기다린다.
+        **예외를 던지지 않는다** — 새로 고침을 못 해도 방송은 켠다(소리가 밀린 방송이 안 켜진 방송보다 낫다)."""
+        status = {'restarted': [], 'ready': [], 'error': '', 'seconds': 0.0}
+        if not self.camera_refresh_on_start:
+            status['error'] = '꺼 둠(camera_refresh_on_start: false)'
+            self.camera_refresh_status = status
+            return status
+        wait_s = self.CAMERA_READY_WAIT_S if wait_s is None else wait_s
+        t0 = time.time()
+        with self._lock:
+            if not self.client:
+                status['error'] = 'OBS 미연결'
+                self.camera_refresh_status = status
+                return status
+            self._net_inputs_at = 0.0   # 소스를 바꿨을 수 있다 — 지금 다시 본다
+            cams = self._network_inputs()
+            if not cams:
+                status['error'] = '네트워크 카메라 소스를 못 찾음'
+            for name in cams:
+                try:
+                    self.client.trigger_media_input_action(name, self.CAMERA_RESTART_ACTION)
+                    status['restarted'].append(name)
+                except Exception as e:
+                    status['error'] = f"'{name}' 다시 시작 실패: {e}"
+        # 영상이 다시 들어오길 기다린다 — 잠금을 놓고 짧게 묻는다(키프알라이브·하이라이트를 막지 않게).
+        pending = list(status['restarted'])
+        deadline = t0 + max(0.0, wait_s)
+        while pending and time.time() < deadline:
+            time.sleep(0.5)
+            for name in list(pending):
+                try:
+                    with self._lock:
+                        st = self.client.get_media_input_status(name) if self.client else None
+                    state = str(getattr(st, 'media_state', '') or '')
+                except Exception:
+                    state = ''
+                if state.endswith('PLAYING'):
+                    pending.remove(name)
+                    status['ready'].append(name)
+        if pending and not status['error']:
+            status['error'] = f"{wait_s:.0f}초 안에 영상이 다시 안 들어옴: {', '.join(pending)}"
+        status['seconds'] = round(time.time() - t0, 1)
+        if status['restarted']:
+            logger.info(f"📷 카메라 새로 고침: {', '.join(status['restarted'])} ({status['seconds']}초)")
+        if status['error']:
+            logger.warning(f"⚠️ 카메라 새로 고침 — {status['error']}")
+        self.camera_refresh_status = status
+        return status
 
     def stream_stats(self):
         """방송 상태 감시용 숫자 한 벌(stream_health.evaluate 가 읽는 모양) · 못 읽으면 None. **예외를 던지지 않는다.**
