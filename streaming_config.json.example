@@ -19,8 +19,8 @@
     "host": "localhost",
     "port": 4455,
     "password": "여기에_OBS_비밀번호",
-    "_audio_sync_설명": "소리 싱크(ms). 음수 = 소리를 앞당김. 타구음이 화면보다 늦으면 그만큼 음수로(2026-09 측정 0.64초 → -640). 범위 -950~20000. 빼면 OBS 값을 건드리지 않는다. audio_sync_inputs 를 비우면 소리가 있는 입력 전부에 넣는다.",
-    "audio_sync_offset_ms": -640,
+    "_audio_sync_설명": "소리 싱크(ms). 음수 = 소리를 앞당김. 타구음이 화면보다 늦으면 그만큼 음수로. 2026-11-08 부터 0 — 방송마다 카메라를 다시 시작하니(camera_refresh_on_start) 어긋남이 없다(9월의 -640 은 오래 켜 둔 카메라의 밀림까지 잰 값이었다). 범위 -950~20000. 빼면 OBS 값을 건드리지 않는다. audio_sync_inputs 를 비우면 소리가 있는 입력 전부에 넣는다.",
+    "audio_sync_offset_ms": 0,
     "audio_sync_inputs": [],
     "_camera_refresh_설명": "방송을 켤 때마다 RTSP 카메라 소스를 다시 시작한다 — 오래 켜 둔 카메라는 소리가 화면보다 점점 밀린다. false 면 끈다.",
     "camera_refresh_on_start": true
