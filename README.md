@@ -160,6 +160,15 @@ OBS PC 가 여기서 pull 한다. 고치면 양쪽을 같게 맞출 것(2026-09 
   `control_auth.roles` 는 이제 이 옛 길에만 쓴다. 백엔드를 먼저 배포하면 이 길은 안 탄다.
 - ⚠️ **python 변경 — stream_server 재시작 필요(방송 중 금지).** 테스트 `tests/test_stream_server.py` ⑲ ⑳.
 
+## 의존성 보안 경보 — Dependabot (2026-11-09 · 대표 결정 #19)
+
+`.github/dependabot.yml` — `requirements.txt`(pip)의 **보안 업데이트만** 받는다(일반 버전 업데이트는 끔 · 보안 PR 은 하나로 묶음).
+- ⚠️ 켜는 건 저장소 설정이다: GitHub › Settings › Code security 에서 **Dependency graph · Dependabot alerts · Dependabot security updates** 를 켠다.
+  이 파일은 **main** 에 있어야 읽힌다.
+- 보안 PR 을 머지해도 방송 PC 는 그대로다 — **방송이 없을 때** 아래 '새 버전 올리기' 다음에 `.venv\Scripts\pip install -r requirements.txt` 를 한 번 더 하고 재시작한다.
+- `requirements.txt` 는 `>=` 범위라 다시 깔 때마다 다른 판이 들어온다 — 해시 잠금(`pip-compile --generate-hashes`)은 다음 일(검토 S7-08 (4)).
+- 모노repo `playus/ps-rank/` 사본은 PR 을 열지 않는다 — 여기서 고친 뒤 그리로 되복사한다.
+
 ## OBS PC 에 새 버전 올리기
 
 ```powershell
