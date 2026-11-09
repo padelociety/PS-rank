@@ -116,6 +116,14 @@ OBS PC 가 여기서 pull 한다. 고치면 양쪽을 같게 맞출 것(2026-09 
 - 썸네일 선수 사진은 우리 API 호스트(`https` · api / dev.api.padelsociety.co.kr)에서만, 8MB 까지 받는다(`thumbnail.photo_hosts` 로 바꾼다).
 - 태블릿(`ps_court_playus.html` · 옛 `ps_court.html`)의 이름·리그·카테고리·서버 문장을 전부 이스케이프해서 그린다(`psEsc`) — 회원이 이름이나
   리그 이름에 HTML 을 넣으면 태블릿에서 그대로 돌아 운영자 토큰을 빼 갈 수 있었다. 테스트 `tests/xss_escape.test.cjs`.
+- **공개 순위 페이지 두 장**(`padel_live_ranking.html` · `padel_app/padel_app.html`)도 시트 글자(이름·등급·날짜·번호·점수·오류 문장)를
+  전부 같은 `psEsc` 로 거쳐 그린다(2026-11-09 · 검토 S4-01 · 테스트 ⑧⑨) — 태블릿·PS Control 과 **같은 출처**(github.io/PS-rank)라
+  여기서 스크립트가 돌면 `lg_token`·`ps_token` 이 샌다. 글자는 구글 시트를 무료 CORS 프록시로 받은 것(시트 편집자·프록시 주인이 정한다).
+- ⚠️ **`onclick` 같은 `on*` 속성 안 JS 에 시트·서버 값을 끼워 넣지 않는다** — 브라우저가 속성 값의 `&#39;` 를 `'` 로 되돌린 뒤 JS 로 읽어서
+  `psEsc` 로도 못 막는다. 요소를 만든 뒤 `.onclick = () => f(원래 값)` 클로저로 붙인다(📈 시뮬레이션 버튼 · 테스트 ⑧ 가 그 모양을 막는다).
+- 운영이 끝난 `thingproxy.freeboard.io` 를 시트 프록시에서 뺐다(도메인을 넘겨받은 사람이 CSV 를 지어낸다) — 순위 두 장 · 옛 태블릿
+  `ps_court.html` 세 곳 다(테스트 ⑦⑧). 남은 셋(codetabs → corsproxy → allorigins · 순서·재시도 그대로)도 남의 서버라 순위 숫자는 지어낼 수 있다
+  (스크립트는 못 돈다) — 시트를 직접 받거나 백엔드를 거치게 하는 건 **남은 일**.
 - 아메리카노 보드는 새 창이 이 태블릿을 되잡지 못하게 연다(`w.opener = null`).
 - ⚠️ **python 이 바뀌었다 — `stream_server` 재시작이 필요하다. 방송 중엔 하지 말 것.** 설정 키는 `streaming_config.json.example`
   (`control_auth` · `cors_origins` · `thumbnail.photo_hosts`) — 안 적으면 기본값으로 켜진다.

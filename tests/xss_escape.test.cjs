@@ -11,7 +11,7 @@
 //   ④ 방송 PC 로 가는 바꾸는 요청(켜기 ×2 · 끄기 · [무효] · 하이라이트)은 전부 streamHeaders() — /health 만 토큰 없이
 //   ⑤ 운영자 확인에서 막힌 끄기는 '종료됨' 으로 읽지 않는다(방송은 그대로 나가는 중)
 //   ⑥ 아메리카노 보드 창은 opener 를 끊는다 · 팝업이 막히면 예전처럼 같은 창
-//   ⑦ 옛 태블릿(ps_court.html)도 같은 두 가지
+//   ⑦ 옛 태블릿(ps_court.html)도 같은 두 가지 · 시트 프록시도 공개 순위 두 장과 같은 셋(죽은 thingproxy 없음)
 //   ⑧ 공개 순위 페이지 두 장(padel_live_ranking.html · padel_app/padel_app.html — 2026-11-09 · 검토 S4-01) —
 //      태블릿·PS Control 과 **같은 출처**(padelociety.github.io)라 여기서 스크립트가 돌면 lg_token·ps_token 이 샌다.
 //      글자는 구글 시트를 무료 CORS 프록시로 받아 온 것(시트 편집자 · 프록시 주인이 정한다):
@@ -105,6 +105,35 @@ const enclosingFns = (text) => {
   }
   return (idx) => out.filter((r) => r.start < idx && idx < r.end).sort((a, b) => (a.end - a.start) - (b.end - b.start))[0];
 };
+// ⑦⑧ 시트를 받는 세 페이지(공개 순위 두 장 · 옛 태블릿)의 프록시 — 죽은 thingproxy 는 빠지고(도메인을 넘겨받은 사람이
+//    CSV 를 지어낸다 · 남은 셋도 '남의 서버' 라 화면엔 늘 psEsc) 나머지 셋은 순서 그대로 · 실패하면 다음 · 다 실패하면 던진다.
+const checkProxies = async (scriptText, fb) => {
+  // 줄 머리 주석만 지운다(`https://thingproxy…` 의 // 부터 지우면 주소 줄이 통째로 빠져 이 검사가 헛돈다)
+  assert(!/thingproxy/.test(scriptText.replace(/^\s*\/\/[^\n]*/gm, '')), 'thingproxy 가 남았다');
+  const hosts = [...fb.matchAll(/`https:\/\/([^/?`]+)[^`]*`/g)].map((x) => x[1]);
+  assert(JSON.stringify(hosts) === JSON.stringify(['api.codetabs.com', 'corsproxy.io', 'api.allorigins.win']), '프록시: ' + hosts.join(','));
+  assert((fb.match(/encodeURIComponent\(sheetUrl\)/g) || []).length === 3, '시트 주소를 감싸지 않은 프록시');
+  const mkFetch = (okAt) => {
+    const seen = [];
+    // eslint-disable-next-line no-new-func
+    const f = new Function('ctx', `
+      const SHEET = 'https://sheet.example/pub';
+      const AbortSignal = { timeout: () => null };
+      const setTimeout = (fn) => fn();
+      const fetch = (u) => { ctx.seen.push(u.split('/')[2]); return ctx.seen.length === ctx.okAt
+        ? Promise.resolve({ ok: true, text: async () => 'a,b,c\\n1,2,3' }) : Promise.reject(new Error('down')); };
+      ${fb}; return fetchCSV;`)({ seen, okAt });
+    return { f, seen };
+  };
+  const a = mkFetch(2);
+  const rows = await a.f('1');
+  assert(JSON.stringify(rows) === JSON.stringify([['a', 'b', 'c'], ['1', '2', '3']]), 'CSV');
+  assert(JSON.stringify(a.seen) === JSON.stringify(['api.codetabs.com', 'corsproxy.io']), '두 번째로 넘어가기: ' + a.seen.join(','));
+  const z = mkFetch(99); let threw = false;
+  try { await z.f('1'); } catch (e) { threw = true; }
+  assert(threw && z.seen.length === 4 && z.seen[3] === 'api.codetabs.com', '다 실패: ' + z.seen.join(','));
+};
+
 // 숫자(시트 글자를 센 수 · 계산한 점수)·상수·이미 psEsc 한 조각만. 새 칸을 넣으면 psEsc 로 감싸거나 이유와 함께 여기 적는다.
 const PAGE_SAFE = {
   live: {
@@ -365,6 +394,9 @@ const sheetRows = () => {
     assert(!banned.length, '남은 자리: ' + banned.join(' · '));
   });
 
+  await t('⑦ 옛 태블릿(ps_court.html) — 시트 프록시: 공개 순위 두 장과 같은 셋(죽은 thingproxy 없음) · 넘어가기 · 다 실패',
+    () => checkProxies(old, bodyOf(old)('fetchCSV')));
+
   for (const [key, pg] of Object.entries(PAGES)) {
     const pbody = bodyOf(pg.main);
 
@@ -402,32 +434,8 @@ const sheetRows = () => {
       assert(!inline.length, '속성 안 JS 에 값: ' + inline.join(' · '));
     });
 
-    await t(`⑧ ${pg.file} — 프록시: 죽은 thingproxy 는 빠지고 나머지 셋은 순서 그대로 · 실패하면 다음 · 다 실패하면 오류 화면`, async () => {
-      assert(!/thingproxy/.test(pg.main.replace(/\/\/[^\n]*/g, '')), 'thingproxy 가 남았다');
-      const fb = pbody('fetchCSV');
-      const hosts = [...fb.matchAll(/`https:\/\/([^/?`]+)[^`]*`/g)].map((x) => x[1]);
-      assert(JSON.stringify(hosts) === JSON.stringify(['api.codetabs.com', 'corsproxy.io', 'api.allorigins.win']), '프록시: ' + hosts.join(','));
-      assert((fb.match(/encodeURIComponent\(sheetUrl\)/g) || []).length === 3, '시트 주소를 감싸지 않은 프록시');
-      const mkFetch = (okAt) => {
-        const seen = [];
-        // eslint-disable-next-line no-new-func
-        const f = new Function('ctx', `
-          const SHEET = 'https://sheet.example/pub';
-          const AbortSignal = { timeout: () => null };
-          const setTimeout = (fn) => fn();
-          const fetch = (u) => { ctx.seen.push(u.split('/')[2]); return ctx.seen.length === ctx.okAt
-            ? Promise.resolve({ ok: true, text: async () => 'a,b,c\\n1,2,3' }) : Promise.reject(new Error('down')); };
-          ${pbody('fetchCSV')}; return fetchCSV;`)({ seen, okAt });
-        return { f, seen };
-      };
-      const a = mkFetch(2);
-      const rows = await a.f('1');
-      assert(JSON.stringify(rows) === JSON.stringify([['a', 'b', 'c'], ['1', '2', '3']]), 'CSV');
-      assert(JSON.stringify(a.seen) === JSON.stringify(['api.codetabs.com', 'corsproxy.io']), '두 번째로 넘어가기: ' + a.seen.join(','));
-      const z = mkFetch(99); let threw = false;
-      try { await z.f('1'); } catch (e) { threw = true; }
-      assert(threw && z.seen.length === 4 && z.seen[3] === 'api.codetabs.com', '다 실패: ' + z.seen.join(','));
-    });
+    await t(`⑧ ${pg.file} — 프록시: 죽은 thingproxy 는 빠지고 나머지 셋은 순서 그대로 · 실패하면 다음 · 다 실패하면 오류 화면`,
+      () => checkProxies(pg.main, pbody('fetchCSV')));
   }
 
   await t('⑧ padel_live_ranking.html — 진짜로 돌려 본다: 이름·날짜·번호·점수에 태그를 넣어도 태그가 안 생긴다', () => {

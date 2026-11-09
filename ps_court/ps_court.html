@@ -591,9 +591,10 @@ let cachedMatchNum = 1;
 // ── CSV 패치 ────────────────────────────────────────────────
 async function fetchCSV(gid, attempt=0) {
   const sheetUrl = `${SHEET}?gid=${gid}&single=true&output=csv`;
+  // thingproxy.freeboard.io 는 운영이 끝났다(도메인이 넘어가면 그 주인이 선수 명단·쓴 조합을 지어내 돌려준다) — 뺐다
+  // (검토 S4-01 · 공개 순위 두 장과 같은 셋 · tests/xss_escape.test.cjs ⑦). 남은 셋은 순서 그대로.
   const proxies = [
     `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(sheetUrl)}`,
-    `https://thingproxy.freeboard.io/fetch/${sheetUrl}`,
     `https://corsproxy.io/?${encodeURIComponent(sheetUrl)}`,
     `https://api.allorigins.win/raw?url=${encodeURIComponent(sheetUrl)}`,
   ];
