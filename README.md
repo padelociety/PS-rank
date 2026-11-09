@@ -168,6 +168,8 @@ OBS PC 가 여기서 pull 한다. 고치면 양쪽을 같게 맞출 것(2026-09 
 - 보안 PR 을 머지해도 방송 PC 는 그대로다 — **방송이 없을 때** 아래 '새 버전 올리기' 다음에 `.venv\Scripts\pip install -r requirements.txt` 를 한 번 더 하고 재시작한다.
 - `requirements.txt` 는 `>=` 범위라 다시 깔 때마다 다른 판이 들어온다 — 해시 잠금(`pip-compile --generate-hashes`)은 다음 일(검토 S7-08 (4)).
 - 모노repo `playus/ps-rank/` 사본은 PR 을 열지 않는다 — 여기서 고친 뒤 그리로 되복사한다.
+- ⚠️ **'주 1회' 가 아니다** — 보안 PR 은 취약점 권고가 나올 때마다 열린다(하나로 묶임 · 열린 보안 PR 한도는 GitHub 이 정한 10).
+  파일의 '월 09:00' 은 일반 버전 업데이트의 주기라 지금은 쓰이지 않는다 — 일반 업데이트도 주 1회 받으려면 `open-pull-requests-limit` 을 0 → 3.
 
 ## OBS PC 에 새 버전 올리기
 
