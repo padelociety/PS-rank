@@ -204,12 +204,19 @@ let recentData = [];
 
 // ── 유틸 ──────────────────────────────────────────
 const ckey = (a,b,c,d) => [[a,b].sort().join('|'),[c,d].sort().join('|')].sort().join('||');
+// 시트 글자(이름·날짜·점수·번호)는 전부 이걸 거쳐 innerHTML 에 싣는다 — 시트 편집자나 CORS 프록시가 돌려준 글자에
+// 태그가 있으면 이 출처(github.io/PS-rank — PS Control·코트 태블릿 운영자 토큰이 같은 localStorage 에 있다)에서
+// 스크립트가 돈다(검토 S4-01 · 태블릿 psEsc 와 같은 함수 · tests/xss_escape.test.cjs ⑧).
+function psEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 async function fetchCSV(gid, attempt=0) {
   const sheetUrl = `${SHEET}?gid=${gid}&single=true&output=csv`;
+  // thingproxy.freeboard.io 는 운영이 끝났다(도메인이 넘어가면 그 주인이 CSV 를 돌려준다) — 뺐다(검토 S4-01).
+  // 남은 셋은 순서 그대로. 응답은 남의 서버가 준 글자라 화면에 실을 땐 늘 psEsc.
   const proxies = [
     `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(sheetUrl)}`,
-    `https://thingproxy.freeboard.io/fetch/${sheetUrl}`,
     `https://corsproxy.io/?${encodeURIComponent(sheetUrl)}`,
     `https://api.allorigins.win/raw?url=${encodeURIComponent(sheetUrl)}`,
   ];
@@ -363,11 +370,11 @@ function renderRank() {
       const rc=ok&&rk<=3?`r${rk}`:'';
       const wr=p.m>0?Math.round(p.w/p.m*100)+'%':'0%';
       const tr=document.createElement('tr'); if(!ok)tr.classList.add('excluded');
-      tr.innerHTML=`<td><span class="rn ${rc}">${ok?rk:'—'}</span></td><td>${p.name}</td><td>${p.m}</td><td>${p.w}</td><td>${p.l}</td><td>${p.s}</td><td class="wr">${wr}</td><td class="${ok?'pg':''}">${ok?p.pts.toFixed(2):'<span class="ex">10경기 미만</span>'}</td>`;
+      tr.innerHTML=`<td><span class="rn ${rc}">${ok?rk:'—'}</span></td><td>${psEsc(p.name)}</td><td>${p.m}</td><td>${p.w}</td><td>${p.l}</td><td>${p.s}</td><td class="wr">${wr}</td><td class="${ok?'pg':''}">${ok?p.pts.toFixed(2):'<span class="ex">10경기 미만</span>'}</td>`;
       tb.appendChild(tr);
     });
     const q=gData.filter(p=>p.m>=MIN_M);
-    ib.innerHTML=`<div class="info-card"><strong>🥇 Gold+ 공식</strong>( W/M×3 + S/M×1 ) × √M × 2<br>최소 ${MIN_M}경기 이상 랭킹 등재</div><div class="info-card"><strong>📊 현황</strong>랭킹 등재: ${q.length}명 / 전체 ${gData.length}명<br>1위: ${q[0]?.name||'-'} (${q[0]?.pts.toFixed(2)||'-'}pts)</div>`;
+    ib.innerHTML=`<div class="info-card"><strong>🥇 Gold+ 공식</strong>( W/M×3 + S/M×1 ) × √M × 2<br>최소 ${MIN_M}경기 이상 랭킹 등재</div><div class="info-card"><strong>📊 현황</strong>랭킹 등재: ${q.length}명 / 전체 ${gData.length}명<br>1위: ${psEsc(q[0]?.name||'-')} (${q[0]?.pts.toFixed(2)||'-'}pts)</div>`;
   } else {
     th.innerHTML=`<tr class="bh"><th>Rank</th><th>Player</th><th>M</th><th>W</th><th>L</th><th>S</th><th>승률</th><th>Points</th></tr>`;
     tb.innerHTML='';
@@ -378,11 +385,11 @@ function renderRank() {
       const rc=ok&&rk<=3?`r${rk}`:'';
       const wr=p.m>0?Math.round(p.w/p.m*100)+'%':'0%';
       const tr=document.createElement('tr'); if(!ok)tr.classList.add('excluded');
-      tr.innerHTML=`<td><span class="rn ${rc}">${ok?rk:'—'}</span></td><td>${p.name}</td><td>${p.m}</td><td>${p.w}</td><td>${p.l}</td><td>${p.s}</td><td class="wr">${wr}</td><td class="${ok?'pg':''}">${ok?p.pts.toFixed(2):'<span class="ex">10경기 미만</span>'}</td>`;
+      tr.innerHTML=`<td><span class="rn ${rc}">${ok?rk:'—'}</span></td><td>${psEsc(p.name)}</td><td>${p.m}</td><td>${p.w}</td><td>${p.l}</td><td>${p.s}</td><td class="wr">${wr}</td><td class="${ok?'pg':''}">${ok?p.pts.toFixed(2):'<span class="ex">10경기 미만</span>'}</td>`;
       tb.appendChild(tr);
     });
     const q=bsData.filter(p=>p.m>=MIN_M);
-    ib.innerHTML=`<div class="info-card"><strong>🥉 B&S 공식</strong>( W/M×3 + S/M×1 ) × √M × 2<br>최소 ${MIN_M}경기 이상 랭킹 등재</div><div class="info-card"><strong>📊 현황</strong>랭킹 등재: ${q.length}명 / 전체 ${bsData.length}명<br>1위: ${q[0]?.name||'-'} (${q[0]?.pts.toFixed(2)||'-'}pts)</div>`;
+    ib.innerHTML=`<div class="info-card"><strong>🥉 B&S 공식</strong>( W/M×3 + S/M×1 ) × √M × 2<br>최소 ${MIN_M}경기 이상 랭킹 등재</div><div class="info-card"><strong>📊 현황</strong>랭킹 등재: ${q.length}명 / 전체 ${bsData.length}명<br>1위: ${psEsc(q[0]?.name||'-')} (${q[0]?.pts.toFixed(2)||'-'}pts)</div>`;
   }
 }
 
@@ -395,13 +402,13 @@ function renderRecent() {
     const div=document.createElement('div');
     div.className=`match-card ${m.league==='G+'?'mg':'mbs-b'}`;
     div.innerHTML=`
-      <span class="match-date">${m.date}</span>
+      <span class="match-date">${psEsc(m.date)}</span>
       <span class="match-league ${m.league==='G+'?'ml-g':'ml-b'}">${m.league==='G+'?'GOLD+':'B&S'}</span>
-      <span style="font-size:11px;color:var(--gray);flex-shrink:0">#${m.match}</span>
+      <span style="font-size:11px;color:var(--gray);flex-shrink:0">#${psEsc(m.match)}</span>
       <div class="match-teams">
-        <span class="match-team">${m.t1p1} / ${m.t1p2}</span>
-        <span class="match-score">${m.score}</span>
-        <span class="match-team">${m.t2p1} / ${m.t2p2}</span>
+        <span class="match-team">${psEsc(m.t1p1)} / ${psEsc(m.t1p2)}</span>
+        <span class="match-score">${psEsc(m.score)}</span>
+        <span class="match-team">${psEsc(m.t2p1)} / ${psEsc(m.t2p2)}</span>
       </div>`;
     list.appendChild(div);
   });
@@ -438,7 +445,7 @@ function renderGrid() {
   const si=document.getElementById('si'), n=sel.length;
   if(n===0) si.innerHTML='Select <span>4 players</span> to see available pair combinations';
   else if(n<4) si.innerHTML=`<span>${n} selected</span> — please select ${4-n} more`;
-  else si.innerHTML=`Selected: <span>${sel.join(', ')}</span>`;
+  else si.innerHTML=`Selected: <span>${psEsc(sel.join(', '))}</span>`;
 }
 
 function renderCombos() {
@@ -452,7 +459,7 @@ function renderCombos() {
   combos.forEach(co=>{
     const div=document.createElement('div');
     div.className='ccard '+(co.used?'done':'ok');
-    div.innerHTML=`<div class="cteams"><div class="tnames">${co.t1[0]} / ${co.t1[1]}</div><div class="vs">VS</div><div class="tnames">${co.t2[0]} / ${co.t2[1]}</div></div><div class="cstatus ${co.used?'done':'ok'}">${co.used?'✕ 이미 진행함':'✓ 가능'}</div>`;
+    div.innerHTML=`<div class="cteams"><div class="tnames">${psEsc(co.t1[0])} / ${psEsc(co.t1[1])}</div><div class="vs">VS</div><div class="tnames">${psEsc(co.t2[0])} / ${psEsc(co.t2[1])}</div></div><div class="cstatus ${co.used?'done':'ok'}">${co.used?'✕ 이미 진행함':'✓ 가능'}</div>`;
     box.appendChild(div);
   });
 }

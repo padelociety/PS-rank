@@ -533,12 +533,21 @@ const PLAYER_TIER = {}; // name → tier
 const USED = { gold: new Set(), bs: new Set() };
 let pLeague = 'gold', sel = [];
 const ckey = (a,b,c,d) => [[a,b].sort().join('|'),[c,d].sort().join('|')].sort().join('||');
+// 시트 글자(이름·등급·날짜·점수·번호)와 오류 문장은 전부 이걸 거쳐 innerHTML 에 싣는다 — 시트 편집자나 CORS 프록시가
+// 돌려준 글자에 태그가 있으면 이 출처(github.io/PS-rank — PS Control·코트 태블릿 운영자 토큰이 같은 localStorage 에
+// 있다)에서 스크립트가 돈다(검토 S4-01 · 태블릿 psEsc 와 같은 함수 · tests/xss_escape.test.cjs ⑨).
+// ⚠️ 이름을 onclick 속성 안의 JS 문자열에 끼워 넣지 말 것 — 속성 값은 &#39; 를 ' 로 되돌린 뒤 JS 로 읽혀
+//    psEsc 로도 못 막는다. 이름이 필요한 버튼은 만든 뒤 .onclick 클로저로 붙인다(renderRank 의 📈).
+function psEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 async function fetchCSV(gid, attempt=0, timeout=10000, maxAttempts=3) {
   const sheetUrl = `${SHEET}?gid=${gid}&single=true&output=csv`;
+  // thingproxy.freeboard.io 는 운영이 끝났다(도메인이 넘어가면 그 주인이 CSV 를 돌려준다) — 뺐다(검토 S4-01).
+  // 남은 셋은 순서 그대로. 응답은 남의 서버가 준 글자라 화면에 실을 땐 늘 psEsc.
   const proxies = [
     `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(sheetUrl)}`,
-    `https://thingproxy.freeboard.io/fetch/${sheetUrl}`,
     `https://corsproxy.io/?${encodeURIComponent(sheetUrl)}`,
     `https://api.allorigins.win/raw?url=${encodeURIComponent(sheetUrl)}`,
   ];
@@ -838,7 +847,7 @@ async function loadData() {
     renderRank(); renderRecent(); renderGrid();
   } catch(e) {
     console.error('loadData error:',e);
-    document.getElementById('rank-status').innerHTML=`<div style="color:#f87171;font-size:14px">⚠️ 데이터를 불러올 수 없어요<br><br><span style="font-size:12px;color:var(--text-dim)">${e.message}</span><br><br></div><button onclick="loadData()" style="padding:10px 24px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:10px;font-size:13px;cursor:pointer;font-family:'IBM Plex Sans KR',system-ui,sans-serif;">다시 시도</button>`;
+    document.getElementById('rank-status').innerHTML=`<div style="color:#f87171;font-size:14px">⚠️ 데이터를 불러올 수 없어요<br><br><span style="font-size:12px;color:var(--text-dim)">${psEsc(e && e.message)}</span><br><br></div><button onclick="loadData()" style="padding:10px 24px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:10px;font-size:13px;cursor:pointer;font-family:'IBM Plex Sans KR',system-ui,sans-serif;">다시 시도</button>`;
   } finally {
     btn.classList.remove('spinning');
   }
@@ -875,12 +884,13 @@ function renderRank() {
     const wr=p.m>0?Math.round(p.w/p.m*100)+'%':'0%';
     const div=document.createElement('div');
     div.className=`rank-card ${rc} ${!ok?'excluded':''}`;
-    const tierTag = isBs && PLAYER_TIER[p.name]
-      ? `<span class="tier-badge ${PLAYER_TIER[p.name].toLowerCase()}">${PLAYER_TIER[p.name]}</span>` : '';
+    const tier = isBs ? PLAYER_TIER[p.name] : '';
+    const tierTag = tier
+      ? `<span class="tier-badge ${psEsc(tier.toLowerCase())}">${psEsc(tier)}</span>` : '';
     div.innerHTML=`
       <div class="rank-num ${nc}">${ok?rk:'—'}</div>
       <div class="rank-info">
-        <div class="rank-name">${p.name} ${tierTag}</div>
+        <div class="rank-name">${psEsc(p.name)} ${tierTag}</div>
         <div class="rank-meta">
           <span class="rank-stat"><span>${p.m}</span>경기</span>
           <span class="rank-stat"><span>${p.w}</span>승 <span>${p.l}</span>패</span>
@@ -890,15 +900,18 @@ function renderRank() {
       <div class="rank-pts">
         ${ok?`<div class="pts-value${isBs?' bs-pts':''}">${p.pts.toFixed(1)}</div><div class="pts-label">PTS</div>`:`<div class="pts-min">${MIN_M}경기 미만</div>`}
       </div>
-      ${ok?`<button class="sim-btn" onclick="event.stopPropagation();openSim('${p.name}',rankTab)">📈</button>`:''}
+      ${ok?'<button class="sim-btn">📈</button>':''}
       <div class="rank-arrow">›</div>`;
+    // 이름은 속성 안 JS 에 넣지 않고 클로저로(작은따옴표가 든 이름이 스크립트가 되던 자리 — 검토 S4-01).
+    const simBtn = div.querySelector('.sim-btn');
+    if (simBtn) simBtn.onclick = (ev) => { ev.stopPropagation(); openSim(p.name, rankTab); };
     div.onclick = () => openProfile(p.name, rankTab, myRank);
     list.appendChild(div);
   });
   const q=data.filter(p=>p.m>=MIN_M);
   summary.innerHTML=`
     <div class="stat-card"><div class="stat-card-label">🏆 랭킹 등재</div><div class="stat-card-value">${q.length}명 / 전체 ${data.length}명</div></div>
-    <div class="stat-card"><div class="stat-card-label">🥇 1위</div><div class="stat-card-value">${q[0]?.name||'-'}<br><span style="color:var(--gold)">${q[0]?.pts.toFixed(1)||'-'} pts</span></div></div>`;
+    <div class="stat-card"><div class="stat-card-label">🥇 1위</div><div class="stat-card-value">${psEsc(q[0]?.name||'-')}<br><span style="color:var(--gold)">${q[0]?.pts.toFixed(1)||'-'} pts</span></div></div>`;
 }
 
 function renderRecent() {
@@ -911,13 +924,13 @@ function renderRecent() {
     div.innerHTML=`
       <div class="match-top">
         <span class="match-badge ${isG?'gold-badge':'bs-badge'}">${isG?'GOLD+':'B&S'}</span>
-        <span class="match-num">#${m.match}</span>
-        <span class="match-date">${m.date}</span>
+        <span class="match-num">#${psEsc(m.match)}</span>
+        <span class="match-date">${psEsc(m.date)}</span>
       </div>
       <div class="match-body">
-        <div class="match-team"><div class="player-name">${m.t1p1}</div><div class="player-name">${m.t1p2}</div></div>
-        <div class="match-score-box">${m.score.split(' / ').map(s=>`<div class="score-sets">${s}</div>`).join('')}</div>
-        <div class="match-team right"><div class="player-name">${m.t2p1}</div><div class="player-name">${m.t2p2}</div></div>
+        <div class="match-team"><div class="player-name">${psEsc(m.t1p1)}</div><div class="player-name">${psEsc(m.t1p2)}</div></div>
+        <div class="match-score-box">${m.score.split(' / ').map(s=>`<div class="score-sets">${psEsc(s)}</div>`).join('')}</div>
+        <div class="match-team right"><div class="player-name">${psEsc(m.t2p1)}</div><div class="player-name">${psEsc(m.t2p2)}</div></div>
       </div>`;
     list.appendChild(div);
   });
@@ -948,7 +961,7 @@ function renderGrid() {
   const hint=document.getElementById('sel-hint'),n=sel.length;
   if(n===0) hint.innerHTML='플레이어를 <em>4명</em> 선택해주세요';
   else if(n<4) hint.innerHTML=`<em>${n}명 선택됨</em> — ${4-n}명 더 선택해주세요`;
-  else hint.innerHTML=`선택: <em>${sel.join(', ')}</em>`;
+  else hint.innerHTML=`선택: <em>${psEsc(sel.join(', '))}</em>`;
 }
 function renderCombos() {
   const box=document.getElementById('combo-list');
@@ -961,7 +974,7 @@ function renderCombos() {
   combos.forEach(co=>{
     const div=document.createElement('div');
     div.className='combo-card '+(co.used?'done':'ok');
-    div.innerHTML=`<div class="combo-teams"><div class="combo-team">${co.t1[0]} / ${co.t1[1]}</div><div class="combo-vs">VS</div><div class="combo-team">${co.t2[0]} / ${co.t2[1]}</div></div><div class="combo-status ${co.used?'done':'ok'}">${co.used?'✕ 진행함':'✓ 가능'}</div>`;
+    div.innerHTML=`<div class="combo-teams"><div class="combo-team">${psEsc(co.t1[0])} / ${psEsc(co.t1[1])}</div><div class="combo-vs">VS</div><div class="combo-team">${psEsc(co.t2[0])} / ${psEsc(co.t2[1])}</div></div><div class="combo-status ${co.used?'done':'ok'}">${co.used?'✕ 진행함':'✓ 가능'}</div>`;
     box.appendChild(div);
   });
 }
@@ -1052,7 +1065,7 @@ function openProfile(name, league, rank) {
       chemHighlight += `<div class="profile-row" style="border-color:rgba(46,204,113,0.3);background:rgba(46,204,113,0.04)">
         <div style="flex:1">
           <div style="font-size:10px;color:var(--green);font-weight:800;letter-spacing:0.5px;margin-bottom:3px">💚 최고 케미</div>
-          <div class="prow-name">${stats.bestChem.name}</div>
+          <div class="prow-name">${psEsc(stats.bestChem.name)}</div>
           <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${stats.bestChem.m}경기 · 승률 ${Math.round(stats.bestChem.wr*100)}% · 세트 ${stats.bestChem.setsW}:${stats.bestChem.setsL}</div>
         </div>
         <div style="font-family:'IBM Plex Sans KR',system-ui,sans-serif;font-size:32px;color:var(--green)">${stats.bestChem.chem}</div>
@@ -1062,7 +1075,7 @@ function openProfile(name, league, rank) {
       chemHighlight += `<div class="profile-row" style="border-color:rgba(248,113,113,0.2);background:rgba(248,113,113,0.04)">
         <div style="flex:1">
           <div style="font-size:10px;color:var(--red);font-weight:800;letter-spacing:0.5px;margin-bottom:3px">💔 최악 케미</div>
-          <div class="prow-name">${stats.worstChem.name}</div>
+          <div class="prow-name">${psEsc(stats.worstChem.name)}</div>
           <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${stats.worstChem.m}경기 · 승률 ${Math.round(stats.worstChem.wr*100)}% · 세트 ${stats.worstChem.setsW}:${stats.worstChem.setsL}</div>
         </div>
         <div style="font-family:'IBM Plex Sans KR',system-ui,sans-serif;font-size:32px;color:var(--red)">${stats.worstChem.chem}</div>
@@ -1078,7 +1091,7 @@ function openProfile(name, league, rank) {
       pairHL += `<div class="profile-row" style="border-color:rgba(46,204,113,0.3);background:rgba(46,204,113,0.04)">
         <div style="flex:1">
           <div style="font-size:10px;color:var(--green);font-weight:800;letter-spacing:0.5px;margin-bottom:3px">😤 잘 잡는 페어</div>
-          <div style="font-size:14px;font-weight:800;color:var(--text)">${stats.victimPair.names[0]} &amp; ${stats.victimPair.names[1]}</div>
+          <div style="font-size:14px;font-weight:800;color:var(--text)">${psEsc(stats.victimPair.names[0])} &amp; ${psEsc(stats.victimPair.names[1])}</div>
           <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${stats.victimPair.m}경기 · ${stats.victimPair.w}승 ${stats.victimPair.m - stats.victimPair.w}패</div>
         </div>
         <div class="prow-badge good">${Math.round(stats.victimPair.wr*100)}% 승률</div>
@@ -1088,7 +1101,7 @@ function openProfile(name, league, rank) {
       pairHL += `<div class="profile-row" style="border-color:rgba(248,113,113,0.2);background:rgba(248,113,113,0.04)">
         <div style="flex:1">
           <div style="font-size:10px;color:var(--red);font-weight:800;letter-spacing:0.5px;margin-bottom:3px">😈 천적 페어</div>
-          <div style="font-size:14px;font-weight:800;color:var(--text)">${stats.nemesisPair.names[0]} &amp; ${stats.nemesisPair.names[1]}</div>
+          <div style="font-size:14px;font-weight:800;color:var(--text)">${psEsc(stats.nemesisPair.names[0])} &amp; ${psEsc(stats.nemesisPair.names[1])}</div>
           <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${stats.nemesisPair.m}경기 · ${stats.nemesisPair.w}승 ${stats.nemesisPair.m - stats.nemesisPair.w}패</div>
         </div>
         <div class="prow-badge bad">${Math.round(stats.nemesisPair.wr*100)}% 승률</div>
@@ -1183,7 +1196,7 @@ function openProfile(name, league, rank) {
       const chemTxt = p.chem !== null ? ` · 케미 ${p.chem}` : '';
       return `<div class="profile-row">
         <div style="flex:1">
-          <div class="prow-name">${p.name}</div>
+          <div class="prow-name">${psEsc(p.name)}</div>
           <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${p.m}경기 · ${p.setsW}:${p.setsL} 세트${chemTxt}</div>
         </div>
         <div style="text-align:right">
@@ -1203,7 +1216,7 @@ function openProfile(name, league, rank) {
       const icon = pct >= 60 ? '💪' : pct >= 50 ? '😤' : pct >= 40 ? '😅' : '😰';
       return `<div class="profile-row">
         <div style="flex:1">
-          <div class="prow-name">${icon} ${p.name}</div>
+          <div class="prow-name">${icon} ${psEsc(p.name)}</div>
           <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${p.m}경기</div>
         </div>
         <div style="text-align:right">
@@ -1244,13 +1257,13 @@ function openProfile(name, league, rank) {
         return `<div class="pmatch-card ${rc}">
           <div class="pmatch-top">
             <span class="pmatch-result ${rc}">${rt}</span>
-            <span class="pmatch-num match-badge ${lbCls}">${lbTxt} #${m.num}</span>
-            <span class="pmatch-date">${m.date}</span>
+            <span class="pmatch-num match-badge ${lbCls}">${lbTxt} #${psEsc(m.num)}</span>
+            <span class="pmatch-date">${psEsc(m.date)}</span>
           </div>
           <div class="pmatch-body">
-            <div class="pmatch-team">${m.myT.map(n=>`<div class="pmatch-pname${n===name?' me':''}">${n}</div>`).join('')}</div>
-            <div class="pmatch-score">${m.sets.map(s=>`<div class="pmatch-sets">${s}</div>`).join('')}</div>
-            <div class="pmatch-team right">${m.opT.map(n=>`<div class="pmatch-pname">${n}</div>`).join('')}</div>
+            <div class="pmatch-team">${m.myT.map(n=>`<div class="pmatch-pname${n===name?' me':''}">${psEsc(n)}</div>`).join('')}</div>
+            <div class="pmatch-score">${m.sets.map(s=>`<div class="pmatch-sets">${psEsc(s)}</div>`).join('')}</div>
+            <div class="pmatch-team right">${m.opT.map(n=>`<div class="pmatch-pname">${psEsc(n)}</div>`).join('')}</div>
           </div>
         </div>`;
       }).join('');
@@ -1343,7 +1356,7 @@ function updateSim() {
       <div class="sim-result-left">
         <div class="sim-result-rank">${rank}</div>
         <div>
-          <div class="sim-result-name">${p.name}${isMe?' 👤':''}</div>
+          <div class="sim-result-name">${psEsc(p.name)}${isMe?' 👤':''}</div>
           <div class="sim-result-pts">${isMe?`현재 ${me.pts.toFixed(1)}pts`:p.pts.toFixed(1)+'pts'}</div>
         </div>
       </div>
