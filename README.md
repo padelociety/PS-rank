@@ -107,6 +107,7 @@ OBS PC 가 여기서 pull 한다. 고치면 양쪽을 같게 맞출 것(2026-09 
 - **바꾸는 요청은 운영자 로그인을 확인한다** — `/start-stream` · `/stop-stream` · `/void-video` · `/highlight`.
   태블릿이 운영자 토큰을 `Authorization: Bearer` 로 보내고(`streamHeaders`), 서버가 Playus 백엔드 `/api/user/myProfile` 에
   물어 역할(`league_operator` · `super_admin` · `center_admin`)을 본다. 통과는 10분, 거절은 30초 기억한다(토큰 해시로).
+  ⚠️ 2026-11-09 부터는 역할이 아니라 **센터**로 본다(`/api/stream/operator-check` — 아래 '방송 PC 는 그 센터 사람만' 절).
   백엔드가 안 닿으면 12시간 안에 통과했던 토큰만 들인다(경기장 인터넷 끊김). 막히면 태블릿이 서버 말을 그대로 띄우고 401 이면 ⚙ 설정을 연다.
 - ⚠️ **이제 태블릿이 운영자로 로그인돼 있어야** 자유 라이브·🎬 하이라이트·리그 방송 켜고 끄기·[무효] 가 된다(예전엔 로그인 없이도 됐다).
   **이 PC 에서 직접 연 페이지**(127.0.0.1 · 프록시 머리 없음)만 토큰 없이 통과한다.
@@ -139,6 +140,25 @@ OBS PC 가 여기서 pull 한다. 고치면 양쪽을 같게 맞출 것(2026-09 
 - ⚠️ **python 이 바뀌었다 — `stream_server` 재시작이 필요하다. 방송 중엔 하지 말 것.** 태블릿은 재시작 때 c18 을 받는다.
   이미 열려 있는 방송은 예전 설정(ultraLow · 자동 종료) 그대로다 — 다음 방송부터 바뀐다.
 - 테스트 `tests/test_stream_stability.py` · `tests/stream_handover.test.cjs` ⑥-2.
+
+## 방송 PC 는 그 센터 사람만 — 센터 대조 (2026-11-09 · 방송 서버만 · 태블릿 그대로)
+
+검토(S4-04 · B1-06): 운영자 확인이 myProfile 의 **역할만** 봐서 **어느 센터의 `center_admin` 이든**(가맹·비가맹 · 권한 0개 부관리자 포함)
+본점 유튜브 방송을 켜고·끄고·아무 영상에나 [무효] 를 붙일 수 있었다. 대표 결정: 방송 PC 는 **본점 관리자 · 그 센터에 묶인 코트 태블릿 계정 · 슈퍼어드민만**.
+
+- 서버가 Playus 백엔드 **`GET /api/stream/operator-check[?centerId=…]`** 에 묻는다 → `data.ok`(늘 200 · 거절 문장은 `data.message` 그대로 태블릿에 뜬다 — 403).
+  판정은 백엔드 `utils/operatorScope.streamOperatorVerdict` 하나: 슈퍼어드민 ∨ 그 센터에 묶인 `league_operator`(`Users.operatorCenterIds` · 비어 있으면 본점) ∨
+  그 센터 관리자(메인 · 부관리자 content · centerAdminFor).
+- `config.json` `control_auth.center_id` = 이 방송 PC 의 센터 id — **김포본점 id 를 적어 둔다**. 비우면 백엔드의 본점 설정(서버 .env `HQ_CENTER_ID` ·
+  없으면 `PUBLIC_BOOKING_CENTER_ID`)을 쓴다 — ⚠️ 어스센터(`isDefault` — 코트 0 개 가상 센터)가 **아니다**. 비어 있으면 시작 로그에 ⚠️, 모양이 틀리면 ❌ · 확인은 전부 403.
+- ⚠️ **배포 순서**: ① 백엔드 서버 .env 에 `HQ_CENTER_ID=<김포본점 id>` ② 코트 태블릿 계정을 김포에 묶기(`node scripts/operator_centers.js` 로 먼저 점검 →
+  `--email pscourt@padelsociety.co.kr --set <김포본점 id> --apply`) ③ 백엔드 배포 ④ 이 PC `config.json` 에 `center_id` 를 적고 **방송이 없을 때** stream_server 재시작.
+  ①② 없이 ③ 을 하면 그 순간 공용 태블릿 계정이 김포 리그를 잃는다(백엔드 판정). ④ 는 ③ 뒤 — 새 stream_server 가 옛 백엔드를 만나면
+  옛 역할 규칙(`center_admin` 빼고)으로 돈다.
+- 통과 10분 · 거절 30초 · 백엔드가 안 닿으면 12시간 안에 통과했던 토큰만 — 예전 그대로. 그래서 계정의 센터를 바꾸면 **길게는 10분 뒤**에 따라온다.
+- **옛 백엔드**(그 주소가 없어 404)면 예전 myProfile 역할로 본다 — 그때 기본 역할은 `league_operator` · `super_admin`(**`center_admin` 은 뺐다** — 센터를 못 가린다).
+  `control_auth.roles` 는 이제 이 옛 길에만 쓴다. 백엔드를 먼저 배포하면 이 길은 안 탄다.
+- ⚠️ **python 변경 — stream_server 재시작 필요(방송 중 금지).** 테스트 `tests/test_stream_server.py` ⑲ ⑳.
 
 ## OBS PC 에 새 버전 올리기
 

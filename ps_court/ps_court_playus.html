@@ -798,7 +798,7 @@ body {
            배포할 때마다 아래 COURTBUILD 와 스크립트의 BUILD 를 함께 올린다.
            c17(2026-10-19): 방송 PC(stream_server) 요청에 운영자 토큰 · 서버·회원 글자 이스케이프 · 보드 창 opener 끊기.
            c18(2026-10-21): 방송 중 문제(재연결 · 업로드 · 카메라 · PC 과부하 · 유튜브 경고)를 LIVE 줄에 — 서버 /health stream_health. -->
-      <!--COURTBUILD:c19--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c19</div>
+      <!--COURTBUILD:c20--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c20</div>
       <div class="step-indicator" id="step-label">STEP 1 / 4</div>
       <div class="step-dots">
         <div class="step-dot active" id="dot-1"></div>
@@ -1008,6 +1008,19 @@ async function psFetch(path, opts = {}) {
     throw err;
   }
   return body;
+}
+
+// 저장·편성이 막힌 이유를 가른다 — 401·433 = 로그인 만료(다시 로그인) · 403 = 로그인은 맞는데 **이 리그를 운영할 권한이 없다**
+// (2026-11-09 — 태블릿 계정은 묶인 센터의 리그·아메리카노만 운영한다 · 서버 utils/operatorScope). 403 을 '로그인 만료' 라고 하면
+// 다시 로그인해도 똑같이 막혀 코트에서 헤맨다 — 서버 문장 그대로 + 센터 안내. 그 밖이면 null.
+function psDenied(e) {
+  const st = e && e.status;
+  if (st === 401 || st === 433) return { kind: 'login', text: '로그인이 만료됐어요 — ⚙ 설정에서 다시 로그인해 주세요' };
+  if (st === 403) {
+    return { kind: 'forbidden', text: ((e && e.message) || '권한이 없어요')
+      + ' — 이 태블릿 계정이 운영하는 센터의 리그가 아니에요 (그 센터 태블릿 계정으로 하거나 본사에 센터 연결을 요청해 주세요)' };
+  }
+  return null;
 }
 
 // 일시적 네트워크 실패 대비 — GET 류는 1~2회 재시도. (와이파이 블립으로 카드 사라지는 것 방지)
@@ -1634,9 +1647,8 @@ async function chooseParApply(apply, inherited) {
   } catch (e) {
     parBusy = false;
     // ⚠️ 실패하면 **넘어가지 않는다.** 서버가 준 이유를 그대로 적는다(점수가 이미 들어갔다 · 권한 등).
-    parError = (e && (e.status === 401 || e.status === 403))
-      ? '권한이 없어요 — ⚙ 설정에서 다시 로그인해 주세요'
-      : ((e && e.message) || 'PAR 반영을 정하지 못했어요');
+    const denied = psDenied(e); // 401 = 로그인 만료 · 403 = 이 센터 리그가 아니다(서버 문장 그대로)
+    parError = denied ? denied.text : ((e && e.message) || 'PAR 반영을 정하지 못했어요');
     showToast('⚠️ ' + parError);
     if (selectedMatch && String(selectedMatch._id) === mid) renderParStep();
   }
@@ -1661,10 +1673,15 @@ async function doAssignTeams() {
     // ⚠️ 예전엔 무슨 에러든 '가능한 조합을 모두 사용했거나...'를 붙였다. 그래서 토큰이
     //    만료돼 401이 떨어져도 페어를 다 쓴 것처럼 보였고, 멀쩡한 조합을 두고 코트에서
     //    한참 헤맸다. 원인별로 다르게 말한다.
-    if (e.status === 401 || e.status === 403) {
+    const denied = psDenied(e);
+    if (denied && denied.kind === 'login') {
       document.getElementById('team-display').innerHTML =
         `<div class="no-combo-msg">🔑 운영자 로그인이 만료됐어요.<br><span style="font-size:14px">⚙ 설정에서 다시 로그인한 뒤 시도해주세요.</span></div>`;
       openSettings();
+      return;
+    }
+    if (denied) { // 403 — 로그인은 맞다(설정을 열지 않는다) · 다른 센터 리그
+      document.getElementById('team-display').innerHTML = `<div class="no-combo-msg">🚫 ${psEsc(denied.text)}</div>`;
       return;
     }
     document.getElementById('team-display').innerHTML =
@@ -1964,10 +1981,13 @@ async function saveMatch() {
     showDonePar(selectedLeague._id, selectedMatch._id, saved && saved.message);
   } catch(e) {
     const msg = e.message || '';
-    // 토큰 만료/권한 문제면 재로그인 유도. 그 외(네트워크 등)는 재시도 안내.
+    // 토큰 만료면 재로그인 유도 · 403(다른 센터 리그)은 서버 이유 그대로 · 그 외(네트워크 등)는 재시도 안내.
     // 저장 실패는 운영 중 놓치면 치명적 → toast 대신 alert(모달)로 확실히 인지시킨다.
-    const tokenIssue = /401|403|433|token|expired|authoriz|권한|로그인/i.test(msg);
-    if (tokenIssue) {
+    const denied = psDenied(e);
+    const tokenIssue = denied ? denied.kind === 'login' : /401|433|token|expired|authoriz|로그인/i.test(msg);
+    if (denied && denied.kind === 'forbidden') {
+      alert('⚠️ 저장 실패 — ' + denied.text + '\n\n(결과는 아직 저장되지 않았습니다)');
+    } else if (tokenIssue) {
       alert('⚠️ 저장 실패 — 로그인이 만료됐어요.\n\n⚙ 설정에서 다시 로그인한 뒤 "다시 저장"을 눌러주세요.\n(결과는 아직 저장되지 않았습니다)');
       openSettings();
     } else {
@@ -3139,7 +3159,7 @@ if ('serviceWorker' in navigator) {
 -->
 <script>
 (function () {
-  var BUILD = "c19";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
+  var BUILD = "c20";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
   var el = document.getElementById('app-build');
   if (el) el.textContent = '앱 ' + BUILD;
 

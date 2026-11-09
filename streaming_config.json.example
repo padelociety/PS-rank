@@ -6,9 +6,12 @@
     "https://obs.padelsociety.co.kr"
   ],
   "control_auth": {
-    "_설명": "방송 켜기·끄기·[무효]·하이라이트·reload-html 은 운영자 로그인 토큰(태블릿 ⚙ 설정)을 Playus 백엔드 myProfile 로 확인한다. 이 PC 에서 직접(127.0.0.1 · 터널 아님) 부른 요청만 토큰 없이 된다. enabled=false 는 점검 때만 — 터널로 누구나 방송을 켤 수 있게 된다.",
+    "_설명": "방송 켜기·끄기·[무효]·하이라이트는 운영자 로그인 토큰(태블릿 ⚙ 설정)을 Playus 백엔드 /api/stream/operator-check 로 확인한다 — 슈퍼어드민 · 이 센터에 묶인 코트 태블릿 계정 · 이 센터 관리자만 통과(다른 센터 관리자는 403). 이 PC 에서 직접(127.0.0.1 · 터널 아님) 부른 요청만 토큰 없이 된다. enabled=false 는 점검 때만 — 터널로 누구나 방송을 켤 수 있게 된다.",
     "enabled": true,
-    "roles": ["league_operator", "super_admin", "center_admin"]
+    "_center_id_설명": "이 방송 PC 의 Playus 센터 id(24자리) — 본점(김포) 방송 PC 도 그 센터 id 를 적는다. 비우면 백엔드의 본점 설정(서버 .env HQ_CENTER_ID · 없으면 PUBLIC_BOOKING_CENTER_ID)을 쓴다 — 어스센터(isDefault)가 아니다. 가맹점에 방송 PC 를 두면 그 센터 id.",
+    "center_id": "",
+    "_roles_설명": "옛 백엔드(확인 주소가 없어 404)일 때만 쓰는 역할 목록 — 그땐 센터를 못 가리므로 center_admin 을 넣지 않는다.",
+    "roles": ["league_operator", "super_admin"]
   },
   "thumbnail": {
     "_설명": "썸네일 선수 사진을 받아도 되는 호스트(https 만). 빼면 api · dev.api.padelsociety.co.kr.",
