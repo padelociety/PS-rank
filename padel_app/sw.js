@@ -1,58 +1,14 @@
-const CACHE_NAME = 'ps-league-v5';
-const STATIC_ASSETS = [
-  '/PS-rank/padel_app/manifest.json',
-  '/PS-rank/padel_app/icon-192.png',
-  '/PS-rank/padel_app/icon-512.png',
-];
-// HTML은 캐시 안 함 — 항상 네트워크에서 최신 버전 받아옴
-const NEVER_CACHE = [
-  'padel_app.html',
-];
-
-self.addEventListener('install', e => {
+// 2026-11-10 공개 순위 앱(padel_app)을 내렸다(대표 결정 25 · 검토 S4-01).
+// 홈 화면에 설치해 둔 기기에서 옛 서비스워커가 남지 않게 — 캐시를 비우고 스스로 등록을 푼다.
+// ⚠️ fetch 를 가로채지 않는다(페이지는 늘 네트워크의 안내 한 장).
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (e) => {
   e.waitUntil(
-    caches.open(CACHE_NAME).then(c => c.addAll(STATIC_ASSETS).catch(() => {}))
-  );
-});
-
-self.addEventListener('activate', e => {
-  e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-    ).then(() => self.clients.claim())
-  );
-});
-
-self.addEventListener('message', e => {
-  if (e.data?.type === 'SKIP_WAITING') self.skipWaiting();
-});
-
-self.addEventListener('fetch', e => {
-  const url = e.request.url;
-
-  // 항상 네트워크 우선 (캐시 안 함)
-  const neverCache =
-    NEVER_CACHE.some(p => url.includes(p)) ||
-    url.includes('googleapis.com') ||
-    url.includes('spreadsheets') ||
-    url.includes('corsproxy') ||
-    url.includes('codetabs') ||
-    url.includes('allorigins') ||
-    url.includes('thingproxy');
-
-  if (neverCache) {
-    e.respondWith(fetch(e.request));
-    return;
-  }
-
-  // 나머지 정적 파일은 캐시 우선
-  e.respondWith(
-    caches.match(e.request).then(cached => {
-      const network = fetch(e.request).then(res => {
-        caches.open(CACHE_NAME).then(c => c.put(e.request, res.clone()));
-        return res;
-      });
-      return cached || network;
-    })
+    caches.keys()
+      .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+      .then(() => self.registration.unregister())
+      .then(() => self.clients.matchAll({ type: 'window' }))
+      .then((cs) => Promise.all(cs.map((c) => c.navigate(c.url).catch(() => null))))
+      .catch(() => null)
   );
 });

@@ -7,7 +7,7 @@ Padel Society 코트 장비 코드.
 | `ps_court/ps_court_playus.html` | **리그앱**(코트 태블릿) — 매치 선택 → 등급(PAR) 반영 → 팀 배정 → 점수 → 라이브 · 🎬 하이라이트 · **자유 라이브** | OBS PC 의 `stream_server.py` 가 시작할 때 이 repo `main` 의 raw 를 받아 서빙 (`https://obs.padelsociety.co.kr`) |
 | `stream_server.py` · `obs_controller.py` · `youtube_api.py` | OBS PC 자동 스트리밍 서버 — 유튜브 방송 생성 · OBS 송출 · 리플레이 버퍼 → 하이라이트 업로드 | OBS PC `C:\dev\PS-rank` (예약 작업 `PS-StreamServer`, `setup/run_stream_server.ps1`) |
 | `setup/` | OBS PC 설치·점검 스크립트 | OBS PC |
-| `padel_app/` · `padel_live_ranking.html` | 공개 순위 표시 | GitHub Pages |
+| `padel_app/` · `padel_live_ranking.html` | **내렸다**(2026-11-10) — 구글 시트 시절 공개 순위. 지금은 '앱으로 옮겼어요' 안내 한 장(스크립트 없음) · 옛 PWA 서비스워커는 스스로 등록을 푼다 | GitHub Pages |
 
 ⚠️ 이 repo 는 모노repo `padelociety/playus` 의 `ps-rank/` 에 **거울**이 있다. 배포 원본은 **여기**다 —
 OBS PC 가 여기서 pull 한다. 고치면 양쪽을 같게 맞출 것(2026-09 에 양방향으로 갈라진 적이 있다).
@@ -116,13 +116,14 @@ OBS PC 가 여기서 pull 한다. 고치면 양쪽을 같게 맞출 것(2026-09 
 - 썸네일 선수 사진은 우리 API 호스트(`https` · api / dev.api.padelsociety.co.kr)에서만, 8MB 까지 받는다(`thumbnail.photo_hosts` 로 바꾼다).
 - 태블릿(`ps_court_playus.html` · 옛 `ps_court.html`)의 이름·리그·카테고리·서버 문장을 전부 이스케이프해서 그린다(`psEsc`) — 회원이 이름이나
   리그 이름에 HTML 을 넣으면 태블릿에서 그대로 돌아 운영자 토큰을 빼 갈 수 있었다. 테스트 `tests/xss_escape.test.cjs`.
-- **공개 순위 페이지 두 장**(`padel_live_ranking.html` · `padel_app/padel_app.html`)도 시트 글자(이름·등급·날짜·번호·점수·오류 문장)를
-  전부 같은 `psEsc` 로 거쳐 그린다(2026-11-09 · 검토 S4-01 · 테스트 ⑧⑨) — 태블릿·PS Control 과 **같은 출처**(github.io/PS-rank)라
-  여기서 스크립트가 돌면 `lg_token`·`ps_token` 이 샌다. 글자는 구글 시트를 무료 CORS 프록시로 받은 것(시트 편집자·프록시 주인이 정한다).
+- **공개 순위 페이지 두 장**(`padel_live_ranking.html` · `padel_app/padel_app.html`)은 **내렸다**(2026-11-10 대표 결정 25 · 검토 S4-01) —
+  태블릿·PS Control 과 **같은 출처**(github.io/PS-rank)인데 구글 시트를 무료 CORS 프록시로 받아 그려서, 프록시가 오염되면 `lg_token`·`ps_token` 을
+  빼 갈 길이었다(11-09 에 이스케이프로 반쯤 막았다). 이제 스크립트·프록시가 없는 안내 한 장이다 — 순위는 Playus 앱 리그 상세 '순위' 탭.
+  ⚠️ 이 두 주소에 스크립트·외부 데이터를 다시 넣지 말 것(테스트 ⑧ 가 막는다).
 - ⚠️ **`onclick` 같은 `on*` 속성 안 JS 에 시트·서버 값을 끼워 넣지 않는다** — 브라우저가 속성 값의 `&#39;` 를 `'` 로 되돌린 뒤 JS 로 읽어서
   `psEsc` 로도 못 막는다. 요소를 만든 뒤 `.onclick = () => f(원래 값)` 클로저로 붙인다(📈 시뮬레이션 버튼 · 테스트 ⑧ 가 그 모양을 막는다).
-- 운영이 끝난 `thingproxy.freeboard.io` 를 시트 프록시에서 뺐다(도메인을 넘겨받은 사람이 CSV 를 지어낸다) — 순위 두 장 · 옛 태블릿
-  `ps_court.html` 세 곳 다(테스트 ⑦⑧). 남은 셋(codetabs → corsproxy → allorigins · 순서·재시도 그대로)도 남의 서버라 순위 숫자는 지어낼 수 있다
+- 운영이 끝난 `thingproxy.freeboard.io` 를 시트 프록시에서 뺐다(도메인을 넘겨받은 사람이 CSV 를 지어낸다) — 옛 태블릿
+  `ps_court.html`(테스트 ⑦ — 순위 두 장은 내렸다). 남은 셋(codetabs → corsproxy → allorigins · 순서·재시도 그대로)도 남의 서버라 순위 숫자는 지어낼 수 있다
   (스크립트는 못 돈다) — 시트를 직접 받거나 백엔드를 거치게 하는 건 **남은 일**.
 - 아메리카노 보드는 새 창이 이 태블릿을 되잡지 못하게 연다(`w.opener = null`).
 - ⚠️ **python 이 바뀌었다 — `stream_server` 재시작이 필요하다. 방송 중엔 하지 말 것.** 설정 키는 `streaming_config.json.example`

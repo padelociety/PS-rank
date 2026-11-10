@@ -11,12 +11,10 @@
 //   ④ 방송 PC 로 가는 바꾸는 요청(켜기 ×2 · 끄기 · [무효] · 하이라이트)은 전부 streamHeaders() — /health 만 토큰 없이
 //   ⑤ 운영자 확인에서 막힌 끄기는 '종료됨' 으로 읽지 않는다(방송은 그대로 나가는 중)
 //   ⑥ 아메리카노 보드 창은 opener 를 끊는다 · 팝업이 막히면 예전처럼 같은 창
-//   ⑦ 옛 태블릿(ps_court.html)도 같은 두 가지 · 시트 프록시도 공개 순위 두 장과 같은 셋(죽은 thingproxy 없음)
-//   ⑧ 공개 순위 페이지 두 장(padel_live_ranking.html · padel_app/padel_app.html — 2026-11-09 · 검토 S4-01) —
-//      태블릿·PS Control 과 **같은 출처**(padelociety.github.io)라 여기서 스크립트가 돌면 lg_token·ps_token 이 샌다.
-//      글자는 구글 시트를 무료 CORS 프록시로 받아 온 것(시트 편집자 · 프록시 주인이 정한다):
-//      태블릿과 같은 psEsc · innerHTML 함수의 ${…} 허용 목록 · 옛 모양 금지 · 속성 안 JS 에 끼워 넣기 금지 ·
-//      죽은 thingproxy 를 뺀 프록시 순서 · 진짜로 돌려 본다(이름·등급·날짜·번호·점수에 태그)
+//   ⑦ 옛 태블릿(ps_court.html)도 같은 두 가지 · 시트 프록시는 codetabs → corsproxy → allorigins(죽은 thingproxy 없음)
+//   ⑧ 공개 순위 페이지 두 장(padel_live_ranking.html · padel_app/padel_app.html)은 **내렸다**(2026-11-10 대표 결정 25 · 검토 S4-01) —
+//      태블릿·PS Control 과 **같은 출처**(padelociety.github.io)라 무료 프록시로 받은 시트 글자에서 스크립트가 돌면 lg_token·ps_token 이 샌다.
+//      이제 스크립트·프록시·innerHTML 이 하나도 없는 안내 한 장이고, 옛 PWA 서비스워커는 캐시를 비우고 스스로 등록을 푼다.
 //
 // ⚠️ 소스를 그대로 떼어 와 돌린다(테스트에 로직을 베끼지 않는다).
 const fs = require('fs');
@@ -82,30 +80,7 @@ const SAFE = {
 // 변수를 통째로 되돌리는 자리(저장해 둔 버튼 모양) — 템플릿이 아니다.
 const RESTORE_ONLY = { saveHighlight: /btn\.innerHTML = original/ };
 
-// ── ⑧ 공개 순위 페이지 두 장 ──────────────────────────────────────────────
-const scriptOf = (html) => html.slice(html.indexOf('<script>'), html.indexOf('</script>', html.indexOf('<script>')));
-const PAGES = {
-  live: { file: 'padel_live_ranking.html', main: scriptOf(LIVE) },
-  app: { file: 'padel_app/padel_app.html', main: scriptOf(APP) },
-};
-// 식 전체가 psEsc(…) 한 번인가(psEsc(a) + b 같은 꼬리는 안 된다)
-const isEscCall = (e) => {
-  if (!e.startsWith('psEsc(')) return false;
-  let d = 0;
-  for (let i = 5; i < e.length; i++) { if (e[i] === '(') d++; else if (e[i] === ')' && --d === 0) return i === e.length - 1; }
-  return false;
-};
-// innerHTML 자리를 감싸는 가장 안쪽 함수(안에 든 작은 함수 — parseMatches 등 — 뒤의 catch 도 바깥 함수로 잡는다)
-const enclosingFns = (text) => {
-  const out = []; const re = /(?:async )?function ([A-Za-z0-9_$]+)\(/g; let m;
-  while ((m = re.exec(text))) {
-    let j = text.indexOf('{', m.index), d = 0;
-    for (; j < text.length; j++) { if (text[j] === '{') d++; else if (text[j] === '}' && --d === 0) break; }
-    out.push({ name: m[1], start: m.index, end: j });
-  }
-  return (idx) => out.filter((r) => r.start < idx && idx < r.end).sort((a, b) => (a.end - a.start) - (b.end - b.start))[0];
-};
-// ⑦⑧ 시트를 받는 세 페이지(공개 순위 두 장 · 옛 태블릿)의 프록시 — 죽은 thingproxy 는 빠지고(도메인을 넘겨받은 사람이
+// ⑦ 시트를 받는 옛 태블릿(ps_court.html)의 프록시 — 죽은 thingproxy 는 빠지고(도메인을 넘겨받은 사람이
 //    CSV 를 지어낸다 · 남은 셋도 '남의 서버' 라 화면엔 늘 psEsc) 나머지 셋은 순서 그대로 · 실패하면 다음 · 다 실패하면 던진다.
 const checkProxies = async (scriptText, fb) => {
   // 줄 머리 주석만 지운다(`https://thingproxy…` 의 // 부터 지우면 주소 줄이 통째로 빠져 이 검사가 헛돈다)
@@ -132,83 +107,6 @@ const checkProxies = async (scriptText, fb) => {
   const z = mkFetch(99); let threw = false;
   try { await z.f('1'); } catch (e) { threw = true; }
   assert(threw && z.seen.length === 4 && z.seen[3] === 'api.codetabs.com', '다 실패: ' + z.seen.join(','));
-};
-
-// 숫자(시트 글자를 센 수 · 계산한 점수)·상수·이미 psEsc 한 조각만. 새 칸을 넣으면 psEsc 로 감싸거나 이유와 함께 여기 적는다.
-const PAGE_SAFE = {
-  live: {
-    loadRank: ['a', 'b'],                                      // parseMatches 의 '6-4' 조각 — 화면엔 renderRecent 의 psEsc(m.score)
-    renderRank: ['rk', 'rc', "ok?rk:'—'", 'p.m', 'p.w', 'p.l', 'p.s', 'wr', "ok?'pg':''",
-      "ok?p.pts.toFixed(2):'<span class=\"ex\">10경기 미만</span>'", 'MIN_M', 'q.length', 'gData.length', 'bsData.length',
-      "q[0]?.pts.toFixed(2)||'-'"],                            // 센 수 · 계산한 점수 · 상수
-    renderRecent: ["m.league==='G+'?'mg':'mbs-b'", "m.league==='G+'?'ml-g':'ml-b'", "m.league==='G+'?'GOLD+':'B&S'"], // 상수
-    renderGrid: ['n', '4-n'],                                  // 고른 수
-    renderCombos: ["co.used?'done':'ok'", "co.used?'✕ 이미 진행함':'✓ 가능'"],
-  },
-  app: {
-    loadData: ['a', 'b'],                                      // parseMatches 의 '6-4' 조각 — 화면엔 psEsc(s)
-    renderRank: ['rk', 'rc', "!ok?'excluded':''", 'nc', "ok?rk:'—'", 'tierTag', 'p.m', 'p.w', 'p.l', 'wr', "isBs?' bs-pts':''",
-      'p.pts.toFixed(1)', 'MIN_M', "ok?'<button class=\"sim-btn\">📈</button>':''", 'q.length', 'data.length',
-      "q[0]?.pts.toFixed(1)||'-'"],                            // tierTag 는 psEsc 조각(아래 따로 확인)
-    renderRecent: ["isG?'gold-match':'bs-match'", "isG?'gold-badge':'bs-badge'", "isG?'GOLD+':'B&S'"],
-    renderGrid: ['n', '4-n'],
-    renderCombos: ["co.used?'done':'ok'", "co.used?'✕ 진행함':'✓ 가능'"],
-    openProfile: [
-      // 센 수 · 비율(calcRanking·calcPlayerStats 가 센 숫자)
-      'rank', 'pts', 'MIN_M', 'm', 'w', 'l', 'wrPct', 'stats.recentForm.length',
-      ...['bestChem', 'worstChem'].flatMap((k) => [`stats.${k}.m`, `Math.round(stats.${k}.wr*100)`, `stats.${k}.setsW`, `stats.${k}.setsL`, `stats.${k}.chem`]),
-      ...['victimPair', 'nemesisPair'].flatMap((k) => [`stats.${k}.m`, `stats.${k}.w`, `stats.${k}.m - stats.${k}.w`, `Math.round(stats.${k}.wr*100)`]),
-      'stats.totalSetsWon', 'totalSets', 'setWrPct', 'stats.gameDiff', 'stats.totalGamesWon', 'stats.totalGamesLost',
-      'stats.bagels', 'stats.bagelLosses', 'p.chem', 'p.m', 'p.setsW', 'p.setsL', 'pct', 'p.w', 'p.m-p.w', 'matchRecords.length',
-      'a', 'b',                                                // 경기 기록의 '6-4' 조각 — 화면엔 psEsc(s)
-      // 상수 · 숫자로 고른 색/글자
-      "isBs?'var(--bronze-light)':'var(--green)'", 'f', 'setColor', 'gameDiffColor', "stats.gameDiff >= 0 ? '+' : ''",
-      "maxStreak>=3?'var(--gold)':'var(--text)'", "maxStreak > 0 ? maxStreak + '연승' : '—'",
-      "stats.streak>0?(stats.streakType==='W'?'var(--green)':'var(--red)'):'var(--text-dim)'",
-      "stats.streak > 0 ? stats.streak + '연' + (stats.streakType==='W'?'승':'패') : '—'",
-      ...[['comebackW', 'green'], ['comebackL', 'red'], ['perfect', 'gold'], ['shutout', 'red']].flatMap(([k, c]) => [
-        `${k}>0?'var(--${c})':'var(--text-dim)'`, `${k} > 0 ? ${k} + '회' : '없음'`]),
-      'chemTxt', 'color', 'icon', 'rc', 'rt', 'lbCls', 'lbTxt', "n===name?' me':''",
-      // 위에서 psEsc 로 만든 조각
-      'formHtml', 'chemHighlight', 'pairHL', 'partnerRows', 'oppRows', 'matchHtml'],
-    updateSim: ["newPts > me.pts ? 'overtake':'behind'", 'addW', 'newPts', '(p.pts - newPts).toFixed(1)', 'cls', 'rank',
-      "isMe?' 👤':''", 'me.pts.toFixed(1)', 'displayPts', 'tag', 'neededFor1st'],
-  },
-};
-// 시트 글자를 그대로 싣던 옛 모양 — 파일 어디에도 없어야 한다
-const PAGE_BANNED = /\$\{\s*(p\.name\}|q\[0\]\?\.name|m\.(date|match|num|score|t[12]p[12])\}|co\.t[12]\[|sel\.join|e\.message|e && e\.message|stats\.\w+\.names?\b|PLAYER_TIER\[|tier\})/g;
-// 순위 페이지를 떼어 와 돌리는 가짜 화면(getElementById · createElement · 자식 · querySelector('.클래스'))
-const FAKE_DOM = `
-  const els = {};
-  function mk(id) {
-    const el = { id, innerHTML: '', textContent: '', className: '', value: '3', style: {}, kids: [], onclick: null,
-      classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-      appendChild(c) { this.kids.push(c); return c; },
-      querySelector(sel) { const c = sel.replace(/^\\./, ''); if (!this.innerHTML.includes('class="' + c + '"')) return null; return (this._q = this._q || mk(sel)); } };
-    return el;
-  }
-  const document = { getElementById: (id) => (els[id] = els[id] || mk(id)), createElement: () => mk(''), querySelector: () => null, querySelectorAll: () => [] };
-  const setTimeout = () => 0;
-  const allHtml = () => { const out = []; const walk = (e) => { out.push(e.innerHTML); e.kids.forEach(walk); }; Object.values(els).forEach(walk); return out.join('\\n'); };
-`;
-const constLine = (main, name) => {
-  const m = main.match(new RegExp('const ' + name + ' = [^\\n]*'));
-  if (!m) throw new Error(name + ' 상수 없음');
-  return m[0];
-};
-// 시트 한 줄: [번호, 날짜, A1, A2, B1, B2, 세트1a, 세트1b, 세트2a, 세트2b, 세트3a, 세트3b]
-const X = '<img src=x onerror=alert(1)>';
-const Q = `'); alert(2); //`;            // 속성 안 JS 를 깨는 작은따옴표
-const D = '"><svg onload=alert(3)>';     // 속성을 닫는 큰따옴표
-const NAMES = [X, Q, D, '김하경'];
-const sheetRows = () => {
-  const rows = [['#', 'date', 'p1', 'p2', 'p3', 'p4', 's1a', 's1b', 's2a', 's2b', 's3a', 's3b']];
-  for (let i = 0; i < 12; i++) {
-    const [a, b, c, d] = i % 2 ? [NAMES[0], NAMES[1], NAMES[2], NAMES[3]] : [NAMES[0], NAMES[2], NAMES[1], NAMES[3]];
-    // 3세트 b 칸에 태그 — 숫자가 아니라 승패 계산에선 빠지지만 점수 글자('6-<img…>')로는 화면에 간다
-    rows.push([i ? String(i) : X, i ? '2026-03-0' + (i % 9 + 1) : X, a, b, c, d, '6', '4', i % 3 ? '3' : '6', i % 3 ? '6' : '2', '1', X]);
-  }
-  return rows;
 };
 
 (async () => {
@@ -394,114 +292,25 @@ const sheetRows = () => {
     assert(!banned.length, '남은 자리: ' + banned.join(' · '));
   });
 
-  await t('⑦ 옛 태블릿(ps_court.html) — 시트 프록시: 공개 순위 두 장과 같은 셋(죽은 thingproxy 없음) · 넘어가기 · 다 실패',
+  await t('⑦ 옛 태블릿(ps_court.html) — 시트 프록시: codetabs → corsproxy → allorigins(죽은 thingproxy 없음) · 넘어가기 · 다 실패',
     () => checkProxies(old, bodyOf(old)('fetchCSV')));
 
-  for (const [key, pg] of Object.entries(PAGES)) {
-    const pbody = bodyOf(pg.main);
-
-    await t(`⑧ ${pg.file} — psEsc 는 태블릿과 같은 함수`, () => {
-      const norm = (s) => s.replace(/\s+/g, ' ').trim();
-      assert(norm(pbody('psEsc')) === norm(body('psEsc')), '태블릿 psEsc 와 다르다');
-      // eslint-disable-next-line no-new-func
-      const psEsc = new Function(pbody('psEsc') + '; return psEsc;')();
-      assert(psEsc(`<a x="1" y='2'>&`) === '&lt;a x=&quot;1&quot; y=&#39;2&#39;&gt;&amp;', 'psEsc');
+  for (const [file, text] of [['padel_live_ranking.html', LIVE], ['padel_app/padel_app.html', APP]]) {
+    await t(`⑧ ${file} — 내렸다: 스크립트·프록시·innerHTML·시트 주소가 없는 안내 한 장`, () => {
+      assert(!/<script/i.test(text), '스크립트가 남았다');
+      assert(!/\son[a-z]+\s*=/i.test(text), '속성 안 JS 가 남았다');
+      assert(!/codetabs|corsproxy|allorigins|thingproxy|spreadsheets|docs\.google/i.test(text), '시트·프록시 주소가 남았다');
+      assert(!/innerHTML|localStorage|fetch\(/.test(text), '스크립트 자리가 남았다');
+      assert(text.includes('이 순위 페이지는 내렸어요') && text.includes('Playus 앱'), '안내 문장');
+      assert(text.includes('fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR'), '글꼴(fontUnified)');
     });
-
-    await t(`⑧ ${pg.file} — innerHTML 을 만드는 함수의 \${…} 는 psEsc 이거나 이유가 적힌 허용 목록`, () => {
-      const encl = enclosingFns(pg.main);
-      const names = new Set(); const re = /\.innerHTML\s*\+?=/g; let m;
-      while ((m = re.exec(pg.main))) {
-        const fn = encl(m.index);
-        assert(fn, 'innerHTML 을 쓰는 함수를 못 찾았다 @' + m.index);
-        names.add(fn.name);
-      }
-      const want = Object.keys(PAGE_SAFE[key]);
-      assert(want.every((n) => names.has(n)), '찾은 함수: ' + [...names].join(','));
-      const bad = [];
-      for (const fn of names) {
-        const allow = new Set(PAGE_SAFE[key][fn] || []);
-        for (const e of interps(pbody(fn))) if (!isEscCall(e) && !allow.has(e)) bad.push(`${fn}: \${${e}}`);
-      }
-      assert(!bad.length, '이스케이프 안 된 칸 — ' + bad.join(' | '));
-    });
-
-    await t(`⑧ ${pg.file} — 시트 글자를 그대로 싣던 옛 모양 · 속성 안 JS 에 끼워 넣기가 없다`, () => {
-      const hits = pg.main.match(PAGE_BANNED) || [];
-      assert(!hits.length, '남은 자리: ' + hits.join(' · '));
-      // onclick="openSim('${p.name}')" — 속성 값은 &#39; 를 ' 로 되돌린 뒤 JS 로 읽혀 psEsc 로도 못 막는다
-      const inline = pg.main.match(/\son[a-z]+=(\\?"[^"`]*|'[^'`]*)\$\{/g) || [];
-      assert(!inline.length, '속성 안 JS 에 값: ' + inline.join(' · '));
-    });
-
-    await t(`⑧ ${pg.file} — 프록시: 죽은 thingproxy 는 빠지고 나머지 셋은 순서 그대로 · 실패하면 다음 · 다 실패하면 오류 화면`,
-      () => checkProxies(pg.main, pbody('fetchCSV')));
   }
 
-  await t('⑧ padel_live_ranking.html — 진짜로 돌려 본다: 이름·날짜·번호·점수에 태그를 넣어도 태그가 안 생긴다', () => {
-    const main = PAGES.live.main; const pb = bodyOf(main);
-    // eslint-disable-next-line no-new-func
-    const run = new Function(`
-      ${FAKE_DOM}
-      let curTab = 'gold', curF = 'all', gData = [], bsData = [], pLeague = 'gold', sel = [], recentData = [];
-      const PLAYERS = { gold: [], bs: [] }, USED = { gold: new Set(), bs: new Set() };
-      ${constLine(main, 'MIN_M')}
-      ${constLine(main, 'ckey')}
-      ${['psEsc', 'calcRanking', 'parseMatches', 'renderRank', 'renderRecent', 'renderGrid', 'renderCombos'].map(pb).join('\n')}
-      return (rows) => {
-        gData = calcRanking(rows); bsData = calcRanking(rows);
-        recentData = parseMatches(rows, 'G+');
-        PLAYERS.gold = ${JSON.stringify(NAMES)}; sel = PLAYERS.gold.slice();
-        USED.gold = new Set([ckey(sel[0], sel[1], sel[2], sel[3])]);
-        renderRank(); curTab = 'bs'; renderRank(); renderRecent(); renderGrid(); renderCombos();
-        return allHtml();
-      };`)();
-    const html = run(sheetRows());
-    assert(!/<img|<svg/.test(html), '태그가 살아 있다');
-    assert(html.includes('&lt;img src=x onerror=alert(1)&gt;') && html.includes('&quot;&gt;&lt;svg') && html.includes('&#39;); alert(2)'), '이스케이프된 글자가 안 보인다');
-    assert(html.includes('<td>김하경</td>') && html.includes('#11') && html.includes('6-4 / 3-6 / 1-&lt;img'), '보통 글자·점수가 바뀌었다');
-  });
-
-  await t('⑨ padel_app.html — 진짜로 돌려 본다: 순위·최근 경기·페어·선수 프로필·시뮬레이션 · 등급 꼬리표 · 📈 은 클로저로 원래 이름', () => {
-    const main = PAGES.app.main; const pb = bodyOf(main);
-    const sims = [];
-    // eslint-disable-next-line no-new-func
-    const run = new Function('sims', `
-      ${FAKE_DOM}
-      let curPage = 'rank', rankTab = 'gold', gData = [], bsData = [], recentData = [], gRows = [], bsRows = [];
-      let pLeague = 'gold', sel = [], _simName = '', _simLeague = '';
-      const PLAYERS = { gold: [], bs: [] }, PLAYER_TIER = {}, USED = { gold: new Set(), bs: new Set() };
-      ${constLine(main, 'MIN_M')}
-      ${constLine(main, 'TIER_MULT')}
-      ${constLine(main, 'ckey')}
-      ${['psEsc', 'calcRanking', 'calcPlayerStats', 'parseMatches', 'renderRank', 'renderRecent', 'renderGrid', 'renderCombos',
-        'openProfile', 'updateSim'].map(pb).join('\n')}
-      ${pb('openSim').replace('function openSim(', 'function realOpenSim(')}
-      function openSim(name, league) { sims.push([name, league]); realOpenSim(name, league); }
-      return (rows) => {
-        PLAYER_TIER[${JSON.stringify(X)}] = 'Bronze" onmouseover="alert(5)';
-        gRows = rows; bsRows = rows; gData = calcRanking(rows); bsData = calcRanking(rows);
-        recentData = parseMatches(rows, 'G+');
-        PLAYERS.gold = ${JSON.stringify(NAMES)}; sel = PLAYERS.gold.slice();
-        renderRank();
-        const btn = els['rank-list'].kids[0].querySelector('.sim-btn');
-        let stopped = false; btn.onclick({ stopPropagation: () => { stopped = true; } });
-        rankTab = 'bs'; renderRank(); renderRecent(); renderGrid(); renderCombos();
-        openProfile(${JSON.stringify(X)}, 'gold', 1);
-        return { html: allHtml(), stopped, simTitle: els['sim-player-name'].textContent, profileName: els['profileName'] && els['profileName'].textContent };
-      };`)(sims);
-    const r = run(sheetRows());
-    assert(!/<img|<svg/.test(r.html) && !r.html.includes('" onmouseover='), '태그·속성이 살아 있다');
-    assert(r.html.includes('&lt;img src=x onerror=alert(1)&gt;') && r.html.includes('&#39;); alert(2)') && r.html.includes('&quot;&gt;&lt;svg'), '이스케이프된 글자가 안 보인다');
-    assert(r.html.includes('class="tier-badge bronze&quot; onmouseover=&quot;alert(5)"'), '등급 꼬리표(클래스·글자)');
-    assert(!/class="sim-btn" on/.test(r.html), '📈 버튼에 속성 안 JS 가 남았다');
-    assert(sims.length === 1 && sims[0][0] === X && sims[0][1] === 'gold' && r.stopped, '📈 은 원래 이름으로 openSim · 카드 클릭은 막는다: ' + JSON.stringify(sims));
-    assert(r.simTitle === X + ' 시뮬레이션', '시뮬레이션 제목은 textContent(원래 이름)');
-    assert(r.html.includes('>김하경<') && r.html.includes('경기 기록') && r.html.includes('1-&lt;img'), '보통 글자·프로필이 안 보인다');
-  });
-
-  await t('⑨ padel_app.html — 불러오기 실패 문장도 psEsc', () => {
-    assert(bodyOf(PAGES.app.main)('loadData').includes('${psEsc(e && e.message)}'), 'loadData 오류 문장');
+  await t('⑧ padel_app/sw.js — 캐시를 비우고 스스로 등록을 푼다 · fetch 를 가로채지 않는다', () => {
+    const sw = fs.readFileSync(path.join(__dirname, '..', 'padel_app', 'sw.js'), 'utf8');
+    assert(/caches\.delete/.test(sw) && /registration\.unregister\(\)/.test(sw), '캐시 비우기·등록 풀기');
+    assert(!/addEventListener\('fetch'/.test(sw), 'fetch 를 가로챈다');
+    assert(!fs.existsSync(path.join(__dirname, '..', 'padel_app', 'manifest.json')), 'manifest.json 이 남았다(설치 유도)');
   });
 
   console.log(fails ? `\n실패 ${fails}건\n` : '\n전부 통과\n');
