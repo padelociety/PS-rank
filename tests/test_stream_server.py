@@ -175,7 +175,7 @@ def main():
 
     # 4) 🎬 메타 — 자유 라이브 제목
     captured = {}
-    ss._save_and_upload_highlight = lambda meta, seconds=0: captured.update(meta)
+    ss._save_and_upload_highlight = lambda meta, seconds=0, mode='seconds': captured.update(meta)
     r = c.post('/highlight', json={'seconds': 60})
     import time; time.sleep(0.2)
     check(r.get_json()['success'] and 'Padel Society 라이브' in captured.get('title', ''), '하이라이트 메타 제목 = 자유 라이브 제목')

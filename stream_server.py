@@ -1635,65 +1635,108 @@ def _faststart_clip(path):
     return path
 
 
-def _save_and_upload_highlight(meta, seconds=0):
+def _save_and_upload_highlight(meta, seconds=0, mode='seconds'):
     """리플레이 저장(느림, ~수 초) + 업로드를 백그라운드로 처리.
     save_replay_buffer가 파일 경로 폴링에 최대 ~5초 걸려서 요청 스레드를 막으면
-    안 됨(헬스체크 타임아웃 → 라이브 표시 깜빡임). 그래서 통째로 스레드에서 실행."""
+    안 됨(헬스체크 타임아웃 → 라이브 표시 깜빡임). 그래서 통째로 스레드에서 실행.
+    mode 'rally' = [직전 랠리](앱 하이라이트 + 인스타 자동) · 그 밖 = [60초](앱 하이라이트만)."""
     path = obs.save_replay_buffer()
     if not path:
         logger.error("하이라이트 저장 실패 — 리플레이 경로 없음")
         return
-    _upload_highlight(path, meta, seconds)
+    if mode == 'rally':
+        _upload_rally_highlight(path, meta)
+    else:
+        _upload_highlight(path, meta, seconds)
+
+
+def _post_highlight(path, meta) -> str:
+    """파일을 백엔드 하이라이트로 올린다 → 하이라이트 id(못 올리면 '')."""
+    import requests
+    api = (HIGHLIGHT_CFG.get('api_base') or 'https://api.padelsociety.co.kr').rstrip('/')
+    key = HIGHLIGHT_CFG.get('upload_key') or ''
+    if not key:
+        logger.warning("하이라이트 업로드 생략 — config.highlight.upload_key 없음 (OBS PC에 파일만 저장됨)")
+        return ''
+    with open(path, 'rb') as f:
+        r = requests.post(
+            f"{api}/api/highlight/upload",
+            headers={'x-upload-key': key},
+            data=meta,
+            files={'file': (os.path.basename(path), f, 'video/mp4')},
+            timeout=180,
+        )
+    if not r.ok:
+        logger.error(f"하이라이트 업로드 실패 {r.status_code}: {r.text[:200]}")
+        return ''
+    logger.info(f"☁️ 하이라이트 업로드 완료: {os.path.basename(path)}")
+    try:
+        return str(((r.json() or {}).get('data') or {}).get('id') or '')
+    except Exception:
+        return ''
 
 
 def _upload_highlight(path, meta, seconds=0):
+    """[60초](또는 옛 태블릿의 30·90초) — 뒤쪽 N초를 앱 하이라이트에만 올린다. 인스타 스토리는 만들지 않는다
+    (2026-11-11 사용자 *"60초는 하이라이트에만 올라가는거고"* — 예전엔 모든 클립의 스토리 파일을 저절로 만들었다).
+    태블릿 '📱 인스타 스토리' 로 고르면 그때 만든다(/highlight/<id>/story)."""
     try:
-        import requests
         # 요청 길이가 있으면 뒤쪽 N초만 잘라서 업로드 (버퍼=90초, 60초 버튼 대응)
         # 트림 안 하는 경우도 faststart 리먹스 — 폰 스트리밍 재생 끊김 방지.
         if seconds:
             path = _trim_clip(path, seconds)
         else:
             path = _faststart_clip(path)
-        api = (HIGHLIGHT_CFG.get('api_base') or 'https://api.padelsociety.co.kr').rstrip('/')
-        key = HIGHLIGHT_CFG.get('upload_key') or ''
-        if not key:
-            logger.warning("하이라이트 업로드 생략 — config.highlight.upload_key 없음 (OBS PC에 파일만 저장됨)")
-            return
-        with open(path, 'rb') as f:
-            r = requests.post(
-                f"{api}/api/highlight/upload",
-                headers={'x-upload-key': key},
-                data=meta,
-                files={'file': (os.path.basename(path), f, 'video/mp4')},
-                timeout=180,
-            )
-        if r.ok:
-            logger.info(f"☁️ 하이라이트 업로드 완료: {os.path.basename(path)}")
-            try:
-                hid = str(((r.json() or {}).get('data') or {}).get('id') or '')
-            except Exception:
-                hid = ''
-            if hid:
-                item = _remember_highlight(hid, path, seconds, meta)
-                # 바로 저절로 스토리용 파일을 만든다(태블릿이 준비되면 미리보기를 띄운다) — config.highlight.auto_story: false 면 끈다
-                if HIGHLIGHT_CFG.get('auto_story', True) is not False:
-                    threading.Thread(target=_make_and_upload_story, args=(item,), daemon=True).start()
-        else:
-            logger.error(f"하이라이트 업로드 실패 {r.status_code}: {r.text[:200]}")
+        hid = _post_highlight(path, meta)
+        if hid:
+            _remember_highlight(hid, path, seconds, meta)
     except Exception as e:
         logger.error(f"하이라이트 업로드 오류: {e}")
+
+
+def _upload_rally_highlight(path, meta):
+    """[직전 랠리](2026-11-11 · 사용자 *"직전랠리는 인스타에 자동으로 올라가는거랑 앱 하이라이트에서 볼 수 있는거 둘다"*) —
+    마지막 랠리 서브 3초 전 ~ 버튼 누른 순간(rally_cut · 60초 이하 · 재인코딩 없음)을 **앱 하이라이트로 올리고 같은 파일을
+    인스타 스토리로 자동 게시**한다(백엔드 story-file autoPost — 인스타가 연결돼 있을 때만, 실패하면 관리자 알림). 자르기가 실패하면
+    뒤쪽 60초를 하이라이트에만 올린다(인스타는 안 올린다 — 무엇이 올라가는지 모르는 클립을 자동으로 내보내지 않는다).
+    config.highlight.auto_story: false 면 하이라이트만."""
+    try:
+        with _story_make_lock:
+            out, win = _story_clip(path, 0)
+    except Exception as e:
+        logger.warning(f"직전 랠리 자르기 실패 — 뒤쪽 60초를 하이라이트에만 올려요: {e}")
+        _upload_highlight(path, meta, 60)
+        return
+    try:
+        hid = _post_highlight(out, meta)
+        if not hid:
+            return
+        secs = int(max(0, (win.get('duration') or 0) - (win.get('start') or 0)))
+        item = _remember_highlight(hid, out, secs, meta)
+        if HIGHLIGHT_CFG.get('auto_story', True) is not False:
+            with _story_lock:
+                _story_jobs[hid] = {'state': 'making', 'error': '', 'url': ''}
+            _upload_story_file(item['id'], out, win, auto_post=True)
+    except Exception as e:
+        logger.error(f"직전 랠리 하이라이트 오류: {e}")
 
 
 @app.route('/highlight', methods=['POST'])
 @_require_operator
 def save_highlight():
     """리플레이 버퍼를 클립으로 저장(즉시 응답) + 백엔드 업로드(백그라운드).
-    Body(선택): { "seconds": 60 } — 버퍼(권장 90초)에서 뒤쪽 N초만 잘라 업로드."""
+    Body: { "mode": "rally" } — [직전 랠리](앱 하이라이트 + 인스타 스토리 자동) ·
+          { "seconds": 60 } — [60초](뒤쪽 N초 · 앱 하이라이트만 · 옛 태블릿의 30·90초도 같은 길)."""
     data = request.get_json(silent=True) or {}
     _last_highlight_at[0] = time.time()   # 송출 영상 검사가 이 사이엔 리플레이를 저장하지 않는다
-    seconds = int(data.get('seconds') or 0)
-    if seconds and not (15 <= seconds <= 300):
+    mode = 'rally' if str(data.get('mode') or '') == 'rally' else 'seconds'
+    try:
+        seconds = int(data.get('seconds') or 0)
+    except (TypeError, ValueError):
+        seconds = 0
+    if mode == 'rally':
+        seconds = 0
+    elif seconds and not (15 <= seconds <= 300):
         seconds = 0  # 이상값은 무시 — 버퍼 전체 길이로
     # 사전 확인 — 버퍼가 꺼져 있으면 켜기까지 시도(ensure). 그래도 안 되면 명확히 안내.
     # (버퍼가 이미 돌고 있으면 즉시 통과 — 오판으로 "꺼짐" 뜨는 걸 방지)
@@ -1717,8 +1760,9 @@ def save_highlight():
             'recordedAt': recorded_at,
         }
     # 저장(폴링 ~수 초)+업로드는 통째로 백그라운드 — 요청은 즉시 반환(헬스체크 안 막힘)
-    threading.Thread(target=_save_and_upload_highlight, args=(meta, seconds), daemon=True).start()
-    return jsonify({'success': True, 'seconds': seconds or None})
+    threading.Thread(target=_save_and_upload_highlight, args=(meta, seconds, mode), daemon=True).start()
+    return jsonify({'success': True, 'seconds': seconds or None, 'mode': mode,
+                    'instagram': mode == 'rally' and HIGHLIGHT_CFG.get('auto_story', True) is not False})
 
 
 # ════════════════════════════════════════════════════════════════
@@ -1792,12 +1836,25 @@ def _story_clip(path, seconds):
 
 
 def _make_and_upload_story(item):
+    """태블릿 '📱 인스타 스토리' 로 고른 클립 — 스토리용 파일을 만들어 올린다(게시는 관리자 [올리기])."""
     hid = item['id']
     with _story_lock:
         _story_jobs[hid] = {'state': 'making', 'error': '', 'url': ''}
     try:
         with _story_make_lock:
             out, win = _story_clip(item['path'], item['seconds'])
+    except Exception as e:
+        logger.error(f"스토리용 영상 실패({hid}): {e}")
+        with _story_lock:
+            _story_jobs[hid] = {'state': 'failed', 'error': str(e)[:300], 'url': ''}
+        return
+    _upload_story_file(hid, out, win)
+
+
+def _upload_story_file(hid, out, win, auto_post=False):
+    """스토리용 파일을 백엔드에 올린다(POST /api/highlight/:id/story-file) — auto_post 면 백엔드가 받자마자 인스타에 올린다
+    (직전 랠리). 결과는 _story_jobs[hid](state ready · post = 백엔드 게시 상태 posting/posted/failed/'')."""
+    try:
         import requests
         api = (HIGHLIGHT_CFG.get('api_base') or 'https://api.padelsociety.co.kr').rstrip('/')
         key = HIGHLIGHT_CFG.get('upload_key') or ''
@@ -1812,7 +1869,8 @@ def _make_and_upload_story(item):
                 data={'cutStart': str(win.get('start') if win.get('start') is not None else ''),
                       'cutServe': str(win.get('serve') if win.get('serve') is not None else ''),
                       'cutDuration': str(win.get('duration') if win.get('duration') is not None else ''),
-                      'cutWhy': str(win.get('why') or '')},
+                      'cutWhy': str(win.get('why') or ''),
+                      **({'autoPost': '1'} if auto_post else {})},
                 timeout=180,
             )
         body = {}
@@ -1823,9 +1881,11 @@ def _make_and_upload_story(item):
         if not r.ok:
             raise RuntimeError(body.get('message') or f'서버가 스토리용 영상을 받지 않았어요(HTTP {r.status_code})')
         url = ((body.get('data') or {}).get('storyUrl')) or ''
+        post = str((body.get('data') or {}).get('status') or '')
         with _story_lock:
-            _story_jobs[hid] = {'state': 'ready', 'error': '', 'url': url, **win}
-        logger.info(f"☁️ 스토리용 영상 업로드 완료: {hid}")
+            _story_jobs[hid] = {'state': 'ready', 'error': '', 'url': url, 'post': post, 'auto': bool(auto_post), **win}
+        logger.info(f"☁️ 스토리용 영상 업로드 완료: {hid}"
+                    + (' · 인스타 자동 게시 ' + ('시작' if post == 'posting' else f'안 됨({post or "인스타 연결 전"})') if auto_post else ''))
     except Exception as e:
         logger.error(f"스토리용 영상 실패({hid}): {e}")
         with _story_lock:

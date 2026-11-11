@@ -64,7 +64,7 @@ const SAFE = {
   doAssignTeams: ['selectedLeague._id', 'selectedMatch._id'],  // URL 경로
   cancelScore: ['selectedLeague._id', 'selectedMatch._id'],    // URL 경로
   replayDifferentPair: ['selectedLeague._id'],                 // URL 경로
-  saveHighlight: ['seconds', 'STREAM_SERVER'],                 // 숫자 · 방송 PC 주소(textContent 줄 · URL)
+  saveHighlight: ['kind', 'label', 'STREAM_SERVER'],            // 'rally' 또는 60(버튼 onclick 상수) · 그걸로 만든 말(textContent 줄 · 토스트) · 방송 PC 주소(URL)
   renderTeamDisplay: ['badge', 'parTag(teamAPar[i])', 'parTag(teamBPar[i])', 'airHint(p, teamAAir[i])', 'airHint(p, teamBAir[i])'],
   renderScoreBoard: ["i===curSet?'active':''", 'i', 'i+1', 'tabsHtml', 'airTeamHint(teamA, teamAAir)',
     'airTeamHint(teamB, teamBAir)', 'sets[cs].a', 'sets[cs].b', 'cs'],  // 숫자 · 이스케이프하는 도우미

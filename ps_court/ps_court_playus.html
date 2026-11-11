@@ -810,7 +810,8 @@ body {
            c18(2026-10-21): 방송 중 문제(재연결 · 업로드 · 카메라 · PC 과부하 · 유튜브 경고)를 LIVE 줄에 — 서버 /health stream_health.
            c19(2026-11-01): 📱 인스타 스토리(최근 클립 → 미리보기 → 올리기 · 올리기는 관리자).
            c20(2026-11-11): [📷 카메라 다시 연결](하이라이트 레일 아래 · 서버 /camera-restart) · '카메라 화면 깨짐'이면 버튼 강조 ·
-                            '유튜브 초록 화면'(서버 송출 영상 검사)이면 같은 버튼이 [🔄 OBS 다시 켜기](/obs-restart). -->
+                            '유튜브 초록 화면'(서버 송출 영상 검사)이면 같은 버튼이 [🔄 OBS 다시 켜기](/obs-restart) ·
+                            하이라이트 [직전 랠리](앱 + 인스타 자동) · [60초](앱만) 두 개. -->
       <!--COURTBUILD:c20--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c20</div>
       <div class="step-indicator" id="step-label">STEP 1 / 4</div>
       <div class="step-dots">
@@ -891,14 +892,13 @@ body {
 
 </div>
 
-<!-- 🎬 하이라이트 — 누른 시점 직전 30초/60초/90초를 클립으로(30초는 2026-09-23 추가 — 서버는 15~300초를 받는다). 라이브가 아니어도 된다(OBS 리플레이 버퍼 상시).
-     OBS 버퍼는 90초로 설정 — 30·60초 버튼은 뒤쪽 N초만 잘라 업로드. 상태 그리기는 renderHlRail() 하나. -->
+<!-- 🎬 하이라이트 — [직전 랠리](마지막 랠리 서브 3초 전 ~ 지금 · 앱 하이라이트 + 인스타 스토리 자동) · [60초](뒤쪽 60초 · 앱 하이라이트만)
+     (c20 · 2026-11-11 — 예전 30·60·90초). 라이브가 아니어도 된다(OBS 리플레이 버퍼 상시 · 버퍼 90초). 상태 그리기는 renderHlRail() 하나. -->
 <aside class="hl-rail off" id="hl-rail">
   <div class="hl-rail-title"><span>🎬</span>하이라이트</div>
   <div class="hl-rail-sub">방금 그 장면을 클립으로.<br>라이브가 아니어도 돼요.</div>
-  <button class="hl-rail-btn" onclick="saveHighlight(30, this)">30초<small>직전 30초</small></button>
-  <button class="hl-rail-btn" onclick="saveHighlight(60, this)">60초<small>직전 1분</small></button>
-  <button class="hl-rail-btn" onclick="saveHighlight(90, this)">90초<small>직전 1분 30초</small></button>
+  <button class="hl-rail-btn" onclick="saveHighlight('rally', this)">직전 랠리<small>앱 하이라이트 + 인스타</small></button>
+  <button class="hl-rail-btn" onclick="saveHighlight(60, this)">60초<small>앱 하이라이트만</small></button>
   <button class="hl-rail-ig" onclick="openIgStory()">📱 인스타 스토리</button>
   <div class="hl-rail-state" id="hl-rail-state">📡 스트리밍 서버 확인 중...</div>
   <button class="hl-cam-btn" id="cam-restart-btn" style="display:none" onclick="restartCamera()">📷 카메라 다시 연결<small>방송이 초록·검은 화면일 때</small></button>
@@ -2468,18 +2468,24 @@ function renderHlRail(busyText) {
   }
 }
 
-// ── 하이라이트 저장 — 누른 시점 직전 N초(60/90)를 클립으로 ──
+// ── 하이라이트 저장 — [직전 랠리] · [60초] 두 개 (c20 · 2026-11-11) ──
+// 사용자: "하이라이트는 직전랠리, 60초 이 두개로만 하자. 직전랠리는 인스타에 자동으로 올라가는거랑 앱 하이라이트에서 볼 수 있는거
+// 둘다 가능하고 60초는 하이라이트에만 올라가는거고." → 'rally' = 마지막 랠리(서브 3초 전 ~ 지금)를 앱 하이라이트로 올리고 같은 영상을
+// 센터 인스타 스토리에 **자동으로**(관리자 [올리기] 없이 · 인스타 연결 전이거나 실패하면 관리자 알림) · 60 = 뒤쪽 60초를 앱 하이라이트에만.
+// 예전 30초·90초 버튼은 없앴다(서버는 옛 태블릿이 보내는 seconds 를 그대로 받는다 — 하이라이트에만).
 window._hlBusy = false;
-async function saveHighlight(seconds, btn) {
+async function saveHighlight(kind, btn) {
   if (window._hlBusy) return;
   window._hlBusy = true;
+  const rally = kind === 'rally';
+  const label = rally ? '직전 랠리' : `${kind}초`;
   const original = btn ? btn.innerHTML : '';
-  renderHlRail(`⏳ ${seconds}초 클립 저장 중...`);
+  renderHlRail(`⏳ ${label} 클립 저장 중...`);
   try {
     const res = await fetch(`${STREAM_SERVER}/highlight`, {
       method: 'POST',
       headers: streamHeaders(),
-      body: JSON.stringify({ seconds }),
+      body: JSON.stringify(rally ? { mode: 'rally' } : { seconds: kind }),
       signal: AbortSignal.timeout(8000),
     });
     const data = await res.json().catch(() => ({}));
@@ -2487,9 +2493,18 @@ async function saveHighlight(seconds, btn) {
       if (streamAuthFail(res, data)) throw Object.assign(new Error(data.error || ''), { shown: true });
       throw new Error(data.error || '저장 실패');
     }
-    renderHlRail(`✅ ${seconds}초 저장됨 — 잠시 후 앱에서 확인`);
-    showToast(`🎬 ${seconds}초 하이라이트 저장 중 — 준비되면 인스타 스토리 미리보기가 떠요`);
-    igWatchNew();
+    renderHlRail(`✅ ${label} 저장됨 — 잠시 후 앱에서 확인`);
+    if (rally && data.mode === 'rally') {
+      showToast(data.instagram === false
+        ? '🎬 직전 랠리 하이라이트 저장 중 — 앱 하이라이트에 올라가요(이 방송 PC 는 인스타 자동 올리기를 꺼 뒀어요)'
+        : '🎬 직전 랠리 저장 중 — 앱 하이라이트에 올리고 인스타 스토리에도 자동으로 올라가요');
+      if (data.instagram !== false) igWatchNew();
+    } else if (rally) {
+      // 옛 방송 서버(mode 를 모른다) — 버퍼 전체가 하이라이트로만 올라간다
+      showToast('🎬 하이라이트 저장 중 — 방송 PC 서버가 옛 버전이라 직전 랠리 자르기·인스타는 안 돼요(서버를 다시 켜 주세요)');
+    } else {
+      showToast(`🎬 ${label} 하이라이트 저장 중 — 앱 하이라이트에만 올라가요`);
+    }
   } catch (e) {
     if (!e.shown) showToast('⚠️ ' + (e.message || '하이라이트 저장 실패'));
     console.error('highlight -', e);
@@ -2574,6 +2589,14 @@ async function igWatchNew() {
     const fresh = (items || []).find((x) => !before.has(x.id));
     if (!fresh || !fresh.story || fresh.story.state === 'making' || !fresh.story.state) continue;
     if (fresh.story.state === 'failed') { showToast('⚠️ 인스타 스토리용 영상을 못 만들었어요 — ' + (fresh.story.error || '')); return; }
+    // [직전 랠리] — 서버가 받자마자 인스타에 올린다(관리자 [올리기] 없이). 미리보기를 띄우지 않고 결과만 알린다.
+    if (fresh.story.auto) {
+      const post = String(fresh.story.post || '');
+      showToast(post === 'posting' || post === 'posted'
+        ? '📱 직전 랠리를 센터 인스타 스토리에 올리는 중이에요 — 1~2분 걸려요'
+        : '📱 인스타 자동 올리기가 안 됐어요 — 관리자에게 예약앱 알림이 가요(거기서 올려요)');
+      return;
+    }
     let v = null;
     try { v = ((await psFetch(`/highlight/${encodeURIComponent(fresh.id)}/story`)) || {}).data || null; } catch (_) { return; }
     if (!v || !v.enabled || v.status === 'posted') return;          // 인스타 연결 전 · 이미 올림 — 띄우지 않는다
