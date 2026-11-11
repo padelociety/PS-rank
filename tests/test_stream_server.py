@@ -11,6 +11,8 @@ stream_server 자유 라이브 규칙 — OBS·YouTube 없이 돈다(둘 다 가
   · 시간이 지나면 워치독 한 바퀴가 방송을 끈다(태블릿 없이).
   · 자유 라이브 중 🎬 하이라이트 메타 제목이 자유 라이브 제목이다.
   · (2026-10-19) 방송을 바꾸는 요청은 이 PC 직접 요청이거나 운영자 토큰이어야 한다(터널·LAN·다른 출처 → 401/403/503).
+  · (2026-11-09) 운영자 토큰은 **이 방송 PC 의 센터**로 본다(백엔드 /api/stream/operator-check) — 다른 센터 관리자는 403 ·
+    옛 백엔드(404)면 myProfile 역할(기본에 center_admin 없음).
 """
 import io
 import json
@@ -60,6 +62,12 @@ class FakeOBS:
     def start_replay_buffer(self): pass
     def ensure_replay_buffer(self): return True
     def save_replay_buffer(self): return ''
+    # 방송 화면 검사(2026-11-01) — 기본은 카메라 없음 · 못 찍음(test_camera_frame.py 가 바꿔 끼운다)
+    def camera_sources(self): return []
+    def program_scene(self): return ''
+    def frame_pixels(self, source, width=32, height=18): return None
+    def restart_camera(self, name): return True
+    def set_hw_decode(self, name, on): return True
 
 
 class FakeYT:
@@ -169,7 +177,7 @@ def main():
 
     # 4) 🎬 메타 — 자유 라이브 제목
     captured = {}
-    ss._save_and_upload_highlight = lambda meta, seconds=0: captured.update(meta)
+    ss._save_and_upload_highlight = lambda meta, seconds=0, mode='seconds': captured.update(meta)
     r = c.post('/highlight', json={'seconds': 60})
     import time; time.sleep(0.2)
     check(r.get_json()['success'] and 'Padel Society 라이브' in captured.get('title', ''), '하이라이트 메타 제목 = 자유 라이브 제목')
@@ -527,20 +535,31 @@ def main():
     check(len(made) == 2 and made[0] != made[1] and all('bcastX' in m for m in made), '썸네일 파일 이름이 부를 때마다 다르다', str(made))
 
     # 19) 운영자 확인 (2026-10-19) — obs.padelsociety.co.kr 터널은 127.0.0.1 로 들어오지만 X-Real-IP 를 단다.
-    #   예전엔 인증이 없어 인터넷의 누구나 방송을 켜고 끌 수 있었다. 백엔드 확인(_fetch_profile_role)은 가짜로.
+    #   예전엔 인증이 없어 인터넷의 누구나 방송을 켜고 끌 수 있었다. 백엔드 확인(_fetch_operator_verdict)은 가짜로.
+    #   (2026-11-09) 역할이 아니라 **센터**로 본다 — 백엔드 /api/stream/operator-check 가 ok 를 준 토큰만. 옛 백엔드(404 → 'old')면 myProfile 역할.
     for _ in range(3):
         c.post('/stop-stream')
     calls = []
-    verdict = {'tok-op': ('ok', 'league_operator'), 'tok-admin': ('ok', 'center_admin'),
-               'tok-user': ('ok', 'user'), 'tok-bad': ('invalid', '')}
+    other_msg = '이 계정은 다른 센터 계정이라 이 방송 PC 를 조작할 수 없어요 — 이 센터 운영자 계정으로 ⚙ 설정에서 다시 로그인해 주세요.'
+    verdict = {'tok-op': ('ok', 'operator'), 'tok-admin': ('ok', 'center_admin'),
+               'tok-other': ('forbidden', other_msg), 'tok-user': ('forbidden', ''), 'tok-bad': ('invalid', '')}
     down = {'on': False}
     def fake_verify(token):
         calls.append(token)
         if down['on']:
             return ('down', 'timeout')
+        if token.startswith('old-'):
+            return ('old', '')
         return verdict.get(token, ('invalid', ''))
-    real_verify = ss._fetch_profile_role
-    ss._fetch_profile_role = fake_verify
+    profile_calls = []
+    old_roles = {'old-op': 'league_operator', 'old-sa': 'super_admin', 'old-admin': 'center_admin', 'old-user': 'user'}
+    def fake_profile(token):
+        profile_calls.append(token)
+        return ('ok', old_roles.get(token, 'user'))
+    real_verify = ss._fetch_operator_verdict
+    real_profile = ss._fetch_profile_role
+    ss._fetch_operator_verdict = fake_verify
+    ss._fetch_profile_role = fake_profile
     ss._auth_cache.clear()
     TUN = {'X-Real-IP': '203.0.113.9', 'X-Forwarded-For': '203.0.113.9'}
     def bearer(t, extra=None):
@@ -582,7 +601,12 @@ def main():
         check(r.status_code == 200 and not ss.stream_state['active'], '같은 토큰으로 끄기')
         check(calls.count('tok-op') == 1, '통과한 토큰은 10분 동안 다시 안 묻는다(캐시)', str(calls))
         check('tok-op' not in ''.join(ss._auth_cache.keys()), '캐시 키는 토큰 원문이 아니라 해시')
-        check(c.post('/stop-stream', headers=bearer('tok-admin')).status_code == 200, '센터 관리자도 통과')
+        check(c.post('/stop-stream', headers=bearer('tok-admin')).status_code == 200, '이 센터(본점) 관리자도 통과')
+        r = c.post('/stop-stream', headers=bearer('tok-other'))
+        j = r.get_json()
+        check(r.status_code == 403 and j['auth'] == 'forbidden' and j['error'] == other_msg,
+              '다른 센터 관리자·태블릿 → 403 + 백엔드 문장 그대로(예전엔 역할만 봐서 통과 — S4-04)', str(j))
+        check(profile_calls == [], '새 백엔드면 myProfile 역할을 묻지 않는다', str(profile_calls))
 
         r = c.post('/stop-stream', headers=bearer('tok-user'))
         j = r.get_json()
@@ -644,6 +668,18 @@ def main():
               '회수된 뒤엔 백엔드가 끊겨도 옛 통과 기록으로 들이지 않는다')
         down['on'] = False
 
+        # 옛 백엔드(확인 주소 없음 404 → 'old') — myProfile 역할로 떨어진다 · 기본 역할에 center_admin 이 없다(센터를 못 가린다)
+        check(ss.CONTROL_ROLES == frozenset(['league_operator', 'super_admin']), '옛 길 기본 역할 = league_operator · super_admin', str(ss.CONTROL_ROLES))
+        ss._old_backend_warned[0] = False
+        check(c.post('/stop-stream', headers=bearer('old-op')).status_code == 200, '옛 백엔드 — 태블릿 계정 역할이면 통과')
+        check(ss._old_backend_warned[0] is True, '옛 백엔드면 로그에 한 번 알린다')
+        check(c.post('/stop-stream', headers=bearer('old-sa')).status_code == 200, '옛 백엔드 — 슈퍼어드민 통과')
+        r = c.post('/stop-stream', headers=bearer('old-admin'))
+        check(r.status_code == 403 and r.get_json()['error'] == ss.AUTH_FORBIDDEN_MSG,
+              '옛 백엔드 — center_admin 은 기본 역할에서 빠져 403', str(r.get_json()))
+        check(c.post('/stop-stream', headers=bearer('old-user')).status_code == 403, '옛 백엔드 — 일반 회원 403')
+        check(profile_calls == ['old-op', 'old-sa', 'old-admin', 'old-user'], '옛 길에서만 myProfile 을 묻는다', str(profile_calls))
+
         # CORS — 허용 출처만, 미리 묻기(preflight)에 Authorization 이 들어간다
         r = c.open('/start-stream', method='OPTIONS', headers={
             'Origin': 'https://padelociety.github.io', 'Access-Control-Request-Method': 'POST',
@@ -662,7 +698,8 @@ def main():
         check(c.post('/stop-stream', headers=TUN).status_code == 200, 'control_auth.enabled=false 면 확인하지 않는다')
         ss.CONTROL_AUTH_ENABLED = True
     finally:
-        ss._fetch_profile_role = real_verify
+        ss._fetch_operator_verdict = real_verify
+        ss._fetch_profile_role = real_profile
         ss.CONTROL_AUTH_ENABLED = True
         ss._auth_cache.clear()
 
@@ -696,6 +733,39 @@ def main():
         check(ss._fetch_profile_role('T1')[0] == 'down', 'HTTP 502 → down(못 물어봤다)')
         _ur.urlopen = lambda *a, **k: (_ for _ in ()).throw(OSError('offline'))
         check(ss._fetch_profile_role('T1')[0] == 'down', '네트워크 오류 → down')
+
+        # 센터 대조 주소(2026-11-09) — GET {api_base}/api/stream/operator-check[?centerId=…]
+        ok_body = json.dumps({'isSuccess': True, 'data': {'ok': True, 'reason': 'operator', 'message': 'x'}}).encode()
+        _ur.urlopen = opener(ok_body)
+        check(ss._fetch_operator_verdict('T1') == ('ok', 'operator'), 'data.ok=true → ok(통과 이유)')
+        check(seen_req['url'].endswith('/api/stream/operator-check') and seen_req['auth'] == 'Bearer T1' and seen_req['timeout'] == 5,
+              'center_id 를 비우면 센터 없이 묻는다(= 본점) · Bearer · 5초', str(seen_req))
+        real_center = ss.CONTROL_CENTER_ID
+        ss.CONTROL_CENTER_ID = '64e000000000000000000002'
+        try:
+            ss._fetch_operator_verdict('T1')
+            check(seen_req['url'].endswith('/api/stream/operator-check?centerId=64e000000000000000000002'),
+                  'center_id 를 적으면 그 센터로 묻는다', seen_req['url'])
+        finally:
+            ss.CONTROL_CENTER_ID = real_center
+        _ur.urlopen = opener(json.dumps({'isSuccess': True, 'data': {'ok': False, 'reason': 'other_center',
+                                                                     'message': '다른 센터 계정이에요'}}).encode())
+        check(ss._fetch_operator_verdict('T1') == ('forbidden', '다른 센터 계정이에요'), 'data.ok=false → forbidden + 서버 문장')
+        _ur.urlopen = opener(json.dumps({'isSuccess': True, 'data': {}}).encode())
+        check(ss._fetch_operator_verdict('T1') == ('forbidden', ''), 'ok 가 없으면 거절(닫힌 채로)')
+        _ur.urlopen = opener(json.dumps({'isSuccess': False}).encode())
+        check(ss._fetch_operator_verdict('T1')[0] == 'invalid', 'isSuccess=false → invalid')
+        _ur.urlopen = opener(code=404)
+        check(ss._fetch_operator_verdict('T1') == ('old', ''), 'HTTP 404 → old(옛 백엔드 — myProfile 역할로 떨어진다)')
+        for code in (401, 403, 433):
+            _ur.urlopen = opener(code=code)
+            check(ss._fetch_operator_verdict('T1')[0] == 'invalid', f'확인 주소 HTTP {code} → invalid')
+        _ur.urlopen = opener(code=422)
+        check(ss._fetch_operator_verdict('T1') == ('forbidden', ss.AUTH_CENTER_CFG_MSG), 'HTTP 422 → center_id 설정 오타 안내')
+        _ur.urlopen = opener(code=502)
+        check(ss._fetch_operator_verdict('T1')[0] == 'down', '확인 주소 HTTP 502 → down')
+        _ur.urlopen = lambda *a, **k: (_ for _ in ()).throw(OSError('offline'))
+        check(ss._fetch_operator_verdict('T1')[0] == 'down', '확인 주소 네트워크 오류 → down')
     finally:
         _ur.urlopen = real_open
 

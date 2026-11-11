@@ -7,7 +7,7 @@ Padel Society 코트 장비 코드.
 | `ps_court/ps_court_playus.html` | **리그앱**(코트 태블릿) — 매치 선택 → 등급(PAR) 반영 → 팀 배정 → 점수 → 라이브 · 🎬 하이라이트 · **자유 라이브** | OBS PC 의 `stream_server.py` 가 시작할 때 이 repo `main` 의 raw 를 받아 서빙 (`https://obs.padelsociety.co.kr`) |
 | `stream_server.py` · `obs_controller.py` · `youtube_api.py` | OBS PC 자동 스트리밍 서버 — 유튜브 방송 생성 · OBS 송출 · 리플레이 버퍼 → 하이라이트 업로드 | OBS PC `C:\dev\PS-rank` (예약 작업 `PS-StreamServer`, `setup/run_stream_server.ps1`) |
 | `setup/` | OBS PC 설치·점검 스크립트 | OBS PC |
-| `padel_app/` · `padel_live_ranking.html` | 공개 순위 표시 | GitHub Pages |
+| `padel_app/` · `padel_live_ranking.html` | **내렸다**(2026-11-10) — 구글 시트 시절 공개 순위. 지금은 '앱으로 옮겼어요' 안내 한 장(스크립트 없음) · 옛 PWA 서비스워커는 스스로 등록을 푼다 | GitHub Pages |
 
 ⚠️ 이 repo 는 모노repo `padelociety/playus` 의 `ps-rank/` 에 **거울**이 있다. 배포 원본은 **여기**다 —
 OBS PC 가 여기서 pull 한다. 고치면 양쪽을 같게 맞출 것(2026-09 에 양방향으로 갈라진 적이 있다).
@@ -107,6 +107,7 @@ OBS PC 가 여기서 pull 한다. 고치면 양쪽을 같게 맞출 것(2026-09 
 - **바꾸는 요청은 운영자 로그인을 확인한다** — `/start-stream` · `/stop-stream` · `/void-video` · `/highlight`.
   태블릿이 운영자 토큰을 `Authorization: Bearer` 로 보내고(`streamHeaders`), 서버가 Playus 백엔드 `/api/user/myProfile` 에
   물어 역할(`league_operator` · `super_admin` · `center_admin`)을 본다. 통과는 10분, 거절은 30초 기억한다(토큰 해시로).
+  ⚠️ 2026-11-09 부터는 역할이 아니라 **센터**로 본다(`/api/stream/operator-check` — 아래 '방송 PC 는 그 센터 사람만' 절).
   백엔드가 안 닿으면 12시간 안에 통과했던 토큰만 들인다(경기장 인터넷 끊김). 막히면 태블릿이 서버 말을 그대로 띄우고 401 이면 ⚙ 설정을 연다.
 - ⚠️ **이제 태블릿이 운영자로 로그인돼 있어야** 자유 라이브·🎬 하이라이트·리그 방송 켜고 끄기·[무효] 가 된다(예전엔 로그인 없이도 됐다).
   **이 PC 에서 직접 연 페이지**(127.0.0.1 · 프록시 머리 없음)만 토큰 없이 통과한다.
@@ -115,6 +116,15 @@ OBS PC 가 여기서 pull 한다. 고치면 양쪽을 같게 맞출 것(2026-09 
 - 썸네일 선수 사진은 우리 API 호스트(`https` · api / dev.api.padelsociety.co.kr)에서만, 8MB 까지 받는다(`thumbnail.photo_hosts` 로 바꾼다).
 - 태블릿(`ps_court_playus.html` · 옛 `ps_court.html`)의 이름·리그·카테고리·서버 문장을 전부 이스케이프해서 그린다(`psEsc`) — 회원이 이름이나
   리그 이름에 HTML 을 넣으면 태블릿에서 그대로 돌아 운영자 토큰을 빼 갈 수 있었다. 테스트 `tests/xss_escape.test.cjs`.
+- **공개 순위 페이지 두 장**(`padel_live_ranking.html` · `padel_app/padel_app.html`)은 **내렸다**(2026-11-10 대표 결정 25 · 검토 S4-01) —
+  태블릿·PS Control 과 **같은 출처**(github.io/PS-rank)인데 구글 시트를 무료 CORS 프록시로 받아 그려서, 프록시가 오염되면 `lg_token`·`ps_token` 을
+  빼 갈 길이었다(11-09 에 이스케이프로 반쯤 막았다). 이제 스크립트·프록시가 없는 안내 한 장이다 — 순위는 Playus 앱 리그 상세 '순위' 탭.
+  ⚠️ 이 두 주소에 스크립트·외부 데이터를 다시 넣지 말 것(테스트 ⑧ 가 막는다).
+- ⚠️ **`onclick` 같은 `on*` 속성 안 JS 에 시트·서버 값을 끼워 넣지 않는다** — 브라우저가 속성 값의 `&#39;` 를 `'` 로 되돌린 뒤 JS 로 읽어서
+  `psEsc` 로도 못 막는다. 요소를 만든 뒤 `.onclick = () => f(원래 값)` 클로저로 붙인다(📈 시뮬레이션 버튼 · 테스트 ⑧ 가 그 모양을 막는다).
+- 운영이 끝난 `thingproxy.freeboard.io` 를 시트 프록시에서 뺐다(도메인을 넘겨받은 사람이 CSV 를 지어낸다) — 옛 태블릿
+  `ps_court.html`(테스트 ⑦ — 순위 두 장은 내렸다). 남은 셋(codetabs → corsproxy → allorigins · 순서·재시도 그대로)도 남의 서버라 순위 숫자는 지어낼 수 있다
+  (스크립트는 못 돈다) — 시트를 직접 받거나 백엔드를 거치게 하는 건 **남은 일**.
 - 아메리카노 보드는 새 창이 이 태블릿을 되잡지 못하게 연다(`w.opener = null`).
 - ⚠️ **python 이 바뀌었다 — `stream_server` 재시작이 필요하다. 방송 중엔 하지 말 것.** 설정 키는 `streaming_config.json.example`
   (`control_auth` · `cors_origins` · `thumbnail.photo_hosts`) — 안 적으면 기본값으로 켜진다.
@@ -139,6 +149,63 @@ OBS PC 가 여기서 pull 한다. 고치면 양쪽을 같게 맞출 것(2026-09 
 - ⚠️ **python 이 바뀌었다 — `stream_server` 재시작이 필요하다. 방송 중엔 하지 말 것.** 태블릿은 재시작 때 c18 을 받는다.
   이미 열려 있는 방송은 예전 설정(ultraLow · 자동 종료) 그대로다 — 다음 방송부터 바뀐다.
 - 테스트 `tests/test_stream_stability.py` · `tests/stream_handover.test.cjs` ⑥-2.
+
+## 유튜브 초록 화면 — 송출 영상 검사 · OBS 다시 켜기 (2026-11-11 · 태블릿 c21 · SW v55)
+
+*"obs 미리보기 화면은 유투브 초록화면 나와도 원래 정상이야"* · *"라이브 시작할때 초록색 … 계속 새로운 라이브도 초록색"* → OBS 만 다시 켜자
+풀렸다. 원인은 카메라가 아니라 **인코더**(그때 방송·녹화 둘 다 QuickSync). OBS 스크린샷은 인코더 앞이라 못 본다.
+- 인코딩 점검 `hw_double` — 방송·녹화 인코더가 같은 그래픽 인코더(QSV·NVENC·AMD)면 맨 앞에 '유튜브 초록 화면 의심 1순위 → 녹화 인코더
+  (스트리밍 인코더 사용)'. 카메라 하드웨어 디코딩은 더 권하지 않는다.
+- **송출 영상 검사**(`_output_tick` · `stream_health.output_verdict`) — 녹화 = 스트리밍 인코더일 때 방송 45초 뒤·5분마다 리플레이 버퍼를 저장해
+  끝쪽 키프레임을 풀어 본다. 두 번 연속 한 가지 색이고 OBS 화면은 정상이면 **OBS 를 다시 켜고 같은 유튜브 방송으로 이어 보낸다**(방송 하나에 한 번).
+  상태 줄 `⚠️ 유튜브 초록 화면` · `/health` `output_check` · config `output_check.{enabled, auto_restart, every_s}` · `obs.obs_task`.
+- **`POST /obs-restart`**(운영자) — taskkill → `PS-OBS-Studio` 작업 → 웹소켓 → 같은 키로 송출. 태블릿 레일 버튼이 'output' 일 때 [🔄 OBS 다시 켜기].
+- 카메라를 다시 여는 곳은 `obs_controller._restart_media` 하나 · 켜기 전 카메라 새로 고침 뒤 화면 검사(`_fix_uniform_cameras`).
+- ⚠️ **python 변경 — stream_server 재시작 필요(방송 중 금지).** 테스트 `tests/test_output_check.py` · `test_camera_refresh.py` ⑦⑧.
+
+## (옛) 초록 화면 — 방송 화면 검사 · 카메라 다시 연결 (2026-11-01)
+
+신고 *"유투브 또 이러네ㅜㅜ 나 외부여서 가서 고치지도 못하는데"* — 유튜브엔 초록 화면만 나가는데 `/health` 숫자는 전부 정상이었다
+(카메라 영상을 푸는 하드웨어 디코더가 빈 프레임을 냈다 — 송출 숫자·카메라 '재생 중' 으로는 안 보인다).
+
+- **방송 중 20초마다 화면을 찍는다**(`stream_health.frame_verdict` · `obs_controller.frame_pixels` — 32x18 스크린샷) — 카메라가
+  두 번 연속 한 가지 색이면 **다시 열고**, 네 번째면 **하드웨어 디코딩을 끈다**(`camera_frame_step`). 카메라가 멀쩡한데 방송 장면만
+  단색이면 알리기만 한다. 상태 줄 `⚠️ 카메라 화면 깨짐` · `/health` `camera_frame` · 로그 `📷`.
+- **`POST /camera-restart`**(운영자 토큰) — 다시 열고 4초 뒤 확인 · 그래도 단색이면 하드웨어 디코딩 끄고 다시 확인 → `{ok, text, sources}` ·
+  `{hwDecodeOff:true}` 면 바로 끈다. 태블릿 **[📷 카메라 다시 연결]**(하이라이트 레일 아래) · 밖에선 폰으로 `https://obs.padelsociety.co.kr`.
+- 인코딩 점검이 더는 '카메라 하드웨어 디코딩 켜기' 를 권하지 않는다(10-24 에 권했다 — 켠 뒤 초록 화면).
+- ⚠️ **python 변경 — stream_server 재시작 필요(방송 중 금지).** 테스트 `tests/test_camera_frame.py`. 사람이 할 일은
+  `setup/SETUP_LIVESTREAM_PC.md` 8절 '유튜브에 초록 화면만 나간다'.
+
+## 방송 PC 는 그 센터 사람만 — 센터 대조 (2026-11-09 · 방송 서버만 · 태블릿 그대로)
+
+검토(S4-04 · B1-06): 운영자 확인이 myProfile 의 **역할만** 봐서 **어느 센터의 `center_admin` 이든**(가맹·비가맹 · 권한 0개 부관리자 포함)
+본점 유튜브 방송을 켜고·끄고·아무 영상에나 [무효] 를 붙일 수 있었다. 대표 결정: 방송 PC 는 **본점 관리자 · 그 센터에 묶인 코트 태블릿 계정 · 슈퍼어드민만**.
+
+- 서버가 Playus 백엔드 **`GET /api/stream/operator-check[?centerId=…]`** 에 묻는다 → `data.ok`(늘 200 · 거절 문장은 `data.message` 그대로 태블릿에 뜬다 — 403).
+  판정은 백엔드 `utils/operatorScope.streamOperatorVerdict` 하나: 슈퍼어드민 ∨ 그 센터에 묶인 `league_operator`(`Users.operatorCenterIds` · 비어 있으면 본점) ∨
+  그 센터 관리자(메인 · 부관리자 content · centerAdminFor).
+- `config.json` `control_auth.center_id` = 이 방송 PC 의 센터 id — **김포본점 id 를 적어 둔다**. 비우면 백엔드의 본점 설정(서버 .env `HQ_CENTER_ID` ·
+  없으면 `PUBLIC_BOOKING_CENTER_ID`)을 쓴다 — ⚠️ 어스센터(`isDefault` — 코트 0 개 가상 센터)가 **아니다**. 비어 있으면 시작 로그에 ⚠️, 모양이 틀리면 ❌ · 확인은 전부 403.
+- ⚠️ **배포 순서**: ① 백엔드 서버 .env 에 `HQ_CENTER_ID=<김포본점 id>` ② 코트 태블릿 계정을 김포에 묶기(`node scripts/operator_centers.js` 로 먼저 점검 →
+  `--email pscourt@padelsociety.co.kr --set <김포본점 id> --apply`) ③ 백엔드 배포 ④ 이 PC `config.json` 에 `center_id` 를 적고 **방송이 없을 때** stream_server 재시작.
+  ①② 없이 ③ 을 하면 그 순간 공용 태블릿 계정이 김포 리그를 잃는다(백엔드 판정). ④ 는 ③ 뒤 — 새 stream_server 가 옛 백엔드를 만나면
+  옛 역할 규칙(`center_admin` 빼고)으로 돈다.
+- 통과 10분 · 거절 30초 · 백엔드가 안 닿으면 12시간 안에 통과했던 토큰만 — 예전 그대로. 그래서 계정의 센터를 바꾸면 **길게는 10분 뒤**에 따라온다.
+- **옛 백엔드**(그 주소가 없어 404)면 예전 myProfile 역할로 본다 — 그때 기본 역할은 `league_operator` · `super_admin`(**`center_admin` 은 뺐다** — 센터를 못 가린다).
+  `control_auth.roles` 는 이제 이 옛 길에만 쓴다. 백엔드를 먼저 배포하면 이 길은 안 탄다.
+- ⚠️ **python 변경 — stream_server 재시작 필요(방송 중 금지).** 테스트 `tests/test_stream_server.py` ⑲ ⑳.
+
+## 의존성 보안 경보 — Dependabot (2026-11-09 · 대표 결정 #19)
+
+`.github/dependabot.yml` — `requirements.txt`(pip)의 **보안 업데이트만** 받는다(일반 버전 업데이트는 끔 · 보안 PR 은 하나로 묶음).
+- ⚠️ 켜는 건 저장소 설정이다: GitHub › Settings › Code security 에서 **Dependency graph · Dependabot alerts · Dependabot security updates** 를 켠다.
+  이 파일은 **main** 에 있어야 읽힌다.
+- 보안 PR 을 머지해도 방송 PC 는 그대로다 — **방송이 없을 때** 아래 '새 버전 올리기' 다음에 `.venv\Scripts\pip install -r requirements.txt` 를 한 번 더 하고 재시작한다.
+- `requirements.txt` 는 `>=` 범위라 다시 깔 때마다 다른 판이 들어온다 — 해시 잠금(`pip-compile --generate-hashes`)은 다음 일(검토 S7-08 (4)).
+- 모노repo `playus/ps-rank/` 사본은 PR 을 열지 않는다 — 여기서 고친 뒤 그리로 되복사한다.
+- ⚠️ **'주 1회' 가 아니다** — 보안 PR 은 취약점 권고가 나올 때마다 열린다(하나로 묶임 · 열린 보안 PR 한도는 GitHub 이 정한 10).
+  파일의 '월 09:00' 은 일반 버전 업데이트의 주기라 지금은 쓰이지 않는다 — 일반 업데이트도 주 1회 받으려면 `open-pull-requests-limit` 을 0 → 3.
 
 ## OBS PC 에 새 버전 올리기
 

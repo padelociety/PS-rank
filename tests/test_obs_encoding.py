@@ -5,7 +5,8 @@ OBS 인코딩 점검 (2026-10-24 — *"라이브 인코딩 문제 아직도 계�
 
 'PC 과부하(인코딩 밀림)' 는 c18 부터 알려 줬지만 **왜** 밀리는지는 아무도 안 봤다. 여기서 못 박는 것:
   ① stream_health.encoding_advice — OBS 설정 → 고칠 칸(큰 것부터): x264 · 녹화 인코더 따로(인코딩 두 번) · FPS 60 ·
-     해상도 · 란초스 · 무거운 NVENC/QSV/AMD 프리셋 · 카메라 소프트웨어 디코딩. 권장값이면 [] · 못 읽은 칸은 판정 안 함.
+     해상도 · 란초스 · 무거운 NVENC/QSV/AMD 프리셋. 권장값이면 [] · 못 읽은 칸은 판정 안 함.
+     ⚠️ 카메라 '하드웨어 디코딩 켜기' 는 더 권하지 않는다(2026-11-01 — 켠 뒤 초록 화면이 나갔다 · test_camera_frame.py).
   ② encoding_summary 한 줄.
   ③ evaluate(advice=) — '인코딩 밀림'·'화면 밀림' 문장 끝에 가장 큰 칸 하나('고칠 것: …') · 권장값이면 'PC 성능 한계' ·
      설정을 못 읽었으면(None) 아무것도 안 붙인다 · 다른 문제(업로드)엔 안 붙인다.
@@ -86,9 +87,12 @@ check('medium' in a[1]['text'] and 'veryfast' in a[1]['text'], "프리셋 'mediu
 check(keys(sh.encoding_advice(cfg(encoder='obs_x264', enc={'preset': 'veryfast'}))) == ['x264'],
       'x264 veryfast 이하면 프리셋은 안 말한다(인코더만)')
 
-a = sh.encoding_advice(cfg(rec_encoder='jim_nvenc'))
+a = sh.encoding_advice(cfg(rec_encoder='obs_x264'))
 check(keys(a) == ['double_encode'] and "(방송 인코더 사용)" in a[0]['text'],
       "고급 모드 녹화 인코더가 따로면 → '(방송 인코더 사용)'(리플레이 버퍼가 늘 켜져 방송 중 인코딩 두 번)", a)
+a = sh.encoding_advice(cfg(rec_encoder='jim_nvenc'))
+check(keys(a) == ['hw_double'] and "(스트리밍 인코더 사용)" in a[0]['text'] and a[0].get('green'),
+      "같은 그래픽 인코더 둘(NVENC+NVENC)이면 → hw_double(유튜브 초록 화면 의심 · 2026-11-11)", a)
 check(sh.encoding_advice(cfg(rec_encoder='')) == [] and sh.encoding_advice(cfg(rec_encoder='none')) == [],
       "녹화 인코더 'none'(방송 인코더 사용)·빈 값이면 괜찮다")
 check(keys(sh.encoding_advice({'mode': 'Simple', 'encoder': 'nvenc', 'rec_quality': 'Small'})) == ['double_encode'],
@@ -117,13 +121,12 @@ check(keys(sh.encoding_advice(cfg(encoder='h264_texture_amf', enc={'preset': 'qu
       "AMD '품질' → '균형'")
 
 a = sh.encoding_advice(cfg(sw_decode_cameras=['코트 카메라']))
-check(keys(a) == ['camera_decode'] and '코트 카메라' in a[0]['text'] and '하드웨어' in a[0]['text'],
-      "카메라 소스가 소프트웨어 디코딩이면 → '가능한 경우 하드웨어 디코딩 사용'", a)
+check(a == [], "카메라가 소프트웨어 디코딩이어도 '하드웨어 디코딩 켜기' 를 권하지 않는다(2026-11-01 초록 화면)", a)
 
 a = sh.encoding_advice({'mode': 'Advanced', 'encoder': 'obs_x264', 'rec_encoder': 'obs_x264', 'fps': 60,
                         'base': [1920, 1080], 'output': [1920, 1080], 'enc': {'preset': 'fast'},
                         'sw_decode_cameras': ['캠']})
-check(keys(a) == ['x264', 'x264_preset', 'double_encode', 'fps', 'camera_decode'], '여럿이면 효과가 큰 순서', keys(a))
+check(keys(a) == ['x264', 'x264_preset', 'double_encode', 'fps'], '여럿이면 효과가 큰 순서', keys(a))
 
 # ═══════════════════════════════════════════════════════════════
 print('\n[②] 한 줄 요약')
@@ -242,7 +245,7 @@ check(r['enc'] == {'preset2': 'p7', 'multipass': 'fullres', 'lookahead': True, '
 check(r['sw_decode_cameras'] == ['코트 카메라'], '카메라 중 하드웨어 디코딩을 안 켠 것만(로컬 파일은 안 본다)', r['sw_decode_cameras'])
 check(c.client.sets == [], '읽기만 한다(설정을 바꾸지 않는다)', c.client.sets)
 adv = sh.encoding_advice(r)
-check(keys(adv) == ['double_encode', 'fps', 'preset', 'camera_decode'], '읽은 설정 → 고칠 칸 넷', keys(adv))
+check(keys(adv) == ['hw_double', 'fps', 'preset'], '읽은 설정 → 고칠 칸 셋(카메라 디코딩은 안 권한다)', keys(adv))
 
 # 프로필 폴더 찾기
 os.remove(os.path.join(root, 'user.ini'))

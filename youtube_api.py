@@ -329,6 +329,25 @@ class YouTubeAPI:
                 logger.warning(f"YouTube 스트림 건강 확인 실패(무시): {e}")
                 return None
 
+    def ingest_of(self, broadcast_id: str) -> tuple:
+        """이 방송 스트림의 (RTMP 주소, 스트림 키) — OBS 를 다시 켠 뒤 같은 방송으로 이어 보내려고(2026-11-11).
+        서버가 재시작돼 메모리에 키가 없을 때만 묻는다. 못 읽으면 ('', ''). **예외를 던지지 않는다 · 키를 로그에 남기지 않는다.**"""
+        with self._lock:
+            if not broadcast_id:
+                return '', ''
+            try:
+                self._ensure_auth(interactive=False)
+                sid = self._stream_id_of(broadcast_id)
+                if not sid:
+                    return '', ''
+                res = self.youtube.liveStreams().list(part='cdn', id=sid).execute()
+                items = res.get('items') or []
+                info = ((items[0].get('cdn') or {}).get('ingestionInfo') or {}) if items else {}
+                return str(info.get('ingestionAddress') or ''), str(info.get('streamName') or '')
+            except Exception as e:
+                logger.warning(f"YouTube 스트림 주소 확인 실패(무시): {e}")
+                return '', ''
+
     # ── 제목·설명 바꾸기 ──────────────────────────────────────────
     def update_snippet(self, video_id: str, title: str, description: str) -> bool:
         """진행 중인 방송의 제목·설명을 바꾼다. **예외를 던지지 않는다.**

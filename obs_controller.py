@@ -57,6 +57,10 @@ class OBSController:
         self.camera_refresh_on_start = obs_cfg.get('camera_refresh_on_start', True) is not False
         # /health 가 보여 줄 마지막 카메라 새로 고침 결과.
         self.camera_refresh_status = None
+        # OBS 를 껐다 켜는 길(2026-11-11 — 인코더가 초록으로 굳으면 OBS 를 다시 켜야 풀렸다 · restart_obs_process).
+        #   obs_task : OBS 를 띄우는 작업 스케줄러 이름(SETUP 3절 — 리플레이 버퍼까지 켜서 뜬다).
+        self.obs_task = str(obs_cfg.get('obs_task') or 'PS-OBS-Studio')
+        self.obs_restart_status = None
         self.client = None
         # OBS WebSocket(ReqClient)은 스레드 안전하지 않음 — 키프알라이브 스레드와
         # 하이라이트 요청이 동시에 접근하면 응답이 꼬여 엉뚱한 예외가 남(예: 버퍼가
@@ -409,7 +413,7 @@ class OBSController:
     def refresh_cameras(self, wait_s: float = None):
         """네트워크 카메라 소스를 다시 시작하고 영상이 다시 들어올 때까지(최대 wait_s) 기다린다.
         **예외를 던지지 않는다** — 새로 고침을 못 해도 방송은 켠다(소리가 밀린 방송이 안 켜진 방송보다 낫다)."""
-        status = {'restarted': [], 'ready': [], 'error': '', 'seconds': 0.0}
+        status = {'restarted': [], 'ready': [], 'error': '', 'seconds': 0.0, 'frame': []}
         if not self.camera_refresh_on_start:
             status['error'] = '꺼 둠(camera_refresh_on_start: false)'
             self.camera_refresh_status = status
@@ -426,11 +430,11 @@ class OBSController:
             if not cams:
                 status['error'] = '네트워크 카메라 소스를 못 찾음'
             for name in cams:
-                try:
-                    self.client.trigger_media_input_action(name, self.CAMERA_RESTART_ACTION)
+                err = self._restart_media(name)
+                if err:
+                    status['error'] = f"'{name}' 다시 시작 실패: {err}"
+                else:
                     status['restarted'].append(name)
-                except Exception as e:
-                    status['error'] = f"'{name}' 다시 시작 실패: {e}"
         # 영상이 다시 들어오길 기다린다 — 잠금을 놓고 짧게 묻는다(키프알라이브·하이라이트를 막지 않게).
         pending = list(status['restarted'])
         deadline = t0 + max(0.0, wait_s)
@@ -448,13 +452,72 @@ class OBSController:
                     status['ready'].append(name)
         if pending and not status['error']:
             status['error'] = f"{wait_s:.0f}초 안에 영상이 다시 안 들어옴: {', '.join(pending)}"
+        # 다시 연 카메라가 한 가지 색(초록·검정)이면 방송을 켜기 전에 고친다(2026-11-11 "또 유투브 초록화면이야").
+        status['frame'] = self._fix_uniform_cameras(status['ready'])
         status['seconds'] = round(time.time() - t0, 1)
         if status['restarted']:
             logger.info(f"📷 카메라 새로 고침: {', '.join(status['restarted'])} ({status['seconds']}초)")
+        for f in status['frame']:
+            (logger.info if f['after'] == '' else logger.warning)(
+                f"📷 켜기 전 화면 검사: {f['name']} — {f['label']} → "
+                + ('하드웨어 디코딩 끔' if f['action'] == 'hw_off' else '다시 열기' if f['action'] == 'restart' else '고치지 못함')
+                + (f" → {f['after'] or '정상'}" if f['checked'] else ''))
         if status['error']:
             logger.warning(f"⚠️ 카메라 새로 고침 — {status['error']}")
         self.camera_refresh_status = status
         return status
+
+    # 켜기 전 화면 검사 — 다시 연 직후 첫 화면이 잠깐 비는 것은 넘기려고 한 번 쉬고, 두 번 연속 단색일 때만 손댄다.
+    CAMERA_FRAME_SETTLE_S = 1.5
+    CAMERA_FRAME_RECHECK_S = 1.0
+    CAMERA_FIX_SETTLE_S = 4.0
+
+    def _uniform_verdicts(self, names):
+        import stream_health
+        out = {}
+        for name in names:
+            v = stream_health.frame_verdict(self.frame_pixels(name))
+            if v.get('ok') and v.get('uniform'):
+                out[name] = v
+        return out
+
+    def _fix_uniform_cameras(self, names):
+        """다시 연 카메라를 작게 찍어 한 가지 색이면 고친다 — 하드웨어 디코딩이 켜져 있으면 끄고(소스가 다시 열린다),
+        아니면 한 번 더 다시 연다. 고친 뒤 한 번 더 찍어 결과를 적는다. [{name, label, action, checked, after}] ·
+        **예외를 던지지 않는다**(찍지 못하면 아무것도 안 한다 — PIL 이 없거나 OBS 가 스크린샷을 못 주면 [])."""
+        import stream_health
+        fixed = []
+        if not names:
+            return fixed
+        try:
+            time.sleep(self.CAMERA_FRAME_SETTLE_S)
+            bad = self._uniform_verdicts(names)
+            if bad:
+                time.sleep(self.CAMERA_FRAME_RECHECK_S)
+                bad = self._uniform_verdicts(list(bad))
+            if not bad:
+                return fixed
+            hw = dict(self.camera_sources())
+            for name, v in bad.items():
+                if hw.get(name) is True and self.set_hw_decode(name, False):
+                    action = 'hw_off'
+                elif self.restart_camera(name):
+                    action = 'restart'
+                else:
+                    action = ''
+                fixed.append({'name': name, 'label': stream_health.frame_label(v), 'action': action,
+                              'checked': False, 'after': ''})
+            if any(f['action'] for f in fixed):
+                time.sleep(self.CAMERA_FIX_SETTLE_S)
+                for f in fixed:
+                    if not f['action']:
+                        continue
+                    a = stream_health.frame_verdict(self.frame_pixels(f['name']))
+                    f['checked'] = bool(a.get('ok'))
+                    f['after'] = stream_health.frame_label(a) if a.get('ok') and a.get('uniform') else ''
+        except Exception as e:
+            logger.warning(f"켜기 전 화면 검사 오류(무시): {e}")
+        return fixed
 
     def stream_stats(self):
         """방송 상태 감시용 숫자 한 벌(stream_health.evaluate 가 읽는 모양) · 못 읽으면 None. **예외를 던지지 않는다.**
@@ -497,6 +560,104 @@ class OBSController:
                 except Exception:
                     out['media'][name] = 'OBS_MEDIA_STATE_ERROR'
             return out
+
+    # ── 방송 화면 검사 · 카메라 다시 열기 (2026-11-01 — 초록 화면) ─────────────
+    # 송출 숫자·카메라 '재생 중' 은 다 정상인데 유튜브엔 초록 화면만 나갔다. 화면을 직접 작게 찍어 본다.
+    def camera_sources(self):
+        """카메라 소스 [(이름, 하드웨어 디코딩 켜짐 True/False)] — 네트워크 미디어 소스(RTSP 등). 없으면 미디어 소스 전부.
+        **예외를 던지지 않는다**(못 읽으면 [])."""
+        import stream_health
+        with self._lock:
+            if not self.client:
+                try:
+                    self.connect(retries=1, delay=0)
+                except Exception:
+                    return []
+            try:
+                names = self._input_names(self.client.get_input_list('ffmpeg_source'))
+            except Exception:
+                return []
+            out, rest = [], []
+            for name in names:
+                try:
+                    st = getattr(self.client.get_input_settings(name), 'input_settings', None) or {}
+                except Exception:
+                    continue
+                hw = st.get('hw_decode') is True   # 칸이 없으면 OBS 기본값(꺼짐)
+                (out if stream_health.is_network_input(st) else rest).append((name, hw))
+            return out or rest
+
+    def program_scene(self) -> str:
+        """지금 방송에 나가는 장면 이름 · 못 읽으면 ''."""
+        with self._lock:
+            if not self.client:
+                return ''
+            try:
+                r = self.client.get_current_program_scene()
+            except Exception:
+                return ''
+            return str(getattr(r, 'current_program_scene_name', '') or getattr(r, 'scene_name', '') or '')
+
+    def frame_pixels(self, source: str, width: int = 32, height: int = 18):
+        """소스(또는 장면) 화면을 작게 찍어 RGB 점 목록으로 · 못 찍으면 None. **예외를 던지지 않는다.**"""
+        import base64
+        import io
+        if not source:
+            return None
+        try:
+            from PIL import Image
+        except Exception:
+            return None
+        with self._lock:
+            if not self.client:
+                return None
+            try:
+                r = self.client.get_source_screenshot(source, 'png', int(width), int(height), -1)
+            except Exception:
+                return None
+        data = str(getattr(r, 'image_data', '') or '')
+        if ',' in data[:64]:
+            data = data.split(',', 1)[1]
+        try:
+            img = Image.open(io.BytesIO(base64.b64decode(data))).convert('RGB')
+            return list(img.getdata())
+        except Exception:
+            return None
+
+    def _restart_media(self, name: str) -> str:
+        """미디어 소스 RESTART 한 번 — 카메라를 다시 여는 곳(켜기 전 새로 고침 · 화면 검사 · [📷 카메라 다시 연결])은 전부
+        여기를 지난다. 성공이면 '' · 실패면 이유."""
+        with self._lock:
+            if not self.client:
+                return 'OBS 미연결'
+            try:
+                self.client.trigger_media_input_action(name, self.CAMERA_RESTART_ACTION)
+                return ''
+            except Exception as e:
+                return str(e) or e.__class__.__name__
+
+    def restart_camera(self, name: str) -> bool:
+        """미디어 소스를 다시 연다(OBS 소스 속성 [확인] 과 같은 효과 — 디코더를 새로 만든다)."""
+        err = self._restart_media(name)
+        if err:
+            logger.warning(f"⚠️ 카메라 다시 열기 실패({name}): {err}")
+            return False
+        logger.info(f"📷 카메라 다시 열기: {name}")
+        return True
+
+    def set_hw_decode(self, name: str, on: bool) -> bool:
+        """소스 속성 '가능한 경우 하드웨어 디코딩 사용' 을 바꾼다(바꾸면 OBS 가 소스를 다시 연다 · OBS 장면 파일에 남는다)."""
+        with self._lock:
+            if not self.client:
+                return False
+            try:
+                self.client.set_input_settings(name, {'hw_decode': bool(on)}, True)
+                logger.info(f"📷 하드웨어 디코딩 {'켬' if on else '끔'}: {name}")
+                self._net_inputs_at = 0.0   # 인코딩 점검의 카메라 목록도 새로
+                return True
+            except Exception as e:
+                logger.warning(f"⚠️ 하드웨어 디코딩 바꾸기 실패({name}): {e}")
+                return False
 
     def disconnect(self):
         """연결을 끊습니다."""
@@ -907,6 +1068,62 @@ class OBSController:
             f" (마지막 파일: {before or '없음'})"
         )
         return ""
+
+    def save_replay_buffer_nowait(self, timeout_s: float = 15.0) -> str:
+        """송출 영상 검사용 저장 — 하이라이트가 저장 중이면 기다리지 않고 '' (검사는 다음에 · 하이라이트가 늦어지면 안 된다)."""
+        if not self._replay_save_lock.acquire(blocking=False):
+            return ''
+        try:
+            return self._save_replay_buffer(timeout_s)
+        finally:
+            self._replay_save_lock.release()
+
+    # ── OBS 다시 켜기 (2026-11-11 — 유튜브 초록 화면) ─────────────────
+    # OBS 화면은 멀쩡한데 인코더(QuickSync)가 빈 버퍼를 내며 굳으면 새 방송도 계속 초록이었고, OBS 를 껐다 켜야 풀렸다
+    # (사용자가 Stop-Process obs64 → Start-ScheduledTask PS-OBS-Studio 로 확인). 그걸 서버가 한다.
+    OBS_RESTART_WAIT_S = 60.0
+
+    def _run(self, cmd, timeout=20):
+        import subprocess
+        flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0) if os.name == 'nt' else 0
+        return subprocess.run(cmd, capture_output=True, timeout=timeout, creationflags=flags)
+
+    def restart_obs_process(self, wait_s: float = None) -> bool:
+        """OBS 를 끄고(taskkill) 작업 스케줄러로 다시 띄운 뒤 웹소켓이 붙을 때까지(최대 wait_s) 기다린다.
+        송출 중이었다면 송출은 끊긴다 — 부르는 쪽이 다시 켠다. 결과는 obs_restart_status. **예외를 던지지 않는다.**"""
+        wait_s = self.OBS_RESTART_WAIT_S if wait_s is None else float(wait_s)
+        t0 = time.time()
+        st = {'at': t0, 'ok': False, 'error': '', 'seconds': 0.0}
+        self.disconnect()
+        try:
+            self._run(['taskkill', '/IM', 'obs64.exe', '/F'])
+        except Exception as e:
+            st['error'] = f'OBS 끄기 실패: {e}'
+        time.sleep(2.0)
+        try:
+            r = self._run(['schtasks', '/Run', '/TN', self.obs_task])
+            if getattr(r, 'returncode', 1) != 0:
+                st['error'] = (f"작업 스케줄러 '{self.obs_task}' 를 못 켰어요: "
+                               + (r.stderr or r.stdout or b'').decode('utf-8', 'ignore').strip()[:160])
+        except Exception as e:
+            st['error'] = f"작업 스케줄러 '{self.obs_task}' 를 못 켰어요: {e}"
+        deadline = t0 + max(5.0, wait_s)
+        while time.time() < deadline:
+            time.sleep(3.0)
+            try:
+                self.connect(retries=1, delay=0)
+                st['ok'] = True
+                st['error'] = ''
+                break
+            except Exception:
+                continue
+        if not st['ok'] and not st['error']:
+            st['error'] = f'{wait_s:.0f}초 안에 OBS 가 다시 뜨지 않았어요'
+        st['seconds'] = round(time.time() - t0, 1)
+        (logger.info if st['ok'] else logger.error)(
+            f"🔄 OBS 다시 켜기: {'됨' if st['ok'] else '실패 — ' + st['error']} ({st['seconds']}초)")
+        self.obs_restart_status = st
+        return st['ok']
 
     @staticmethod
     def _written_since(path: str, started: float) -> bool:

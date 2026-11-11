@@ -58,8 +58,9 @@ check(cmd[cmd.index('-c') + 1] == 'copy' and '-filter_complex' not in cmd and 'l
 check('-ss' not in ss._story_cmd('in.mp4', 0, 'o.mp4'), '처음부터면 -ss 없음')
 check('+faststart' in cmd, 'faststart')
 check('BELOW_NORMAL_PRIORITY_CLASS' not in src and '_story_filter' not in src, '세로 변환·우선순위 낮추기 코드는 없다')
-check("threading.Thread(target=_make_and_upload_story, args=(item,), daemon=True).start()" in src
-      and "HIGHLIGHT_CFG.get('auto_story', True) is not False" in src, '업로드 뒤 저절로 스토리용 파일(설정 auto_story: false 면 끔)')
+# 2026-11-11 — 저절로 만드는 건 [직전 랠리] 뿐이다(그 파일을 인스타에 자동으로 올린다) · [60초]는 하이라이트에만(test_highlight_rally.py)
+check("_upload_story_file(item['id'], out, win, auto_post=True)" in src
+      and "HIGHLIGHT_CFG.get('auto_story', True) is not False" in src, '직전 랠리는 저절로 스토리 파일 + 자동 게시(설정 auto_story: false 면 끔)')
 check('with _story_make_lock:' in src, '한 번에 하나씩 차례로 만든다')
 
 # 3-1) 마지막 랠리 찾기(rally_cut — 순수)

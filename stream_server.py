@@ -28,6 +28,7 @@ import itertools
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
@@ -93,12 +94,22 @@ CORS_ORIGINS = list(dict.fromkeys(
 CORS(app, origins=CORS_ORIGINS, allow_headers=['Content-Type', 'Authorization'])
 
 # ── 운영자 확인 (방송을 바꾸는 요청) ───────────────────────────────
-# 태블릿은 운영자 로그인 토큰(psToken)을 Authorization: Bearer 로 보낸다. 그 토큰을 Playus 백엔드
-# myProfile 에 물어 역할을 본다. 이 PC 에서 직접 부른 요청(터널·LAN 이 아닌 127.0.0.1)만 토큰 없이 통과 —
-# OBS PC 브라우저의 /reload-html 과 make_thumbnail.py 가 그 길이다.
+# 태블릿은 운영자 로그인 토큰(psToken)을 Authorization: Bearer 로 보낸다. 그 토큰을 Playus 백엔드에 물어
+# **이 방송 PC 의 센터를 조작해도 되나** 를 본다(2026-11-09 · 검토 S4-04·B1-06 — 예전엔 myProfile 의 역할만 봐서
+# 어느 센터의 center_admin 이든 본점 방송을 켜고 끄고 [무효] 를 붙였다):
+#   GET {api_base}/api/stream/operator-check[?centerId=<control_auth.center_id>] → data.ok
+#   = 슈퍼어드민 ∨ 그 센터에 묶인 태블릿 계정(league_operator) ∨ 그 센터 관리자(메인·부관리자).
+#   center_id 를 비우면 백엔드의 본점 설정(서버 .env HQ_CENTER_ID · 없으면 PUBLIC_BOOKING_CENTER_ID — 어스센터 isDefault 아님).
+# 옛 백엔드(그 주소가 없어 404)면 예전처럼 myProfile 역할로 본다 — 그때 기본 역할엔 center_admin 이 없다(센터를 못 가린다).
+# 이 PC 에서 직접 부른 요청(터널·LAN 이 아닌 127.0.0.1)만 토큰 없이 통과 — OBS PC 브라우저의 /reload-html 과
+# make_thumbnail.py 가 그 길이다.
 _AUTH_CFG = config.get('control_auth') or {}
 CONTROL_AUTH_ENABLED = _AUTH_CFG.get('enabled', True) is not False
-CONTROL_ROLES = frozenset(_AUTH_CFG.get('roles') or ['league_operator', 'super_admin', 'center_admin'])
+# 이 방송 PC 의 센터(Playus 센터 id) — 비우면 백엔드의 본점 설정(HQ_CENTER_ID). 백엔드가 이 센터로 판정한다.
+# ⚠️ 적어 두는 게 맞다 — 비워 두면 백엔드 본점 설정이 바뀌는 순간 이 PC 의 운영자가 따라 바뀐다.
+CONTROL_CENTER_ID = str(_AUTH_CFG.get('center_id') or '').strip()
+# 옛 백엔드(확인 주소 없음)일 때만 쓰는 역할 목록 — center_admin 은 기본에서 뺐다(어느 센터 관리자든 들어왔다).
+CONTROL_ROLES = frozenset(_AUTH_CFG.get('roles') or ['league_operator', 'super_admin'])
 AUTH_API_BASE = (_AUTH_CFG.get('api_base') or (config.get('highlight') or {}).get('api_base')
                  or 'https://api.padelsociety.co.kr').rstrip('/')
 _AUTH_OK_TTL = 600            # 통과한 토큰은 10분 동안 다시 안 묻는다
@@ -110,8 +121,16 @@ _auth_cache: dict = {}        # sha256(토큰) → {'verdict': 'ok'|'forbidden'|
 
 AUTH_REQUIRED_MSG = '운영자 로그인이 필요해요 — 태블릿 ⚙ 설정에서 로그인해 주세요'
 AUTH_FORBIDDEN_MSG = '이 계정엔 운영자 권한이 없어요 — 운영자 계정으로 ⚙ 설정에서 다시 로그인해 주세요'
+AUTH_CENTER_CFG_MSG = ('방송 PC 의 센터 설정이 틀렸어요 — config.json 의 control_auth.center_id 를 '
+                       'Playus 센터 id(24자리)로 고치거나 비워 주세요')
 AUTH_DOWN_MSG = ('운영자 확인 서버(Playus)에 연결하지 못했어요 — 방송 PC 의 인터넷 연결을 확인한 뒤 '
                  '다시 시도해 주세요')
+
+if CONTROL_CENTER_ID and not re.fullmatch(r'[0-9a-fA-F]{24}', CONTROL_CENTER_ID):
+    logger.error(f"❌ control_auth.center_id 가 센터 id 모양이 아니에요({CONTROL_CENTER_ID!r}) — 운영자 확인이 전부 거절됩니다")
+elif CONTROL_AUTH_ENABLED and not CONTROL_CENTER_ID:
+    logger.warning("⚠️ control_auth.center_id 가 비어 있어요 — 백엔드 본점 설정(HQ_CENTER_ID)의 센터로 운영자를 확인합니다. "
+                   "이 PC 의 센터 id 를 적어 두세요")
 
 if not CONTROL_AUTH_ENABLED:
     logger.warning("!" * 60)
@@ -164,6 +183,54 @@ def _fetch_profile_role(token: str):
     return 'ok', str(data.get('role') or 'user')
 
 
+_old_backend_warned = [False]
+
+
+def _fetch_operator_verdict(token: str):
+    """백엔드에 '이 토큰이 이 방송 PC(센터)를 조작해도 되나' 를 묻는다 → (상태, 정보). 테스트가 이 함수를 갈아 끼운다.
+    상태: 'ok'(정보 = 통과 이유) · 'forbidden'(로그인은 맞는데 이 센터 권한 없음 — 정보 = 서버 문장) ·
+          'invalid'(401·403·433) · 'down'(못 물어봤다 — 정보 = 이유) · 'old'(옛 백엔드 — 주소가 없어 404)."""
+    qs = f"?centerId={urllib.parse.quote(CONTROL_CENTER_ID)}" if CONTROL_CENTER_ID else ''
+    req = urllib.request.Request(
+        f"{AUTH_API_BASE}/api/stream/operator-check{qs}",
+        headers={'Authorization': f'Bearer {token}', 'Accept': 'application/json'},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = json.loads(resp.read(2_000_000).decode('utf-8') or '{}')
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403, 433):   # 433 = 백엔드의 '토큰 만료'
+            return 'invalid', ''
+        if e.code == 404:
+            return 'old', ''
+        if e.code == 422:               # centerId 모양이 틀렸다 — 설정 오타
+            return 'forbidden', AUTH_CENTER_CFG_MSG
+        return 'down', f'HTTP {e.code}'
+    except Exception as e:
+        return 'down', str(e)
+    if not isinstance(body, dict) or body.get('isSuccess') is False:
+        return 'invalid', ''
+    data = body.get('data') if isinstance(body.get('data'), dict) else {}
+    if data.get('ok') is True:
+        return 'ok', str(data.get('reason') or '')
+    return 'forbidden', str(data.get('message') or '')
+
+
+def _operator_state(token: str):
+    """운영자 확인 한 번 → (상태, 정보). 새 주소가 먼저 — 옛 백엔드(404)면 myProfile 역할(CONTROL_ROLES)로 떨어진다."""
+    state, info = _fetch_operator_verdict(token)
+    if state != 'old':
+        return state, info
+    if not _old_backend_warned[0]:
+        _old_backend_warned[0] = True
+        logger.warning("⚠️ Playus 백엔드에 방송 운영자 확인 주소(/api/stream/operator-check)가 없어요 — "
+                       f"옛 규칙(역할 {sorted(CONTROL_ROLES)} · 센터 구분 없음)으로 확인합니다. 백엔드를 배포해 주세요")
+    state, role = _fetch_profile_role(token)
+    if state == 'ok':
+        return ('ok', role) if role in CONTROL_ROLES else ('forbidden', '')
+    return state, role
+
+
 def _check_operator_token(token: str):
     """토큰을 확인한다 → None(통과) 또는 (상태코드, 응답 dict). 결과는 토큰 해시로 잠깐 기억한다."""
     key = hashlib.sha256(token.encode('utf-8')).hexdigest()
@@ -171,13 +238,12 @@ def _check_operator_token(token: str):
     with _auth_lock:
         ent = dict(_auth_cache.get(key) or {})
     if not ent or ent.get('until', 0) <= now:
-        state, info = _fetch_profile_role(token)   # info = 역할('ok') 또는 못 물어본 이유('down')
+        state, info = _operator_state(token)   # info = 통과 이유·역할('ok') · 서버 문장('forbidden') · 못 물어본 이유('down')
         now = time.time()
         if state == 'ok':
-            if info in CONTROL_ROLES:
-                ent = {'verdict': 'ok', 'until': now + _AUTH_OK_TTL, 'last_ok': now}
-            else:
-                ent = {'verdict': 'forbidden', 'until': now + _AUTH_DENY_TTL, 'last_ok': 0}
+            ent = {'verdict': 'ok', 'until': now + _AUTH_OK_TTL, 'last_ok': now}
+        elif state == 'forbidden':
+            ent = {'verdict': 'forbidden', 'until': now + _AUTH_DENY_TTL, 'last_ok': 0, 'msg': info}
         elif state == 'invalid':
             ent = {'verdict': 'invalid', 'until': now + _AUTH_DENY_TTL, 'last_ok': 0}
         elif ent.get('last_ok') and now - ent['last_ok'] <= _AUTH_GRACE:
@@ -195,7 +261,7 @@ def _check_operator_token(token: str):
     if ent['verdict'] == 'ok':
         return None
     if ent['verdict'] == 'forbidden':
-        return 403, {'success': False, 'error': AUTH_FORBIDDEN_MSG, 'auth': 'forbidden'}
+        return 403, {'success': False, 'error': ent.get('msg') or AUTH_FORBIDDEN_MSG, 'auth': 'forbidden'}
     return 401, {'success': False, 'error': AUTH_REQUIRED_MSG, 'auth': 'required'}
 
 
@@ -503,7 +569,312 @@ def _recover_leftover():
 HEALTH_TICK_S = 10
 YOUTUBE_HEALTH_EVERY = 6          # 10초 × 6 = 1분마다 YouTube 에 묻는다(liveStreams.list 1 단위)
 health_state = {'broadcast_id': None, 'health': None, 'reconnects': 0, 'since': None}
-_health_mem = {'prev': None, 'prev_t': 0.0, 'cams': {}, 'yt': None, 'tick': 0, 'issue': '', 'reconnecting': False}
+_health_mem = {'prev': None, 'prev_t': 0.0, 'cams': {}, 'yt': None, 'tick': 0, 'issue': '', 'reconnecting': False,
+               'frame': None}
+
+
+# ── 방송 화면 검사 (2026-11-01 — "유투브 또 이러네ㅜㅜ 나 외부여서 가서 고치지도 못하는데") ─────
+# 유튜브엔 초록 화면만 나가는데 송출 숫자·카메라 '재생 중' 은 다 정상이었다(카메라 영상을 푸는 디코더가 빈 프레임을
+# 낸다). 방송 중 20초마다 카메라 소스를 32x18 로 찍어 한 가지 색이면 — 두 번 연속 → 그 카메라를 다시 열고, 그래도면
+# 하드웨어 디코딩을 끈다(stream_health.camera_frame_step). 카메라가 멀쩡한데 방송 장면이 단색이면 알리기만 한다.
+# 사람이 누르는 길도 있다: POST /camera-restart(운영자) — 태블릿 [📷 카메라 다시 연결] · 밖에서는 폰으로 obs 주소.
+_frame_lock = threading.Lock()
+_frame_mem = {'bad': {}, 'notes': {}, 'restarts': {}}
+camera_frame_state = {'at': None, 'sources': [], 'program': None, 'last_action': '', 'last_action_at': None}
+PROGRAM_KEY = '방송 화면'
+
+
+def _frame_verdicts(sources):
+    """[(이름, hw)] → [{name, hw, ok, uniform, green, color, share, label}] — 못 찍은 소스는 ok=False."""
+    out = []
+    for name, hw in sources:
+        v = stream_health.frame_verdict(obs.frame_pixels(name))
+        v.update({'name': name, 'hw': hw, 'label': stream_health.frame_label(v)})
+        out.append(v)
+    return out
+
+
+def _note_action(text: str):
+    logger.warning(f"📷 {text}")
+    with state_lock:
+        camera_frame_state['last_action'] = text
+        camera_frame_state['last_action_at'] = datetime.now(timezone.utc).isoformat()
+
+
+def _frame_check():
+    """화면 검사 한 바퀴 → evaluate 의 frame 인자({'bad': [...], 'note': ...}). 테스트가 직접 부른다."""
+    with _frame_lock:
+        srcs = obs.camera_sources()
+        cams = _frame_verdicts(srcs)
+        bad = _frame_mem['bad']
+        notes = _frame_mem['notes']
+        names = {c['name'] for c in cams}
+        for k in list(bad.keys()):
+            if k not in names and k != PROGRAM_KEY:
+                bad.pop(k, None)
+                notes.pop(k, None)
+        for c in cams:
+            name = c['name']
+            if not c['ok']:
+                continue                      # 못 찍었으면 판정하지 않는다(세지도 풀지도 않는다)
+            if not c['uniform']:
+                if bad.get(name, 0) >= stream_health.FRAME_GRACE:
+                    logger.info(f"✅ 카메라 화면 돌아옴: {name}")
+                bad.pop(name, None)
+                notes.pop(name, None)
+                continue
+            bad[name] = bad.get(name, 0) + 1
+            step = stream_health.camera_frame_step(bad[name], c['hw'])
+            if step == 'restart' and obs.restart_camera(name):
+                n = _frame_mem['restarts'][name] = _frame_mem['restarts'].get(name, 0) + 1
+                notes[name] = f"카메라를 다시 열었어요({n}번)"
+                _note_action(f"{name} — {c['label']} → 카메라 다시 열기")
+            elif step == 'hw_off' and obs.set_hw_decode(name, False):
+                c['hw'] = False
+                notes[name] = '하드웨어 디코딩을 끄고 다시 열었어요'
+                _note_action(f"{name} — {c['label']} → 하드웨어 디코딩 끔")
+        cam_bad = [c['name'] for c in cams if bad.get(c['name'], 0) >= stream_health.FRAME_GRACE]
+        # 카메라가 멀쩡한데(또는 카메라 소스가 없는데) 방송 장면이 단색 — 장면·소스 배치 문제. 알리기만 한다.
+        prog = None
+        if not cam_bad:
+            scene = obs.program_scene()
+            if scene:
+                prog = stream_health.frame_verdict(obs.frame_pixels(scene))
+                prog.update({'name': scene, 'label': stream_health.frame_label(prog)})
+                if prog['ok'] and prog['uniform']:
+                    bad[PROGRAM_KEY] = bad.get(PROGRAM_KEY, 0) + 1
+                    notes[PROGRAM_KEY] = (f"카메라는 정상 — OBS 장면 '{scene}' 을 확인해 주세요" if cams
+                                          else f"카메라 소스를 못 찾았어요 — OBS 장면 '{scene}' 을 확인해 주세요")
+                elif prog['ok']:
+                    bad.pop(PROGRAM_KEY, None)
+                    notes.pop(PROGRAM_KEY, None)
+        else:
+            bad.pop(PROGRAM_KEY, None)
+            notes.pop(PROGRAM_KEY, None)
+        bad_names = cam_bad + ([PROGRAM_KEY] if bad.get(PROGRAM_KEY, 0) >= stream_health.FRAME_GRACE else [])
+        note = ''
+        for n in bad_names:
+            if notes.get(n):
+                note = notes[n]
+                break
+        with state_lock:
+            camera_frame_state.update({
+                'at': datetime.now(timezone.utc).isoformat(),
+                'sources': [{k: c.get(k) for k in ('name', 'ok', 'uniform', 'green', 'color', 'share', 'hw', 'label')}
+                            for c in cams],
+                'program': ({k: prog.get(k) for k in ('name', 'ok', 'uniform', 'color', 'share', 'label')}
+                            if prog else None),
+            })
+        return {'bad': bad_names, 'note': note}
+
+
+# ── 송출 영상 검사 · OBS 다시 켜기 (2026-11-11 — "또 유투브 초록화면이야") ─────────────
+# OBS 화면(캔버스)은 정상인데 유튜브만 초록이었고, 한 번 그러면 새 방송도 계속 초록 — OBS 를 다시 켜야 풀렸다.
+# OBS 스크린샷(_frame_check)은 인코더 **앞**이라 이걸 못 본다. 녹화 인코더가 '(스트리밍 인코더 사용)' 이면 리플레이
+# 버퍼 파일 = 유튜브로 나가는 바로 그 영상이라, 방송 중 그 파일을 잠깐 저장해 끝쪽 키프레임을 32x18 로 풀어 본다
+# (재인코딩 없음 · 키프레임만 · 1초 안팎). 두 번 연속 한 가지 색이고 OBS 화면은 정상이면 '유튜브 초록 화면' —
+# 서버가 OBS 를 다시 켜고 같은 유튜브 방송으로 이어 보낸다(방송 하나에 한 번 · config output_check.auto_restart).
+# 녹화 인코더가 따로면(검사가 유튜브 영상을 못 본다) 검사하지 않고 인코딩 권고(hw_double)만 남는다.
+OUTPUT_CFG = config.get('output_check') or {}
+OUTPUT_ON = OUTPUT_CFG.get('enabled', True) is not False
+OUTPUT_AUTO_RESTART = OUTPUT_CFG.get('auto_restart', True) is not False
+OUTPUT_FIRST_S = 45          # 방송 시작 뒤 첫 검사(초록은 보통 시작할 때 생긴다)
+OUTPUT_EVERY_S = max(120, int(OUTPUT_CFG.get('every_s', 300) or 300))
+OUTPUT_RECHECK_S = 30        # 한 번 걸리면 이만큼 뒤 다시(두 번 연속이어야 손댄다)
+OUTPUT_HIGHLIGHT_GAP_S = 60  # 하이라이트를 막 저장했으면 그 사이엔 검사 저장을 안 한다
+_output_mem = {'bid': None, 'next_at': 0.0, 'bad': 0, 'restarted': False}
+output_state = {'at': None, 'checked': None, 'label': '', 'bad': False, 'note': '', 'skipped': '', 'frames': 0,
+                'last_action': '', 'last_action_at': None}
+_ingest = {'broadcast_id': None, 'rtmp': '', 'key': ''}   # 메모리에만(키는 비밀 — 파일·로그·/health 에 안 남긴다)
+_last_highlight_at = [0.0]
+SMALL_W, SMALL_H = 32, 18
+
+
+def _small_frames(path, seconds: int = 12):
+    """영상 파일 끝 seconds 초의 키프레임만 32x18 RGB 로 풀어 [[(r,g,b)…]…] — 못 풀면 []."""
+    import subprocess
+    cmd = [_ffmpeg_exe(), '-hide_banner', '-loglevel', 'error', '-sseof', f'-{int(seconds)}', '-skip_frame', 'nokey',
+           '-i', path, '-vf', f'scale={SMALL_W}:{SMALL_H}:flags=area', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1']
+    flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0) if os.name == 'nt' else 0   # 키프레임만이라 1초 안팎
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=60, creationflags=flags)
+    except Exception as e:
+        logger.warning(f"송출 영상 풀기 실패(무시): {e}")
+        return []
+    data = r.stdout or b''
+    n = SMALL_W * SMALL_H * 3
+    return [[tuple(data[i + j:i + j + 3]) for j in range(0, n, 3)] for i in range(0, len(data) - n + 1, n)]
+
+
+def _output_covers_stream() -> bool:
+    """리플레이 버퍼가 방송 인코더를 같이 쓰나(= 리플레이 파일이 유튜브로 나가는 그 영상인가)."""
+    cfg = ((getattr(obs, 'encoding_status', None) or {}).get('config')) or {}
+    mode = str(cfg.get('mode') or '').strip().lower()
+    if mode == 'advanced':
+        return str(cfg.get('rec_encoder') or '').strip().lower() in ('', 'none')
+    if mode == 'simple':
+        return str(cfg.get('rec_quality') or '').strip().lower() == 'stream'
+    return False
+
+
+def _output_check_once() -> dict:
+    """리플레이 버퍼를 잠깐 저장해 인코더가 낸 영상을 판정 → stream_health.output_verdict + canvas(OBS 화면 판정).
+    못 하면 {'skipped': 이유}. 저장한 검사 파일은 지운다."""
+    if not _output_covers_stream():
+        return {'skipped': "녹화 인코더가 따로라 유튜브 영상을 못 봐요 — 녹화 인코더 '(스트리밍 인코더 사용)' 이면 검사해요"}
+    if time.time() - _last_highlight_at[0] < OUTPUT_HIGHLIGHT_GAP_S:
+        return {'skipped': '하이라이트를 막 저장했어요'}
+    if not stream_op_lock.acquire(blocking=False):   # RLock 엔 locked() 가 없다
+        return {'skipped': '방송을 켜고 끄는 중'}
+    stream_op_lock.release()
+    if not obs.is_replay_buffer_active():
+        return {'skipped': '리플레이 버퍼 꺼짐'}
+    path = obs.save_replay_buffer_nowait()
+    if not path:
+        return {'skipped': '검사용 저장 실패(하이라이트 저장 중일 수 있어요)'}
+    try:
+        v = stream_health.output_verdict(_small_frames(path))
+    finally:
+        with _story_lock:
+            used = any(x.get('path') == path for x in _recent_highlights)
+        if not used:
+            try:
+                os.remove(path)
+            except OSError as e:
+                logger.info(f"검사용 리플레이 파일을 못 지움(무시): {e}")
+    canvas = None
+    if v.get('bad'):
+        scene = obs.program_scene()
+        canvas = stream_health.frame_verdict(obs.frame_pixels(scene)) if scene else None
+    v['canvas_uniform'] = bool(canvas and canvas.get('ok') and canvas.get('uniform'))
+    return v
+
+
+def _set_output_state(**kw):
+    with state_lock:
+        output_state.update(kw)
+
+
+def _note_output_action(text: str):
+    logger.warning(f"📺 {text}")
+    _set_output_state(last_action=text, last_action_at=datetime.now(timezone.utc).isoformat())
+
+
+def _restart_obs_and_resume(reason: str) -> dict:
+    """OBS 를 다시 켜고, 방송 중이었으면 같은 유튜브 방송(같은 키)으로 이어 보낸다. 유튜브 방송은 끝내지 않는다
+    (enableAutoStop=False — 끊긴 몇십 초는 시청자에게 '버퍼링' 으로 보인다). {'ok', 'text'}."""
+    with stream_op_lock:
+        with state_lock:
+            active = bool(stream_state['active'])
+            bid = stream_state.get('broadcast_id')
+        rtmp, key = ('', '')
+        if active and bid:
+            if _ingest.get('broadcast_id') == bid and _ingest.get('key'):
+                rtmp, key = _ingest['rtmp'], _ingest['key']
+            else:
+                rtmp, key = youtube.ingest_of(bid)
+            if not (rtmp and key):
+                return {'ok': False, 'text': '유튜브 방송 주소를 못 읽어 OBS 를 다시 켜지 않았어요 — 방송을 끄고 다시 켜 주세요'}
+            try:
+                obs.stop_stream()
+            except Exception:
+                pass
+        if not obs.restart_obs_process():
+            err = ((getattr(obs, 'obs_restart_status', None) or {}).get('error')) or 'OBS 가 다시 뜨지 않았어요'
+            return {'ok': False, 'text': f"OBS 를 다시 켜지 못했어요 — {err} · 방송 PC 에서 OBS 를 직접 켜 주세요"}
+        if not active:
+            obs.ensure_replay_buffer()
+            return {'ok': True, 'text': 'OBS 를 다시 켰어요'}
+        try:
+            obs.set_stream_settings(rtmp, key)
+            obs.start_stream()
+            ok = obs.wait_until_streaming()
+        except Exception as e:
+            ok = False
+            logger.error(f"OBS 다시 켠 뒤 송출 시작 실패: {e}")
+        try:
+            obs.start_replay_buffer()
+        except Exception:
+            pass
+        if not ok:
+            return {'ok': False, 'text': 'OBS 는 다시 켰는데 송출이 안 붙었어요 — 태블릿에서 라이브를 끄고 다시 켜 주세요'}
+        logger.info(f"🔄 OBS 다시 켜고 같은 방송으로 이어 보냄({reason})")
+        return {'ok': True, 'text': 'OBS 를 다시 켜고 같은 유튜브 방송으로 이어 보냈어요 — 20~30초 뒤 유튜브 화면을 봐 주세요'}
+
+
+def _output_tick(now_t: float = None):
+    """송출 영상 검사 한 바퀴 — 테스트가 직접 부른다. 방송 중일 때만 · 시작 45초 뒤 · 5분마다 · 걸리면 30초 뒤 다시."""
+    now_t = time.time() if now_t is None else now_t
+    with state_lock:
+        active = stream_state['active']
+        bid = stream_state.get('broadcast_id')
+        started = stream_state.get('started_at')
+    if not OUTPUT_ON or not active or not bid:
+        if _output_mem['bid'] is not None:
+            _output_mem.update({'bid': None, 'next_at': 0.0, 'bad': 0, 'restarted': False})
+            _set_output_state(bad=False, note='', label='')
+        return None
+    if _output_mem['bid'] != bid:
+        try:
+            t0 = datetime.fromisoformat(started).timestamp() if started else now_t
+        except (TypeError, ValueError):
+            t0 = now_t
+        _output_mem.update({'bid': bid, 'next_at': t0 + OUTPUT_FIRST_S, 'bad': 0, 'restarted': False})
+        _set_output_state(bad=False, note='', label='', skipped='', checked=None)
+    if now_t < _output_mem['next_at']:
+        return None
+    v = _output_check_once()
+    stamp = datetime.now(timezone.utc).isoformat()
+    if v.get('skipped'):
+        _output_mem['next_at'] = now_t + 60
+        _set_output_state(at=stamp, skipped=v['skipped'])
+        return v
+    if not v.get('ok'):
+        _output_mem['next_at'] = now_t + 60
+        _set_output_state(at=stamp, checked=False, skipped='영상을 풀지 못했어요')
+        return v
+    if not v.get('bad') or v.get('canvas_uniform'):
+        # 정상 — 또는 OBS 화면부터 한 가지 색(인코더가 아니라 장면·카메라 — 화면 검사 몫)
+        if _output_mem['bad']:
+            logger.info('✅ 유튜브로 나가는 영상 돌아옴')
+        _output_mem.update({'bad': 0, 'next_at': now_t + OUTPUT_EVERY_S})
+        _set_output_state(at=stamp, checked=True, bad=False, label='', note='', skipped='', frames=v.get('frames', 0))
+        return v
+    _output_mem['bad'] += 1
+    _output_mem['next_at'] = now_t + OUTPUT_RECHECK_S
+    _set_output_state(at=stamp, checked=True, label=v.get('label') or '', skipped='', frames=v.get('frames', 0))
+    if _output_mem['bad'] < 2:
+        logger.warning(f"⚠️ 유튜브로 나가는 영상이 {v.get('label')} — {OUTPUT_RECHECK_S}초 뒤 다시 봐요(OBS 화면은 정상)")
+        return v
+    if OUTPUT_AUTO_RESTART and not _output_mem['restarted']:
+        _output_mem['restarted'] = True
+        _set_output_state(bad=True, note='서버가 OBS 를 다시 켜는 중')
+        _note_output_action(f"유튜브로 나가는 영상이 {v.get('label')} → OBS 다시 켜기")
+        res = _restart_obs_and_resume('송출 영상 ' + (v.get('label') or '깨짐'))
+        _note_output_action(res['text'])
+        _output_mem.update({'bad': 0, 'next_at': time.time() + OUTPUT_FIRST_S})
+        _set_output_state(bad=not res['ok'], note='' if res['ok'] else res['text'])
+        return v
+    _set_output_state(bad=True, note=('서버가 이미 한 번 OBS 를 다시 켰어요 — 방송 PC 를 봐 주세요'
+                                      if _output_mem['restarted'] else '방송 PC 에서 OBS 를 다시 켜 주세요'))
+    return v
+
+
+def _output_loop():
+    while True:
+        try:
+            _output_tick()
+        except Exception as e:
+            logger.warning(f"송출 영상 검사 오류(무시): {e}")
+        time.sleep(15)
+
+
+def _output_view():
+    with state_lock:
+        v = dict(output_state)
+    v['covers_stream'] = _output_covers_stream()
+    v['restart'] = getattr(obs, 'obs_restart_status', None)
+    return v
 
 
 def _health_tick(now_t: float = None):
@@ -515,12 +886,14 @@ def _health_tick(now_t: float = None):
     if not active or not bid:
         with state_lock:
             health_state.update({'broadcast_id': None, 'health': None, 'reconnects': 0, 'since': None})
-        _health_mem.update({'prev': None, 'prev_t': 0.0, 'cams': {}, 'yt': None, 'tick': 0, 'issue': '', 'reconnecting': False})
+        _health_mem.update({'prev': None, 'prev_t': 0.0, 'cams': {}, 'yt': None, 'tick': 0, 'issue': '', 'reconnecting': False,
+                            'frame': None})
         return None
     if health_state.get('broadcast_id') != bid:
         with state_lock:
             health_state.update({'broadcast_id': bid, 'health': None, 'reconnects': 0, 'since': None})
-        _health_mem.update({'prev': None, 'prev_t': 0.0, 'cams': {}, 'yt': None, 'tick': 0, 'issue': '', 'reconnecting': False})
+        _health_mem.update({'prev': None, 'prev_t': 0.0, 'cams': {}, 'yt': None, 'tick': 0, 'issue': '', 'reconnecting': False,
+                            'frame': None})
     snap = obs.stream_stats()
     if snap is None:
         return None
@@ -539,8 +912,16 @@ def _health_tick(now_t: float = None):
     # OBS 인코딩 설정에서 고칠 칸(2026-10-24) — '인코딩 밀림'·'화면 밀림' 문장 끝에 붙는다. 5분에 한 번 다시 읽는다.
     refresh = getattr(obs, 'refresh_encoding', None)
     advice = (refresh() or {}).get('advice') if callable(refresh) else None
+    # 방송 화면 검사(2026-11-01 — 초록 화면) — 20초마다. 사이 바퀴는 지난 결과를 그대로 쓴다.
+    if _health_mem['tick'] % stream_health.FRAME_CHECK_EVERY == 1 or _health_mem['frame'] is None:
+        try:
+            _health_mem['frame'] = _frame_check()
+        except Exception as e:
+            logger.warning(f"화면 검사 오류(무시): {e}")
+    with state_lock:
+        out = {'bad': bool(output_state.get('bad')), 'note': output_state.get('note') or ''}
     h = stream_health.evaluate(prev, snap, elapsed_s=elapsed, camera_bad_ticks=_health_mem['cams'],
-                               youtube=_health_mem['yt'], advice=advice)
+                               youtube=_health_mem['yt'], advice=advice, frame=_health_mem['frame'], output=out)
     _health_mem['prev'] = snap
     _health_mem['prev_t'] = now_t
     if h['reconnecting'] and not _health_mem['reconnecting']:
@@ -753,7 +1134,18 @@ def health():
         'obs_encoding': _encoding_view(),
         # 마지막 OBS 송출 끄기(2026-10-25) — stopped · forced(강제 종료를 보냈나) · reconnecting · seconds. 로그 줄은 서버 로그에만.
         'obs_stop': _stop_view(),
+        # 방송 화면 검사(2026-11-01 — 초록 화면) — 카메라마다 마지막 판정(label 이 비면 정상) · 서버가 마지막으로 한 일.
+        'camera_frame': _frame_view(),
+        # 송출 영상 검사(2026-11-11 — 유튜브 초록 화면) — 리플레이 버퍼로 본 인코더 출력 · covers_stream false 면 검사 안 함.
+        'output_check': _output_view(),
     })
+
+
+def _frame_view():
+    with state_lock:
+        v = dict(camera_frame_state)
+    v['sources'] = [dict(x) for x in (v.get('sources') or [])]
+    return v
 
 
 def _stop_view():
@@ -953,6 +1345,7 @@ def _start_stream_locked(mode, team_a, team_b, league, category, match_number,
         # 1. YouTube 방송 생성
         broadcast_id, rtmp_url, stream_key = youtube.create_broadcast_and_stream(title, description)
         watch_url = YouTubeAPI.get_watch_url(broadcast_id)
+        _ingest.update({'broadcast_id': broadcast_id, 'rtmp': rtmp_url, 'key': stream_key})
 
         # 2. OBS 설정 + 스트리밍 시작
         obs.connect()
@@ -1308,64 +1701,108 @@ def _faststart_clip(path):
     return path
 
 
-def _save_and_upload_highlight(meta, seconds=0):
+def _save_and_upload_highlight(meta, seconds=0, mode='seconds'):
     """리플레이 저장(느림, ~수 초) + 업로드를 백그라운드로 처리.
     save_replay_buffer가 파일 경로 폴링에 최대 ~5초 걸려서 요청 스레드를 막으면
-    안 됨(헬스체크 타임아웃 → 라이브 표시 깜빡임). 그래서 통째로 스레드에서 실행."""
+    안 됨(헬스체크 타임아웃 → 라이브 표시 깜빡임). 그래서 통째로 스레드에서 실행.
+    mode 'rally' = [직전 랠리](앱 하이라이트 + 인스타 자동) · 그 밖 = [60초](앱 하이라이트만)."""
     path = obs.save_replay_buffer()
     if not path:
         logger.error("하이라이트 저장 실패 — 리플레이 경로 없음")
         return
-    _upload_highlight(path, meta, seconds)
+    if mode == 'rally':
+        _upload_rally_highlight(path, meta)
+    else:
+        _upload_highlight(path, meta, seconds)
+
+
+def _post_highlight(path, meta) -> str:
+    """파일을 백엔드 하이라이트로 올린다 → 하이라이트 id(못 올리면 '')."""
+    import requests
+    api = (HIGHLIGHT_CFG.get('api_base') or 'https://api.padelsociety.co.kr').rstrip('/')
+    key = HIGHLIGHT_CFG.get('upload_key') or ''
+    if not key:
+        logger.warning("하이라이트 업로드 생략 — config.highlight.upload_key 없음 (OBS PC에 파일만 저장됨)")
+        return ''
+    with open(path, 'rb') as f:
+        r = requests.post(
+            f"{api}/api/highlight/upload",
+            headers={'x-upload-key': key},
+            data=meta,
+            files={'file': (os.path.basename(path), f, 'video/mp4')},
+            timeout=180,
+        )
+    if not r.ok:
+        logger.error(f"하이라이트 업로드 실패 {r.status_code}: {r.text[:200]}")
+        return ''
+    logger.info(f"☁️ 하이라이트 업로드 완료: {os.path.basename(path)}")
+    try:
+        return str(((r.json() or {}).get('data') or {}).get('id') or '')
+    except Exception:
+        return ''
 
 
 def _upload_highlight(path, meta, seconds=0):
+    """[60초](또는 옛 태블릿의 30·90초) — 뒤쪽 N초를 앱 하이라이트에만 올린다. 인스타 스토리는 만들지 않는다
+    (2026-11-11 사용자 *"60초는 하이라이트에만 올라가는거고"* — 예전엔 모든 클립의 스토리 파일을 저절로 만들었다).
+    태블릿 '📱 인스타 스토리' 로 고르면 그때 만든다(/highlight/<id>/story)."""
     try:
-        import requests
         # 요청 길이가 있으면 뒤쪽 N초만 잘라서 업로드 (버퍼=90초, 60초 버튼 대응)
         # 트림 안 하는 경우도 faststart 리먹스 — 폰 스트리밍 재생 끊김 방지.
         if seconds:
             path = _trim_clip(path, seconds)
         else:
             path = _faststart_clip(path)
-        api = (HIGHLIGHT_CFG.get('api_base') or 'https://api.padelsociety.co.kr').rstrip('/')
-        key = HIGHLIGHT_CFG.get('upload_key') or ''
-        if not key:
-            logger.warning("하이라이트 업로드 생략 — config.highlight.upload_key 없음 (OBS PC에 파일만 저장됨)")
-            return
-        with open(path, 'rb') as f:
-            r = requests.post(
-                f"{api}/api/highlight/upload",
-                headers={'x-upload-key': key},
-                data=meta,
-                files={'file': (os.path.basename(path), f, 'video/mp4')},
-                timeout=180,
-            )
-        if r.ok:
-            logger.info(f"☁️ 하이라이트 업로드 완료: {os.path.basename(path)}")
-            try:
-                hid = str(((r.json() or {}).get('data') or {}).get('id') or '')
-            except Exception:
-                hid = ''
-            if hid:
-                item = _remember_highlight(hid, path, seconds, meta)
-                # 바로 저절로 스토리용 파일을 만든다(태블릿이 준비되면 미리보기를 띄운다) — config.highlight.auto_story: false 면 끈다
-                if HIGHLIGHT_CFG.get('auto_story', True) is not False:
-                    threading.Thread(target=_make_and_upload_story, args=(item,), daemon=True).start()
-        else:
-            logger.error(f"하이라이트 업로드 실패 {r.status_code}: {r.text[:200]}")
+        hid = _post_highlight(path, meta)
+        if hid:
+            _remember_highlight(hid, path, seconds, meta)
     except Exception as e:
         logger.error(f"하이라이트 업로드 오류: {e}")
+
+
+def _upload_rally_highlight(path, meta):
+    """[직전 랠리](2026-11-11 · 사용자 *"직전랠리는 인스타에 자동으로 올라가는거랑 앱 하이라이트에서 볼 수 있는거 둘다"*) —
+    마지막 랠리 서브 3초 전 ~ 버튼 누른 순간(rally_cut · 60초 이하 · 재인코딩 없음)을 **앱 하이라이트로 올리고 같은 파일을
+    인스타 스토리로 자동 게시**한다(백엔드 story-file autoPost — 인스타가 연결돼 있을 때만, 실패하면 관리자 알림). 자르기가 실패하면
+    뒤쪽 60초를 하이라이트에만 올린다(인스타는 안 올린다 — 무엇이 올라가는지 모르는 클립을 자동으로 내보내지 않는다).
+    config.highlight.auto_story: false 면 하이라이트만."""
+    try:
+        with _story_make_lock:
+            out, win = _story_clip(path, 0)
+    except Exception as e:
+        logger.warning(f"직전 랠리 자르기 실패 — 뒤쪽 60초를 하이라이트에만 올려요: {e}")
+        _upload_highlight(path, meta, 60)
+        return
+    try:
+        hid = _post_highlight(out, meta)
+        if not hid:
+            return
+        secs = int(max(0, (win.get('duration') or 0) - (win.get('start') or 0)))
+        item = _remember_highlight(hid, out, secs, meta)
+        if HIGHLIGHT_CFG.get('auto_story', True) is not False:
+            with _story_lock:
+                _story_jobs[hid] = {'state': 'making', 'error': '', 'url': ''}
+            _upload_story_file(item['id'], out, win, auto_post=True)
+    except Exception as e:
+        logger.error(f"직전 랠리 하이라이트 오류: {e}")
 
 
 @app.route('/highlight', methods=['POST'])
 @_require_operator
 def save_highlight():
     """리플레이 버퍼를 클립으로 저장(즉시 응답) + 백엔드 업로드(백그라운드).
-    Body(선택): { "seconds": 60 } — 버퍼(권장 90초)에서 뒤쪽 N초만 잘라 업로드."""
+    Body: { "mode": "rally" } — [직전 랠리](앱 하이라이트 + 인스타 스토리 자동) ·
+          { "seconds": 60 } — [60초](뒤쪽 N초 · 앱 하이라이트만 · 옛 태블릿의 30·90초도 같은 길)."""
     data = request.get_json(silent=True) or {}
-    seconds = int(data.get('seconds') or 0)
-    if seconds and not (15 <= seconds <= 300):
+    _last_highlight_at[0] = time.time()   # 송출 영상 검사가 이 사이엔 리플레이를 저장하지 않는다
+    mode = 'rally' if str(data.get('mode') or '') == 'rally' else 'seconds'
+    try:
+        seconds = int(data.get('seconds') or 0)
+    except (TypeError, ValueError):
+        seconds = 0
+    if mode == 'rally':
+        seconds = 0
+    elif seconds and not (15 <= seconds <= 300):
         seconds = 0  # 이상값은 무시 — 버퍼 전체 길이로
     # 사전 확인 — 버퍼가 꺼져 있으면 켜기까지 시도(ensure). 그래도 안 되면 명확히 안내.
     # (버퍼가 이미 돌고 있으면 즉시 통과 — 오판으로 "꺼짐" 뜨는 걸 방지)
@@ -1389,8 +1826,9 @@ def save_highlight():
             'recordedAt': recorded_at,
         }
     # 저장(폴링 ~수 초)+업로드는 통째로 백그라운드 — 요청은 즉시 반환(헬스체크 안 막힘)
-    threading.Thread(target=_save_and_upload_highlight, args=(meta, seconds), daemon=True).start()
-    return jsonify({'success': True, 'seconds': seconds or None})
+    threading.Thread(target=_save_and_upload_highlight, args=(meta, seconds, mode), daemon=True).start()
+    return jsonify({'success': True, 'seconds': seconds or None, 'mode': mode,
+                    'instagram': mode == 'rally' and HIGHLIGHT_CFG.get('auto_story', True) is not False})
 
 
 # ════════════════════════════════════════════════════════════════
@@ -1464,12 +1902,25 @@ def _story_clip(path, seconds):
 
 
 def _make_and_upload_story(item):
+    """태블릿 '📱 인스타 스토리' 로 고른 클립 — 스토리용 파일을 만들어 올린다(게시는 관리자 [올리기])."""
     hid = item['id']
     with _story_lock:
         _story_jobs[hid] = {'state': 'making', 'error': '', 'url': ''}
     try:
         with _story_make_lock:
             out, win = _story_clip(item['path'], item['seconds'])
+    except Exception as e:
+        logger.error(f"스토리용 영상 실패({hid}): {e}")
+        with _story_lock:
+            _story_jobs[hid] = {'state': 'failed', 'error': str(e)[:300], 'url': ''}
+        return
+    _upload_story_file(hid, out, win)
+
+
+def _upload_story_file(hid, out, win, auto_post=False):
+    """스토리용 파일을 백엔드에 올린다(POST /api/highlight/:id/story-file) — auto_post 면 백엔드가 받자마자 인스타에 올린다
+    (직전 랠리). 결과는 _story_jobs[hid](state ready · post = 백엔드 게시 상태 posting/posted/failed/'')."""
+    try:
         import requests
         api = (HIGHLIGHT_CFG.get('api_base') or 'https://api.padelsociety.co.kr').rstrip('/')
         key = HIGHLIGHT_CFG.get('upload_key') or ''
@@ -1484,7 +1935,8 @@ def _make_and_upload_story(item):
                 data={'cutStart': str(win.get('start') if win.get('start') is not None else ''),
                       'cutServe': str(win.get('serve') if win.get('serve') is not None else ''),
                       'cutDuration': str(win.get('duration') if win.get('duration') is not None else ''),
-                      'cutWhy': str(win.get('why') or '')},
+                      'cutWhy': str(win.get('why') or ''),
+                      **({'autoPost': '1'} if auto_post else {})},
                 timeout=180,
             )
         body = {}
@@ -1495,9 +1947,11 @@ def _make_and_upload_story(item):
         if not r.ok:
             raise RuntimeError(body.get('message') or f'서버가 스토리용 영상을 받지 않았어요(HTTP {r.status_code})')
         url = ((body.get('data') or {}).get('storyUrl')) or ''
+        post = str((body.get('data') or {}).get('status') or '')
         with _story_lock:
-            _story_jobs[hid] = {'state': 'ready', 'error': '', 'url': url, **win}
-        logger.info(f"☁️ 스토리용 영상 업로드 완료: {hid}")
+            _story_jobs[hid] = {'state': 'ready', 'error': '', 'url': url, 'post': post, 'auto': bool(auto_post), **win}
+        logger.info(f"☁️ 스토리용 영상 업로드 완료: {hid}"
+                    + (' · 인스타 자동 게시 ' + ('시작' if post == 'posting' else f'안 됨({post or "인스타 연결 전"})') if auto_post else ''))
     except Exception as e:
         logger.error(f"스토리용 영상 실패({hid}): {e}")
         with _story_lock:
@@ -1548,6 +2002,75 @@ def make_story(hid):
 @_require_operator
 def story_state(hid):
     return jsonify({'success': True, 'story': _story_view(str(hid)[:64])})
+
+
+CAMERA_SETTLE_S = 4.0   # 다시 연 카메라가 첫 화면을 낼 때까지
+
+
+@app.route('/camera-restart', methods=['POST'])
+@_require_operator
+def camera_restart():
+    """카메라 다시 연결(2026-11-01) — 카메라 소스를 다시 열고 몇 초 뒤 화면을 다시 본다. 그래도 한 가지 색이고 하드웨어
+    디코딩이 켜져 있으면 끄고(다시 열린다) 한 번 더 본다. 방송 중이 아니어도 된다.
+    Body(선택): { "hwDecodeOff": true } — 바로 하드웨어 디코딩부터 끈다."""
+    data = request.get_json(silent=True) or {}
+    force_off = bool(data.get('hwDecodeOff'))
+    with _frame_lock:
+        srcs = obs.camera_sources()
+        if not srcs:
+            return jsonify({'success': False,
+                            'error': 'OBS 에서 카메라(미디어 소스)를 못 찾았어요 — OBS 가 켜져 있는지 확인해 주세요'}), 400
+        before = {c['name']: c for c in _frame_verdicts(srcs)}
+        hw_off = []
+        for name, hw in srcs:
+            if force_off and hw and obs.set_hw_decode(name, False):
+                hw_off.append(name)
+            else:
+                obs.restart_camera(name)
+        time.sleep(CAMERA_SETTLE_S)
+        srcs = obs.camera_sources() or srcs
+        after = {c['name']: c for c in _frame_verdicts(srcs)}
+        retry = [n for n, hw in srcs if hw and after.get(n, {}).get('uniform') and n not in hw_off]
+        for name in retry:
+            if obs.set_hw_decode(name, False):
+                hw_off.append(name)
+        if retry:
+            time.sleep(CAMERA_SETTLE_S)
+            after.update({c['name']: c for c in _frame_verdicts([(n, False) for n in retry])})
+        for name in after:
+            _frame_mem['bad'].pop(name, None)     # 감시는 처음부터 다시 센다
+            _frame_mem['notes'].pop(name, None)
+        rows = []
+        for name, _hw in srcs:
+            a = after.get(name) or {}
+            rows.append({'name': name, 'before': (before.get(name) or {}).get('label') or '',
+                         'after': a.get('label') or '', 'checked': bool(a.get('ok')), 'hw_off': name in hw_off})
+    still = [r['name'] for r in rows if r['after']]
+    if still:
+        label = next(r['after'] for r in rows if r['after'])
+        text = (f"다시 열었는데 아직 {label}이에요({', '.join(still)}) — "
+                "카메라 전원·랜선을 확인하거나 OBS 를 다시 켜 주세요")
+    elif not any(r['checked'] for r in rows):
+        text = '카메라를 다시 열었어요 — 화면은 확인하지 못했어요(유튜브에서 봐 주세요)'
+    else:
+        text = '카메라를 다시 열었어요 — 화면 정상'
+    if hw_off:
+        text += f" · 하드웨어 디코딩을 껐어요({', '.join(hw_off)})"
+    _note_action(f"[카메라 다시 연결] {text}")
+    return jsonify({'success': True, 'ok': not still, 'text': text, 'sources': rows})
+
+
+@app.route('/obs-restart', methods=['POST'])
+@_require_operator
+def obs_restart():
+    """OBS 다시 켜기(2026-11-11) — 유튜브가 초록인데 OBS 화면은 정상일 때. 방송 중이면 같은 유튜브 방송으로 이어 보낸다."""
+    _note_output_action('[OBS 다시 켜기] 요청')
+    res = _restart_obs_and_resume('운영자 요청')
+    _note_output_action(f"[OBS 다시 켜기] {res['text']}")
+    if res['ok']:
+        _output_mem.update({'bad': 0, 'next_at': time.time() + OUTPUT_FIRST_S})
+        _set_output_state(bad=False, note='')
+    return jsonify({'success': True, 'ok': res['ok'], 'text': res['text']})
 
 
 @app.route('/status', methods=['GET'])
@@ -1640,6 +2163,7 @@ if __name__ == '__main__':
     threading.Thread(target=_auto_stop_loop, daemon=True).start()
     # 방송 상태 감시 — 재연결·업로드·카메라·YouTube 경고를 /health 와 로그에(2026-10-21)
     threading.Thread(target=_health_loop, daemon=True, name='health').start()
+    threading.Thread(target=_output_loop, daemon=True, name='output-check').start()
     # 지난번에 끝내지 못한 방송 정리·이어받기 — OBS 가 늦게 뜰 수 있어 조금 기다렸다가(2026-10-21)
     _rec = threading.Timer(20.0, _recover_leftover)
     _rec.daemon = True
