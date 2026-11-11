@@ -5,7 +5,8 @@ OBS 인코딩 점검 (2026-10-24 — *"라이브 인코딩 문제 아직도 계�
 
 'PC 과부하(인코딩 밀림)' 는 c18 부터 알려 줬지만 **왜** 밀리는지는 아무도 안 봤다. 여기서 못 박는 것:
   ① stream_health.encoding_advice — OBS 설정 → 고칠 칸(큰 것부터): x264 · 녹화 인코더 따로(인코딩 두 번) · FPS 60 ·
-     해상도 · 란초스 · 무거운 NVENC/QSV/AMD 프리셋 · 카메라 소프트웨어 디코딩. 권장값이면 [] · 못 읽은 칸은 판정 안 함.
+     해상도 · 란초스 · 무거운 NVENC/QSV/AMD 프리셋. 권장값이면 [] · 못 읽은 칸은 판정 안 함.
+     ⚠️ 카메라 '하드웨어 디코딩 켜기' 는 더 권하지 않는다(2026-11-01 — 켠 뒤 초록 화면이 나갔다 · test_camera_frame.py).
   ② encoding_summary 한 줄.
   ③ evaluate(advice=) — '인코딩 밀림'·'화면 밀림' 문장 끝에 가장 큰 칸 하나('고칠 것: …') · 권장값이면 'PC 성능 한계' ·
      설정을 못 읽었으면(None) 아무것도 안 붙인다 · 다른 문제(업로드)엔 안 붙인다.
@@ -117,13 +118,12 @@ check(keys(sh.encoding_advice(cfg(encoder='h264_texture_amf', enc={'preset': 'qu
       "AMD '품질' → '균형'")
 
 a = sh.encoding_advice(cfg(sw_decode_cameras=['코트 카메라']))
-check(keys(a) == ['camera_decode'] and '코트 카메라' in a[0]['text'] and '하드웨어' in a[0]['text'],
-      "카메라 소스가 소프트웨어 디코딩이면 → '가능한 경우 하드웨어 디코딩 사용'", a)
+check(a == [], "카메라가 소프트웨어 디코딩이어도 '하드웨어 디코딩 켜기' 를 권하지 않는다(2026-11-01 초록 화면)", a)
 
 a = sh.encoding_advice({'mode': 'Advanced', 'encoder': 'obs_x264', 'rec_encoder': 'obs_x264', 'fps': 60,
                         'base': [1920, 1080], 'output': [1920, 1080], 'enc': {'preset': 'fast'},
                         'sw_decode_cameras': ['캠']})
-check(keys(a) == ['x264', 'x264_preset', 'double_encode', 'fps', 'camera_decode'], '여럿이면 효과가 큰 순서', keys(a))
+check(keys(a) == ['x264', 'x264_preset', 'double_encode', 'fps'], '여럿이면 효과가 큰 순서', keys(a))
 
 # ═══════════════════════════════════════════════════════════════
 print('\n[②] 한 줄 요약')
@@ -242,7 +242,7 @@ check(r['enc'] == {'preset2': 'p7', 'multipass': 'fullres', 'lookahead': True, '
 check(r['sw_decode_cameras'] == ['코트 카메라'], '카메라 중 하드웨어 디코딩을 안 켠 것만(로컬 파일은 안 본다)', r['sw_decode_cameras'])
 check(c.client.sets == [], '읽기만 한다(설정을 바꾸지 않는다)', c.client.sets)
 adv = sh.encoding_advice(r)
-check(keys(adv) == ['double_encode', 'fps', 'preset', 'camera_decode'], '읽은 설정 → 고칠 칸 넷', keys(adv))
+check(keys(adv) == ['double_encode', 'fps', 'preset'], '읽은 설정 → 고칠 칸 셋(카메라 디코딩은 안 권한다)', keys(adv))
 
 # 프로필 폴더 찾기
 os.remove(os.path.join(root, 'user.ini'))

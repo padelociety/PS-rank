@@ -9,6 +9,11 @@ stream_server 의 감시 루프가 방송 중 10초마다 OBS 숫자를 읽어 �
 2026-10-24 *"라이브 인코딩 문제 아직도 계속된다"* — 'PC 과부하' 만으로는 OBS 의 무엇을 고칠지 몰랐다.
 encoding_advice 가 OBS 설정(obs_controller.refresh_encoding 이 읽는다)에서 고칠 칸을 골라 문장 끝에 붙인다.
 
+2026-11-01 *"유투브 또 이러네ㅜㅜ 나 외부여서 가서 고치지도 못하는데"* — 유튜브에 **초록 화면만** 나갔다. 송출 숫자는
+전부 정상(6,100kbps · 드롭 0 · YouTube good)이고 카메라 소스도 '재생 중' 이라 아무 경고가 없었다 — 영상을 푸는(디코딩)
+쪽이 깨져 빈 프레임(YUV 0 = 초록)을 낸 것이다. frame_verdict 가 OBS 화면을 작게 찍어 '한 가지 색' 인지 보고,
+camera_frame_step 이 그 카메라를 다시 열고(→ 그래도면 하드웨어 디코딩을 끈다) 를 정한다.
+
 순수 모듈 — OBS·YouTube·Flask 를 import 하지 않는다(테스트가 숫자만 넣어 돌린다).
 """
 
@@ -24,6 +29,7 @@ CAMERA_GRACE_TICKS = 2  # 카메라가 이만큼 연속으로 안 돌아야 경�
 ISSUES = [
     ('reconnecting', '재연결 중', '방송 재연결 중 — 인터넷(업로드)이 끊겼어요. 다시 붙으면 같은 방송으로 이어져요'),
     ('camera', '카메라 끊김', '카메라 영상이 끊겼어요 — OBS 가 다시 연결하는 중이에요(카메라 전원·네트워크 확인)'),
+    ('frame', '카메라 화면 깨짐', '방송 화면이 한 가지 색(초록 등)으로 나가요 — 서버가 카메라를 다시 여는 중이에요'),
     ('network', '업로드 불안정', '업로드가 불안정해요 — 인터넷이 영상을 다 못 보내 끊겨 보일 수 있어요'),
     ('encoder', 'PC 과부하', '방송 PC 인코딩이 밀려요 — 영상이 끊겨 보일 수 있어요'),
     ('render', '화면 밀림', 'OBS 화면 그리기가 밀려요 — 영상이 끊겨 보일 수 있어요'),
@@ -175,11 +181,8 @@ def encoding_advice(cfg: dict) -> list:
             out.append({'key': 'preset', 'render': False,
                         'text': "AMD 프리셋 '품질' → '균형'(설정 → 출력 → 방송)"})
 
-    cams = [str(n) for n in (cfg.get('sw_decode_cameras') or []) if str(n or '').strip()]
-    if cams:
-        out.append({'key': 'camera_decode', 'render': False,
-                    'text': f"카메라 소스({', '.join(cams)})가 CPU 로 영상을 풀어요 → 소스 속성 '가능한 경우 하드웨어 "
-                            "디코딩 사용' 켜기"})
+    # ⚠️ 카메라 '하드웨어 디코딩 켜기' 는 더 권하지 않는다(2026-11-01) — 켠 뒤 RTSP 카메라가 **초록 화면**을 냈다.
+    #    그날 방송 PC CPU 는 3% 안팎이라 CPU 로 풀어도 여유가 있다. sw_decode_cameras 는 config 에 남는다(보기만).
     return out
 
 
@@ -257,7 +260,7 @@ def youtube_issue_lines(yt: dict) -> list:
 
 
 def evaluate(prev: dict, cur: dict, *, elapsed_s: float = 10.0, camera_bad_ticks: dict = None,
-             youtube: dict = None, advice: list = None) -> dict:
+             youtube: dict = None, advice: list = None, frame: dict = None) -> dict:
     """OBS 스냅샷 둘(10초 간격) → 지금 방송 상태.
 
     cur/prev 모양(obs_controller.stream_stats 가 만든다 — 없는 칸은 0):
@@ -268,6 +271,8 @@ def evaluate(prev: dict, cur: dict, *, elapsed_s: float = 10.0, camera_bad_ticks
     youtube: {'status': 'good'|'ok'|'bad'|'noData'|..., 'issues': [...]} — 1분마다 바뀐다(없으면 None).
     advice: encoding_advice 결과(OBS 설정에서 고칠 칸) — '인코딩 밀림'·'화면 밀림' 이면 문장 끝에 가장 큰 칸 하나를 붙인다
             (`fix`). [] = 설정은 권장값(PC 성능 한계) · None = 설정을 못 읽음(아무것도 안 붙인다).
+    frame: 화면 검사 결과(부르는 쪽의 camera_frame 상태 — {'bad': [이름…], 'note': '다시 열었어요' 같은 한 줄}).
+           bad 가 있으면 'frame'(카메라 화면 깨짐).
 
     돌려주는 것: {issue, short, text, issues:[...], reconnecting, congestion, net_drop_pct, encode_skip_pct,
                  render_skip_pct, kbps, cpu, fps, camera:[이름…], youtube:{status, lines}}"""
@@ -295,6 +300,9 @@ def evaluate(prev: dict, cur: dict, *, elapsed_s: float = 10.0, camera_bad_ticks
             ticks.pop(name, None)
     if bad_cams:
         found.append('camera')
+    frame_bad = [str(n) for n in ((frame or {}).get('bad') or []) if str(n or '').strip()]
+    if frame_bad:
+        found.append('frame')
 
     net_drop = _pct(_delta(cur, prev, 'net_skipped'), _delta(cur, prev, 'net_total'))
     enc_skip = _pct(_delta(cur, prev, 'enc_skipped'), _delta(cur, prev, 'enc_total'))
@@ -326,6 +334,11 @@ def evaluate(prev: dict, cur: dict, *, elapsed_s: float = 10.0, camera_bad_ticks
     text = _TEXT.get(issue, '')
     if issue == 'camera' and bad_cams:
         text = f"{text} ({', '.join(bad_cams)})"
+    if issue == 'frame':
+        text = f"{text} ({', '.join(frame_bad)})"
+        note = str((frame or {}).get('note') or '').strip()
+        if note:
+            text = f"{text} · {note}"
     if issue == 'youtube' and yt_lines:
         text = f"{text} — {yt_lines[0]}"
     fix = ''
@@ -359,9 +372,69 @@ def evaluate(prev: dict, cur: dict, *, elapsed_s: float = 10.0, camera_bad_ticks
         'cpu': cpu,
         'fps': fps,
         'camera': bad_cams,
+        'frame': frame_bad,
         'youtube': {'status': yt_status, 'lines': yt_lines},
         'fix': fix,
     }
+
+
+# ── 방송 화면 검사 (2026-11-01 — 초록 화면) ─────────────────────────
+# OBS 소스 스크린샷(32x18)을 RGB 점 목록으로 받아 '한 가지 색인가' 를 본다. 진짜 코트 화면은 조명·그물·사람 때문에
+# 이렇게 작게 줄여도 칸마다 색이 다르다 — 거의 전부가 한 색이면 화면이 깨진 것이다(디코딩 실패의 초록 · 검정 · 회색).
+FRAME_TOL = 12            # 이 차이(채널마다 0~255) 안이면 '같은 색'
+FRAME_UNIFORM_SHARE = 0.92
+FRAME_CHECK_EVERY = 2     # 감시 10초 × 2 = 20초마다 찍는다
+FRAME_GRACE = 2           # 연속 이만큼 단색이어야 손댄다(장면 전환·카메라 켜지는 순간은 넘긴다)
+FRAME_HW_OFF_AT = 4       # 다시 열어도 단색이면(연속 4번째) 하드웨어 디코딩을 끈다
+FRAME_RETRY_EVERY = 9     # 그 뒤로도 단색이면 이만큼마다(3분) 다시 연다
+
+
+def _hex(c):
+    return '#%02x%02x%02x' % tuple(max(0, min(255, int(v))) for v in c[:3])
+
+
+def frame_verdict(pixels) -> dict:
+    """RGB 점 목록 → {'ok': 읽었나, 'uniform': 한 가지 색인가, 'green': 초록(디코딩 실패) 인가, 'color': '#rrggbb', 'share': 0~1}.
+    점이 8개 미만이면 ok=False(판정 안 함)."""
+    pts = []
+    for p in pixels or []:
+        try:
+            pts.append((int(p[0]), int(p[1]), int(p[2])))
+        except (TypeError, ValueError, IndexError):
+            continue
+    if len(pts) < 8:
+        return {'ok': False, 'uniform': False, 'green': False, 'color': '', 'share': 0.0}
+    # 기준색 = 채널마다 가운데 값(겹쳐 그린 점수판 같은 작은 조각에 안 끌려간다)
+    ref = tuple(sorted(c[i] for c in pts)[len(pts) // 2] for i in range(3))
+    same = sum(1 for c in pts if max(abs(c[i] - ref[i]) for i in range(3)) <= FRAME_TOL)
+    share = round(same / len(pts), 3)
+    uniform = share >= FRAME_UNIFORM_SHARE
+    r, g, b = ref
+    green = uniform and g >= 40 and g - r >= 40 and g - b >= 40
+    return {'ok': True, 'uniform': uniform, 'green': green, 'color': _hex(ref), 'share': share}
+
+
+def frame_label(v: dict) -> str:
+    """'초록 화면' · '단색 화면(#101010)' · ''."""
+    v = v or {}
+    if not v.get('uniform'):
+        return ''
+    return '초록 화면' if v.get('green') else f"단색 화면({v.get('color') or '?'})"
+
+
+def camera_frame_step(bad_count: int, hw_decode) -> str:
+    """연속 단색 횟수 → 이번에 할 일: '' · 'restart'(카메라 다시 열기) · 'hw_off'(하드웨어 디코딩 끄기 — 다시 열린다).
+    hw_decode: 그 소스의 하드웨어 디코딩이 켜져 있나(True) · 꺼짐(False) · 모름(None)."""
+    n = int(bad_count or 0)
+    if n < FRAME_GRACE:
+        return ''
+    if n == FRAME_GRACE:
+        return 'restart'
+    if n == FRAME_HW_OFF_AT:
+        return 'hw_off' if hw_decode is True else 'restart'
+    if n > FRAME_HW_OFF_AT and (n - FRAME_HW_OFF_AT) % FRAME_RETRY_EVERY == 0:
+        return 'restart'
+    return ''
 
 
 def transition_line(before: str, after: str, health: dict) -> str:

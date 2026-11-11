@@ -690,6 +690,16 @@ body {
 .hl-rail.off .hl-rail-state { color:var(--text-dim); }
 .hl-rail.busy .hl-rail-btn { opacity:.6; pointer-events:none; }
 .hl-rail.busy .hl-rail-state { color:var(--gold); }
+/* 📷 카메라 다시 연결(c20 · 2026-11-01 — 유튜브에 초록 화면만 나갔다) — 하이라이트 레일 맨 아래. 서버가 꺼져 있으면 숨긴다. */
+.hl-cam-btn {
+  border:1px solid var(--border); border-radius:var(--radius-sm); cursor:pointer; width:100%; padding:10px 4px;
+  font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-weight:900; font-size:13px; line-height:1.3;
+  background:transparent; color:var(--text); transition: transform .15s, opacity .2s;
+}
+.hl-cam-btn small { display:block; font-size:10px; font-weight:700; color:var(--text-dim); margin-top:2px; }
+.hl-cam-btn:active { transform:scale(.97); }
+.hl-cam-btn.alert { border-color:var(--gold); color:var(--gold); }
+.hl-cam-btn.busy { opacity:.6; pointer-events:none; }
 @media (max-width: 820px) { .hl-rail { flex-basis:140px; padding:12px 8px; } .hl-rail-btn { font-size:17px; padding:16px 0; } }
 
 /* ── 자유 라이브 카드 (STEP 1 상단) — 리그 매치가 없어도 방송·하이라이트 ── */
@@ -797,8 +807,10 @@ body {
       <!-- 빌드 표시 — 태블릿이 최신 파일을 받았는지 눈으로 확인하는 용도.
            배포할 때마다 아래 COURTBUILD 와 스크립트의 BUILD 를 함께 올린다.
            c17(2026-10-19): 방송 PC(stream_server) 요청에 운영자 토큰 · 서버·회원 글자 이스케이프 · 보드 창 opener 끊기.
-           c18(2026-10-21): 방송 중 문제(재연결 · 업로드 · 카메라 · PC 과부하 · 유튜브 경고)를 LIVE 줄에 — 서버 /health stream_health. -->
-      <!--COURTBUILD:c19--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c19</div>
+           c18(2026-10-21): 방송 중 문제(재연결 · 업로드 · 카메라 · PC 과부하 · 유튜브 경고)를 LIVE 줄에 — 서버 /health stream_health.
+           c19(2026-11-01): 📱 인스타 스토리(최근 클립 → 미리보기 → 올리기 · 올리기는 관리자).
+           c20(2026-11-11): [📷 카메라 다시 연결](하이라이트 레일 아래 · 서버 /camera-restart) · '카메라 화면 깨짐'(초록 화면)이면 버튼 강조. -->
+      <!--COURTBUILD:c20--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c20</div>
       <div class="step-indicator" id="step-label">STEP 1 / 4</div>
       <div class="step-dots">
         <div class="step-dot active" id="dot-1"></div>
@@ -888,6 +900,7 @@ body {
   <button class="hl-rail-btn" onclick="saveHighlight(90, this)">90초<small>직전 1분 30초</small></button>
   <button class="hl-rail-ig" onclick="openIgStory()">📱 인스타 스토리</button>
   <div class="hl-rail-state" id="hl-rail-state">📡 스트리밍 서버 확인 중...</div>
+  <button class="hl-cam-btn" id="cam-restart-btn" style="display:none" onclick="restartCamera()">📷 카메라 다시 연결<small>방송이 초록·검은 화면일 때</small></button>
 </aside>
 </div>
 
@@ -2437,6 +2450,7 @@ function _updateStreamStatus(state) {
 // ── 🎬 하이라이트 레일 — 라이브와 무관. OBS 리플레이 버퍼가 돌면(buffer_ready) 언제든 저장 ──
 // 레일은 사라지지 않는다(자리가 튀지 않게) — 못 쓰는 상태면 흐려지고 이유를 적는다.
 function renderHlRail(busyText) {
+  renderCamBtn();
   const rail = document.getElementById('hl-rail');
   const st = document.getElementById('hl-rail-state');
   if (!rail || !st) return;
@@ -2647,6 +2661,48 @@ async function igPost() {
     if (v && v.status === 'failed') { st.textContent = '⚠️ ' + (v.error || '올리지 못했어요'); st.style.color = 'var(--red)'; btn.disabled = false; return; }
   }
   if (gen === _igGen) { st.textContent = '⏳ 아직 처리 중이에요 — 잠시 뒤 다시 열어 확인해 주세요'; st.style.color = 'var(--gold)'; }
+}
+
+// ── 📷 카메라 다시 연결 (c20 · 2026-11-01 — "유투브 또 이러네ㅜㅜ") ──
+// 유튜브엔 초록 화면만 나가는데 송출 숫자는 정상이었다(카메라 영상을 푸는 디코더가 깨졌다). 서버가 방송 중 20초마다 화면을
+// 찍어 스스로 다시 열지만(stream_health 'frame'), 사람이 바로 누를 길도 둔다 — 서버가 다시 열고 몇 초 뒤 화면을 다시 보고,
+// 그래도 한 가지 색이면 하드웨어 디코딩을 끄고 한 번 더 본다. 결과 문장은 서버 것 그대로(토스트 — 글자로만 넣는다).
+// 밖에서는 폰으로 https://obs.padelsociety.co.kr 을 열어 ⚙ 운영자 로그인 뒤 같은 버튼을 누르면 된다.
+let _camBusy = false;
+function renderCamBtn(busyText) {
+  const btn = document.getElementById('cam-restart-btn');
+  if (!btn) return;
+  btn.style.display = _streamServerOnline ? '' : 'none';
+  btn.classList.toggle('busy', !!busyText || _camBusy);
+  btn.classList.toggle('alert', !!(_liveIssue && _liveIssue.issue === 'frame'));
+  if (busyText) btn.textContent = busyText;
+  else if (!_camBusy) btn.innerHTML = '📷 카메라 다시 연결<small>방송이 초록·검은 화면일 때</small>';
+}
+async function restartCamera() {
+  if (_camBusy) return;
+  if (!confirm('카메라를 다시 연결할까요?\n방송 화면이 몇 초 멈출 수 있어요.')) return;
+  _camBusy = true;
+  renderCamBtn('⏳ 카메라 다시 여는 중...');
+  try {
+    const res = await fetch(`${STREAM_SERVER}/camera-restart`, {
+      method: 'POST',
+      headers: streamHeaders(),
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!data.success) {
+      if (streamAuthFail(res, data)) throw Object.assign(new Error(data.error || ''), { shown: true });
+      throw new Error(data.error || (res.status === 404 ? '방송 PC 서버가 옛 버전이에요 — 서버를 다시 켜 주세요' : '카메라 다시 연결 실패'));
+    }
+    showToast((data.ok ? '📷 ' : '⚠️ ') + String(data.text || '카메라를 다시 열었어요'));
+  } catch (e) {
+    if (!e.shown) showToast('⚠️ ' + (e.message || '카메라 다시 연결 실패'));
+    console.error('camera-restart -', e);
+  }
+  _camBusy = false;
+  renderCamBtn();
+  checkStreamServer();
 }
 
 let _healthFailCount = 0;
@@ -3139,7 +3195,7 @@ if ('serviceWorker' in navigator) {
 -->
 <script>
 (function () {
-  var BUILD = "c19";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
+  var BUILD = "c20";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
   var el = document.getElementById('app-build');
   if (el) el.textContent = '앱 ' + BUILD;
 

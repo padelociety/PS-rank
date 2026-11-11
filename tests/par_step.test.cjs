@@ -541,10 +541,10 @@ const curBtn = (html) => (/class="par-opt (on|off) current"/.exec(html) || [])[1
     }
   });
 
-  await t('빌드 배지 c19 · BUILD · SW v53 같이', () => {
+  await t('빌드 배지 c20 · BUILD · SW v54 같이', () => {
     const sw = fs.readFileSync(path.join(__dirname, '..', 'ps_court', 'ps_court_sw.js'), 'utf8');
-    assert(src.includes('<!--COURTBUILD:c19-->') && src.includes('var BUILD = "c19";') && src.includes('>앱 c19</div>'), '배지');
-    assert(sw.includes("const CACHE = 'ps-court-v53';"), 'SW');
+    assert(src.includes('<!--COURTBUILD:c20-->') && src.includes('var BUILD = "c20";') && src.includes('>앱 c20</div>'), '배지');
+    assert(sw.includes("const CACHE = 'ps-court-v54';"), 'SW');
   });
 
   console.log(fails ? `\n실패 ${fails}건\n` : '\n전부 통과\n');

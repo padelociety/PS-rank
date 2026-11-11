@@ -100,6 +100,103 @@ check(re.search(r"obs\.set_stream_settings\(rtmp_url, stream_key\)\s*\n(\s*#[^\n
       'set_stream_settings → refresh_cameras → start_stream 순서')
 check("'camera_refresh': getattr(obs, 'camera_refresh_status', None)" in src, '/health camera_refresh')
 
+print('\n[7] 다시 연 카메라가 초록이면 켜기 전에 고친다 — 하드웨어 디코딩이 켜져 있으면 끈다 (2026-11-11 "또 유투브 초록화면이야")')
+import base64, io  # noqa: E401,E402
+from PIL import Image  # noqa: E402
+
+W, H = 32, 18
+GREEN = [(0, 135, 0)] * (W * H)
+COURT = [((x * 7) % 256, (y * 13) % 256, (x * y) % 256) for y in range(H) for x in range(W)]
+
+
+def png(pixels):
+    img = Image.new('RGB', (W, H))
+    img.putdata(pixels)
+    buf = io.BytesIO()
+    img.save(buf, 'PNG')
+    return 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode()
+
+
+class ShotClient(FakeClient):
+    """frames: {이름: [찍을 때마다 내줄 화면 …]} (마지막 화면이 계속) · hw: 하드웨어 디코딩 켠 이름들"""
+    def __init__(self, inputs, frames, hw=(), heal_on_hw_off=True):
+        super().__init__(inputs)
+        self.frames = {k: list(v) for k, v in frames.items()}
+        self.hw = set(hw)
+        self.heal_on_hw_off = heal_on_hw_off
+        self.sets = []
+
+    def get_input_settings(self, name):
+        st = {'input': self.inputs[name], 'is_local_file': name in self.local}
+        if name in self.hw:
+            st['hw_decode'] = True
+        return R(input_settings=st)
+
+    def get_media_input_status(self, name):
+        return R(media_state='OBS_MEDIA_STATE_PLAYING')
+
+    def get_source_screenshot(self, name, fmt, w, h, q):
+        seq = self.frames.get(name) or [COURT]
+        px = seq.pop(0) if len(seq) > 1 else seq[0]
+        return R(image_data=png(px))
+
+    def set_input_settings(self, name, settings, overlay):
+        self.sets.append((name, dict(settings)))
+        if settings.get('hw_decode') is False:
+            self.hw.discard(name)
+            if self.heal_on_hw_off:
+                self.frames[name] = [COURT]
+
+
+def quick(c):
+    c.CAMERA_FRAME_SETTLE_S = c.CAMERA_FRAME_RECHECK_S = c.CAMERA_FIX_SETTLE_S = 0
+    return c
+
+
+c = quick(ctl())
+c.client = ShotClient({'미디어': 'rtsp://cam'}, {'미디어': [GREEN]}, hw={'미디어'})
+st = c.refresh_cameras(wait_s=1)
+fr = st.get('frame') or []
+check(c.client.sets == [('미디어', {'hw_decode': False})], '초록 + 하드웨어 디코딩 켬 → 끈다(소스가 다시 열린다)', str(c.client.sets))
+check(len(fr) == 1 and fr[0]['action'] == 'hw_off' and fr[0]['checked'] and fr[0]['after'] == '', '고친 뒤 다시 찍어 정상', str(fr))
+check('초록' in fr[0]['label'], '무엇이었는지 적는다', fr[0]['label'])
+
+c = quick(ctl())
+c.client = ShotClient({'미디어': 'rtsp://cam'}, {'미디어': [GREEN, GREEN, COURT]})
+st = c.refresh_cameras(wait_s=1)
+fr = st['frame']
+check(c.client.sets == [] and [a[0] for a in c.client.actions] == ['미디어', '미디어'],
+      '하드웨어 디코딩이 꺼져 있으면 한 번 더 다시 연다', str(c.client.actions))
+check(fr and fr[0]['action'] == 'restart' and fr[0]['after'] == '', '다시 연 뒤 정상', str(fr))
+
+c = quick(ctl())
+c.client = ShotClient({'미디어': 'rtsp://cam'}, {'미디어': [GREEN, COURT]}, hw={'미디어'})
+st = c.refresh_cameras(wait_s=1)
+check(st['frame'] == [] and c.client.sets == [] and len(c.client.actions) == 1,
+      '처음 한 장만 단색이면(켜지는 순간) 손대지 않는다', str(st['frame']))
+
+c = quick(ctl())
+c.client = ShotClient({'미디어': 'rtsp://cam'}, {'미디어': [COURT]}, hw={'미디어'})
+st = c.refresh_cameras(wait_s=1)
+check(st['frame'] == [] and c.client.sets == [], '정상 화면이면 아무것도 안 한다(하드웨어 디코딩도 그대로)')
+
+c = quick(ctl())
+c.client = ShotClient({'미디어': 'rtsp://cam'}, {'미디어': [GREEN]}, hw={'미디어'}, heal_on_hw_off=False)
+st = c.refresh_cameras(wait_s=1)
+fr = st['frame']
+check(fr and fr[0]['action'] == 'hw_off' and fr[0]['checked'] and '초록' in fr[0]['after'],
+      '고쳐도 그대로면 그렇다고 적는다(방송은 켠다 — 20초 감시가 이어 받는다)', str(fr))
+
+c = quick(ctl())
+c.client = FakeClient({'미디어': 'rtsp://cam'})   # 스크린샷을 못 주는 OBS
+st = c.refresh_cameras(wait_s=3)
+check(st['frame'] == [] and st['error'] == '', '찍지 못하면 아무것도 안 한다(던지지 않는다)', str(st))
+
+print('\n[8] 카메라를 다시 여는 곳은 한 함수(_restart_media)를 지난다')
+osrc = open(os.path.join(ROOT, 'obs_controller.py'), encoding='utf-8').read()
+check(osrc.count('trigger_media_input_action(') == 1, 'RESTART 를 보내는 곳은 하나', str(osrc.count('trigger_media_input_action(')))
+check('MEDIA_RESTART' not in osrc.replace('MEDIA_INPUT_ACTION_RESTART', ''), '같은 값의 상수가 두 벌이 아니다')
+
 print()
 if fails:
     print(f'❌ {len(fails)}개 실패')

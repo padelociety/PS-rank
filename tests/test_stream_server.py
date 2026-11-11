@@ -60,6 +60,12 @@ class FakeOBS:
     def start_replay_buffer(self): pass
     def ensure_replay_buffer(self): return True
     def save_replay_buffer(self): return ''
+    # 방송 화면 검사(2026-11-01) — 기본은 카메라 없음 · 못 찍음(test_camera_frame.py 가 바꿔 끼운다)
+    def camera_sources(self): return []
+    def program_scene(self): return ''
+    def frame_pixels(self, source, width=32, height=18): return None
+    def restart_camera(self, name): return True
+    def set_hw_decode(self, name, on): return True
 
 
 class FakeYT:
