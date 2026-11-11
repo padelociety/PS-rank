@@ -140,7 +140,20 @@ OBS PC 가 여기서 pull 한다. 고치면 양쪽을 같게 맞출 것(2026-09 
   이미 열려 있는 방송은 예전 설정(ultraLow · 자동 종료) 그대로다 — 다음 방송부터 바뀐다.
 - 테스트 `tests/test_stream_stability.py` · `tests/stream_handover.test.cjs` ⑥-2.
 
-## 초록 화면 — 방송 화면 검사 · 카메라 다시 연결 (2026-11-01 · 태블릿 c19 · SW v53)
+## 유튜브 초록 화면 — 송출 영상 검사 · OBS 다시 켜기 (2026-11-11 · 태블릿 c20 · SW v54)
+
+*"obs 미리보기 화면은 유투브 초록화면 나와도 원래 정상이야"* · *"라이브 시작할때 초록색 … 계속 새로운 라이브도 초록색"* → OBS 만 다시 켜자
+풀렸다. 원인은 카메라가 아니라 **인코더**(그때 방송·녹화 둘 다 QuickSync). OBS 스크린샷은 인코더 앞이라 못 본다.
+- 인코딩 점검 `hw_double` — 방송·녹화 인코더가 같은 그래픽 인코더(QSV·NVENC·AMD)면 맨 앞에 '유튜브 초록 화면 의심 1순위 → 녹화 인코더
+  (스트리밍 인코더 사용)'. 카메라 하드웨어 디코딩은 더 권하지 않는다.
+- **송출 영상 검사**(`_output_tick` · `stream_health.output_verdict`) — 녹화 = 스트리밍 인코더일 때 방송 45초 뒤·5분마다 리플레이 버퍼를 저장해
+  끝쪽 키프레임을 풀어 본다. 두 번 연속 한 가지 색이고 OBS 화면은 정상이면 **OBS 를 다시 켜고 같은 유튜브 방송으로 이어 보낸다**(방송 하나에 한 번).
+  상태 줄 `⚠️ 유튜브 초록 화면` · `/health` `output_check` · config `output_check.{enabled, auto_restart, every_s}` · `obs.obs_task`.
+- **`POST /obs-restart`**(운영자) — taskkill → `PS-OBS-Studio` 작업 → 웹소켓 → 같은 키로 송출. 태블릿 레일 버튼이 'output' 일 때 [🔄 OBS 다시 켜기].
+- 카메라를 다시 여는 곳은 `obs_controller._restart_media` 하나 · 켜기 전 카메라 새로 고침 뒤 화면 검사(`_fix_uniform_cameras`).
+- ⚠️ **python 변경 — stream_server 재시작 필요(방송 중 금지).** 테스트 `tests/test_output_check.py` · `test_camera_refresh.py` ⑦⑧.
+
+## (옛) 초록 화면 — 방송 화면 검사 · 카메라 다시 연결 (2026-11-01)
 
 신고 *"유투브 또 이러네ㅜㅜ 나 외부여서 가서 고치지도 못하는데"* — 유튜브엔 초록 화면만 나가는데 `/health` 숫자는 전부 정상이었다
 (카메라 영상을 푸는 하드웨어 디코더가 빈 프레임을 냈다 — 송출 숫자·카메라 '재생 중' 으로는 안 보인다).

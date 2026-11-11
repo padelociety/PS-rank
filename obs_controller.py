@@ -57,6 +57,10 @@ class OBSController:
         self.camera_refresh_on_start = obs_cfg.get('camera_refresh_on_start', True) is not False
         # /health 가 보여 줄 마지막 카메라 새로 고침 결과.
         self.camera_refresh_status = None
+        # OBS 를 껐다 켜는 길(2026-11-11 — 인코더가 초록으로 굳으면 OBS 를 다시 켜야 풀렸다 · restart_obs_process).
+        #   obs_task : OBS 를 띄우는 작업 스케줄러 이름(SETUP 3절 — 리플레이 버퍼까지 켜서 뜬다).
+        self.obs_task = str(obs_cfg.get('obs_task') or 'PS-OBS-Studio')
+        self.obs_restart_status = None
         self.client = None
         # OBS WebSocket(ReqClient)은 스레드 안전하지 않음 — 키프알라이브 스레드와
         # 하이라이트 요청이 동시에 접근하면 응답이 꼬여 엉뚱한 예외가 남(예: 버퍼가
@@ -1064,6 +1068,62 @@ class OBSController:
             f" (마지막 파일: {before or '없음'})"
         )
         return ""
+
+    def save_replay_buffer_nowait(self, timeout_s: float = 15.0) -> str:
+        """송출 영상 검사용 저장 — 하이라이트가 저장 중이면 기다리지 않고 '' (검사는 다음에 · 하이라이트가 늦어지면 안 된다)."""
+        if not self._replay_save_lock.acquire(blocking=False):
+            return ''
+        try:
+            return self._save_replay_buffer(timeout_s)
+        finally:
+            self._replay_save_lock.release()
+
+    # ── OBS 다시 켜기 (2026-11-11 — 유튜브 초록 화면) ─────────────────
+    # OBS 화면은 멀쩡한데 인코더(QuickSync)가 빈 버퍼를 내며 굳으면 새 방송도 계속 초록이었고, OBS 를 껐다 켜야 풀렸다
+    # (사용자가 Stop-Process obs64 → Start-ScheduledTask PS-OBS-Studio 로 확인). 그걸 서버가 한다.
+    OBS_RESTART_WAIT_S = 60.0
+
+    def _run(self, cmd, timeout=20):
+        import subprocess
+        flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0) if os.name == 'nt' else 0
+        return subprocess.run(cmd, capture_output=True, timeout=timeout, creationflags=flags)
+
+    def restart_obs_process(self, wait_s: float = None) -> bool:
+        """OBS 를 끄고(taskkill) 작업 스케줄러로 다시 띄운 뒤 웹소켓이 붙을 때까지(최대 wait_s) 기다린다.
+        송출 중이었다면 송출은 끊긴다 — 부르는 쪽이 다시 켠다. 결과는 obs_restart_status. **예외를 던지지 않는다.**"""
+        wait_s = self.OBS_RESTART_WAIT_S if wait_s is None else float(wait_s)
+        t0 = time.time()
+        st = {'at': t0, 'ok': False, 'error': '', 'seconds': 0.0}
+        self.disconnect()
+        try:
+            self._run(['taskkill', '/IM', 'obs64.exe', '/F'])
+        except Exception as e:
+            st['error'] = f'OBS 끄기 실패: {e}'
+        time.sleep(2.0)
+        try:
+            r = self._run(['schtasks', '/Run', '/TN', self.obs_task])
+            if getattr(r, 'returncode', 1) != 0:
+                st['error'] = (f"작업 스케줄러 '{self.obs_task}' 를 못 켰어요: "
+                               + (r.stderr or r.stdout or b'').decode('utf-8', 'ignore').strip()[:160])
+        except Exception as e:
+            st['error'] = f"작업 스케줄러 '{self.obs_task}' 를 못 켰어요: {e}"
+        deadline = t0 + max(5.0, wait_s)
+        while time.time() < deadline:
+            time.sleep(3.0)
+            try:
+                self.connect(retries=1, delay=0)
+                st['ok'] = True
+                st['error'] = ''
+                break
+            except Exception:
+                continue
+        if not st['ok'] and not st['error']:
+            st['error'] = f'{wait_s:.0f}초 안에 OBS 가 다시 뜨지 않았어요'
+        st['seconds'] = round(time.time() - t0, 1)
+        (logger.info if st['ok'] else logger.error)(
+            f"🔄 OBS 다시 켜기: {'됨' if st['ok'] else '실패 — ' + st['error']} ({st['seconds']}초)")
+        self.obs_restart_status = st
+        return st['ok']
 
     @staticmethod
     def _written_since(path: str, started: float) -> bool:

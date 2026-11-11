@@ -11,8 +11,14 @@ encoding_advice 가 OBS 설정(obs_controller.refresh_encoding 이 읽는다)에
 
 2026-11-01 *"유투브 또 이러네ㅜㅜ 나 외부여서 가서 고치지도 못하는데"* — 유튜브에 **초록 화면만** 나갔다. 송출 숫자는
 전부 정상(6,100kbps · 드롭 0 · YouTube good)이고 카메라 소스도 '재생 중' 이라 아무 경고가 없었다 — 영상을 푸는(디코딩)
-쪽이 깨져 빈 프레임(YUV 0 = 초록)을 낸 것이다. frame_verdict 가 OBS 화면을 작게 찍어 '한 가지 색' 인지 보고,
+쪽이 깨져 빈 프레임(YUV 0 = 초록)을 낸 것으로 봤다. frame_verdict 가 OBS 화면을 작게 찍어 '한 가지 색' 인지 보고,
 camera_frame_step 이 그 카메라를 다시 열고(→ 그래도면 하드웨어 디코딩을 끈다) 를 정한다.
+
+2026-11-11 *"obs 미리보기 화면은 유투브 초록화면 나와도 원래 정상이야"* · *"라이브 시작할때 초록색 되는거같아. 그 이후부터는
+계속 새로운 라이브도 초록색이고"* — 11-01 의 짐작(카메라 디코더)은 틀렸다. OBS 화면(캔버스)은 멀쩡하고 **그 뒤 인코더 쪽**
+(QuickSync 가 받는 NV12 버퍼가 빈 채 — 0 = 초록)이 깨진 채 굳어 OBS 를 다시 켜야 풀렸다. 그때 방송 PC 는 방송·녹화(리플레이
+버퍼) 인코더가 **둘 다 QuickSync** 였다. OBS 스크린샷(frame_verdict 의 입력)은 인코더 **앞**이라 이걸 못 본다 —
+output_verdict 가 리플레이 버퍼 파일(= 인코더가 낸 그대로)을 풀어 본 것을 판정하고 'output'(유튜브 초록 화면)을 낸다.
 
 순수 모듈 — OBS·YouTube·Flask 를 import 하지 않는다(테스트가 숫자만 넣어 돌린다).
 """
@@ -28,6 +34,8 @@ CAMERA_GRACE_TICKS = 2  # 카메라가 이만큼 연속으로 안 돌아야 경�
 # 문제 종류 → (태블릿 상태 줄 짧은 말, 로그·토스트 문장). 위에 있을수록 먼저 고친다(가장 큰 원인 하나만 싣는다).
 ISSUES = [
     ('reconnecting', '재연결 중', '방송 재연결 중 — 인터넷(업로드)이 끊겼어요. 다시 붙으면 같은 방송으로 이어져요'),
+    ('output', '유튜브 초록 화면', '유튜브로 나가는 영상이 한 가지 색(초록 등)이에요 — OBS 화면은 정상이라 카메라가 아니라 '
+                              'OBS 인코더가 멈춘 거예요(OBS 를 다시 켜야 풀려요)'),
     ('camera', '카메라 끊김', '카메라 영상이 끊겼어요 — OBS 가 다시 연결하는 중이에요(카메라 전원·네트워크 확인)'),
     ('frame', '카메라 화면 깨짐', '방송 화면이 한 가지 색(초록 등)으로 나가요 — 서버가 카메라를 다시 여는 중이에요'),
     ('network', '업로드 불안정', '업로드가 불안정해요 — 인터넷이 영상을 다 못 보내 끊겨 보일 수 있어요'),
@@ -91,6 +99,7 @@ def encoder_kind(enc_id) -> str:
 
 
 _KIND_LABEL = {'x264': 'x264(CPU)', 'nvenc': 'NVENC', 'qsv': 'QuickSync', 'amf': 'AMD', 'other': '기타'}
+HW_KINDS = ('nvenc', 'qsv', 'amf')   # 그래픽 카드 인코더 — 같은 것을 둘 돌리면 초록 화면 위험(2026-11-11)
 
 
 def _num(v, default=0.0):
@@ -132,7 +141,15 @@ def encoding_advice(cfg: dict) -> list:
                         'text': f"x264 프리셋 {preset} → veryfast(하드웨어 인코더가 없을 때 · 설정 → 출력 → 방송)"})
 
     rec = str(cfg.get('rec_encoder') or '').strip().lower()
-    if mode == 'advanced' and rec and rec != 'none':
+    hw_double = (mode == 'advanced' and kind in HW_KINDS and rec and rec != 'none' and encoder_kind(rec) == kind)
+    if hw_double:
+        # 2026-11-11 — 방송·녹화가 둘 다 QuickSync 인 동안 유튜브가 초록 화면으로 굳었다(OBS 를 다시 켜야 풀렸다).
+        #   느려지는 정도가 아니라 화면이 통째로 안 나가는 문제라 맨 앞에 둔다.
+        out.insert(0, {'key': 'hw_double', 'render': False, 'green': True,
+                       'text': f"방송·녹화(하이라이트) 인코더가 둘 다 {_KIND_LABEL[kind]}라 같은 그래픽 인코더가 두 개 돌아요 — "
+                               "유튜브 초록 화면 의심 1순위 → 설정 → 출력 → 녹화 → 비디오 인코더 '(스트리밍 인코더 사용)'"
+                               "(방송이 없을 때)"})
+    elif mode == 'advanced' and rec and rec != 'none':
         out.append({'key': 'double_encode', 'render': False,
                     'text': '녹화(하이라이트) 인코더가 따로 돌아 방송 중엔 인코딩을 두 번 해요 → 설정 → 출력 → 녹화 → '
                             "인코더 '(방송 인코더 사용)'"})
@@ -260,7 +277,7 @@ def youtube_issue_lines(yt: dict) -> list:
 
 
 def evaluate(prev: dict, cur: dict, *, elapsed_s: float = 10.0, camera_bad_ticks: dict = None,
-             youtube: dict = None, advice: list = None, frame: dict = None) -> dict:
+             youtube: dict = None, advice: list = None, frame: dict = None, output: dict = None) -> dict:
     """OBS 스냅샷 둘(10초 간격) → 지금 방송 상태.
 
     cur/prev 모양(obs_controller.stream_stats 가 만든다 — 없는 칸은 0):
@@ -273,6 +290,8 @@ def evaluate(prev: dict, cur: dict, *, elapsed_s: float = 10.0, camera_bad_ticks
             (`fix`). [] = 설정은 권장값(PC 성능 한계) · None = 설정을 못 읽음(아무것도 안 붙인다).
     frame: 화면 검사 결과(부르는 쪽의 camera_frame 상태 — {'bad': [이름…], 'note': '다시 열었어요' 같은 한 줄}).
            bad 가 있으면 'frame'(카메라 화면 깨짐).
+    output: 송출 영상 검사 결과(부르는 쪽 — {'bad': True|False, 'note': '서버가 OBS 를 다시 켜는 중' 같은 한 줄}).
+            bad 면 'output'(유튜브 초록 화면) — 고칠 것은 OBS 다시 켜기 + (있으면) 'green' 권고.
 
     돌려주는 것: {issue, short, text, issues:[...], reconnecting, congestion, net_drop_pct, encode_skip_pct,
                  render_skip_pct, kbps, cpu, fps, camera:[이름…], youtube:{status, lines}}"""
@@ -284,6 +303,8 @@ def evaluate(prev: dict, cur: dict, *, elapsed_s: float = 10.0, camera_bad_ticks
     reconnecting = bool(cur.get('reconnecting'))
     if reconnecting:
         found.append('reconnecting')
+    if (output or {}).get('bad'):
+        found.append('output')
 
     # 카메라 — 연속 CAMERA_GRACE_TICKS 번 안 돌아야(장면 전환·잠깐 버퍼링은 넘긴다)
     media = cur.get('media') or {}
@@ -342,6 +363,12 @@ def evaluate(prev: dict, cur: dict, *, elapsed_s: float = 10.0, camera_bad_ticks
     if issue == 'youtube' and yt_lines:
         text = f"{text} — {yt_lines[0]}"
     fix = ''
+    if issue == 'output':
+        note = str((output or {}).get('note') or '').strip()
+        if note:
+            text = f"{text} · {note}"
+        green = [a for a in (advice or []) if isinstance(a, dict) and a.get('green')]
+        fix = str(green[0].get('text') or '') if green else ''
     if issue in ('encoder', 'render') and advice is not None:
         pick = [a for a in advice if isinstance(a, dict) and (issue == 'encoder' or a.get('render'))]
         if pick:
@@ -373,6 +400,7 @@ def evaluate(prev: dict, cur: dict, *, elapsed_s: float = 10.0, camera_bad_ticks
         'fps': fps,
         'camera': bad_cams,
         'frame': frame_bad,
+        'output': bool((output or {}).get('bad')),
         'youtube': {'status': yt_status, 'lines': yt_lines},
         'fix': fix,
     }
@@ -420,6 +448,25 @@ def frame_label(v: dict) -> str:
     if not v.get('uniform'):
         return ''
     return '초록 화면' if v.get('green') else f"단색 화면({v.get('color') or '?'})"
+
+
+OUTPUT_LAST_FRAMES = 3   # 송출 영상 검사 — 파일 끝쪽 키프레임 이만큼이 전부 한 가지 색이면 '깨짐'
+
+
+def output_verdict(frames) -> dict:
+    """인코더가 낸 영상(리플레이 버퍼 파일의 키프레임들을 32x18 로 푼 것) → {'ok', 'bad', 'green', 'label', 'frames',
+    'uniform', 'color'}. 끝쪽 OUTPUT_LAST_FRAMES 장이 **전부** 한 가지 색이면 bad — 점수판·배너가 겹친 진짜 방송 화면은
+    한 가지 색일 수 없다(인코더가 빈 버퍼를 내면 점수판까지 통째로 초록). 읽은 장이 없으면 ok=False(판정 안 함)."""
+    vs = [frame_verdict(f) for f in (frames or [])]
+    ok = [v for v in vs if v.get('ok')]
+    if not ok:
+        return {'ok': False, 'bad': False, 'green': False, 'label': '', 'frames': 0, 'uniform': 0, 'color': ''}
+    tail = ok[-OUTPUT_LAST_FRAMES:]
+    bad = all(v['uniform'] for v in tail)
+    last = tail[-1]
+    return {'ok': True, 'bad': bad, 'green': bad and all(v['green'] for v in tail),
+            'label': frame_label(last) if bad else '', 'frames': len(ok),
+            'uniform': sum(1 for v in ok if v['uniform']), 'color': last.get('color') or ''}
 
 
 def camera_frame_step(bad_count: int, hw_decode) -> str:

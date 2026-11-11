@@ -354,7 +354,7 @@ html = io.open(os.path.join(ROOT, 'ps_court', 'ps_court_playus.html'), encoding=
 check('id="cam-restart-btn"' in html and 'restartCamera(' in html, '[📷 카메라 다시 연결] 버튼')
 fn = html[html.index('async function restartCamera'):]
 fn = fn[:fn.index('\n}\n') + 3]
-check('/camera-restart' in fn and 'streamHeaders()' in fn and 'streamAuthFail(' in fn, '운영자 토큰 · 막히면 로그인 안내', fn[:200])
+check("'camera-restart'" in fn and 'streamHeaders()' in fn and 'streamAuthFail(' in fn, '운영자 토큰 · 막히면 로그인 안내', fn[:200])
 check('data.text' in fn and 'innerHTML' not in fn, '서버 문장 그대로(텍스트로 · innerHTML 아님)')
 check("'frame'" in html, "상태 줄에서 '카메라 화면 깨짐' 이면 버튼을 강조")
 

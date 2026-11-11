@@ -23,7 +23,15 @@
     "audio_sync_offset_ms": 0,
     "audio_sync_inputs": [],
     "_camera_refresh_설명": "방송을 켤 때마다 RTSP 카메라 소스를 다시 시작한다 — 오래 켜 둔 카메라는 소리가 화면보다 점점 밀린다. false 면 끈다.",
-    "camera_refresh_on_start": true
+    "camera_refresh_on_start": true,
+    "_obs_task_설명": "OBS 를 띄우는 작업 스케줄러 이름 — 유튜브가 초록이면 서버가 OBS 를 껐다 이 작업으로 다시 띄운다(2026-11-11).",
+    "obs_task": "PS-OBS-Studio"
+  },
+  "output_check": {
+    "_설명": "유튜브로 나가는 영상 검사(2026-11-11) — 녹화 인코더가 '(스트리밍 인코더 사용)' 일 때만 돈다. 방송 45초 뒤·every_s 초마다 리플레이 버퍼를 풀어 보고, 두 번 연속 한 가지 색(초록)이면 auto_restart 가 OBS 를 다시 켜고 같은 방송으로 이어 보낸다(방송 하나에 한 번).",
+    "enabled": true,
+    "auto_restart": true,
+    "every_s": 300
   },
   "youtube": {
     "_설명": "방송 공개 설정: public(공개) / unlisted(링크 공유) / private(비공개)",

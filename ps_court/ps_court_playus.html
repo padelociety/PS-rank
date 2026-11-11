@@ -809,7 +809,8 @@ body {
            c17(2026-10-19): 방송 PC(stream_server) 요청에 운영자 토큰 · 서버·회원 글자 이스케이프 · 보드 창 opener 끊기.
            c18(2026-10-21): 방송 중 문제(재연결 · 업로드 · 카메라 · PC 과부하 · 유튜브 경고)를 LIVE 줄에 — 서버 /health stream_health.
            c19(2026-11-01): 📱 인스타 스토리(최근 클립 → 미리보기 → 올리기 · 올리기는 관리자).
-           c20(2026-11-11): [📷 카메라 다시 연결](하이라이트 레일 아래 · 서버 /camera-restart) · '카메라 화면 깨짐'(초록 화면)이면 버튼 강조. -->
+           c20(2026-11-11): [📷 카메라 다시 연결](하이라이트 레일 아래 · 서버 /camera-restart) · '카메라 화면 깨짐'이면 버튼 강조 ·
+                            '유튜브 초록 화면'(서버 송출 영상 검사)이면 같은 버튼이 [🔄 OBS 다시 켜기](/obs-restart). -->
       <!--COURTBUILD:c20--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c20</div>
       <div class="step-indicator" id="step-label">STEP 1 / 4</div>
       <div class="step-dots">
@@ -2674,28 +2675,37 @@ function renderCamBtn(busyText) {
   if (!btn) return;
   btn.style.display = _streamServerOnline ? '' : 'none';
   btn.classList.toggle('busy', !!busyText || _camBusy);
-  btn.classList.toggle('alert', !!(_liveIssue && _liveIssue.issue === 'frame'));
+  const obsMode = camBtnObsMode();
+  btn.classList.toggle('alert', !!(_liveIssue && (_liveIssue.issue === 'frame' || obsMode)));
   if (busyText) btn.textContent = busyText;
-  else if (!_camBusy) btn.innerHTML = '📷 카메라 다시 연결<small>방송이 초록·검은 화면일 때</small>';
+  else if (!_camBusy) btn.innerHTML = obsMode
+    ? '🔄 OBS 다시 켜기<small>유튜브만 초록이고 OBS 화면은 정상일 때</small>'
+    : '📷 카메라 다시 연결<small>OBS 화면의 카메라가 초록·검을 때</small>';
 }
+// c20(2026-11-11): 유튜브만 초록이고 OBS 화면은 정상이면(서버 송출 영상 검사 'output') 같은 버튼이 [OBS 다시 켜기] 가 된다 —
+// 카메라를 다시 열어도 소용없고 OBS 를 다시 켜야 풀렸다. 서버가 같은 유튜브 방송으로 이어 보낸다(POST /obs-restart).
+function camBtnObsMode() { return !!(_liveIssue && _liveIssue.issue === 'output'); }
 async function restartCamera() {
   if (_camBusy) return;
-  if (!confirm('카메라를 다시 연결할까요?\n방송 화면이 몇 초 멈출 수 있어요.')) return;
+  const obsMode = camBtnObsMode();
+  if (!confirm(obsMode
+    ? 'OBS 를 다시 켤까요?\n유튜브 방송은 그대로 이어지고, 20~30초 동안 화면이 멈춰요.'
+    : '카메라를 다시 연결할까요?\n방송 화면이 몇 초 멈출 수 있어요.')) return;
   _camBusy = true;
-  renderCamBtn('⏳ 카메라 다시 여는 중...');
+  renderCamBtn(obsMode ? '⏳ OBS 다시 켜는 중... (최대 1분)' : '⏳ 카메라 다시 여는 중...');
   try {
-    const res = await fetch(`${STREAM_SERVER}/camera-restart`, {
+    const res = await fetch(`${STREAM_SERVER}/${obsMode ? 'obs-restart' : 'camera-restart'}`, {
       method: 'POST',
       headers: streamHeaders(),
       body: JSON.stringify({}),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(obsMode ? 120000 : 30000),
     });
     const data = await res.json().catch(() => ({}));
     if (!data.success) {
       if (streamAuthFail(res, data)) throw Object.assign(new Error(data.error || ''), { shown: true });
-      throw new Error(data.error || (res.status === 404 ? '방송 PC 서버가 옛 버전이에요 — 서버를 다시 켜 주세요' : '카메라 다시 연결 실패'));
+      throw new Error(data.error || (res.status === 404 ? '방송 PC 서버가 옛 버전이에요 — 서버를 다시 켜 주세요' : (obsMode ? 'OBS 다시 켜기 실패' : '카메라 다시 연결 실패')));
     }
-    showToast((data.ok ? '📷 ' : '⚠️ ') + String(data.text || '카메라를 다시 열었어요'));
+    showToast((data.ok ? (obsMode ? '🔄 ' : '📷 ') : '⚠️ ') + String(data.text || (obsMode ? 'OBS 를 다시 켰어요' : '카메라를 다시 열었어요')));
   } catch (e) {
     if (!e.shown) showToast('⚠️ ' + (e.message || '카메라 다시 연결 실패'));
     console.error('camera-restart -', e);

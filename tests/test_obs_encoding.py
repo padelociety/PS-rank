@@ -87,9 +87,12 @@ check('medium' in a[1]['text'] and 'veryfast' in a[1]['text'], "프리셋 'mediu
 check(keys(sh.encoding_advice(cfg(encoder='obs_x264', enc={'preset': 'veryfast'}))) == ['x264'],
       'x264 veryfast 이하면 프리셋은 안 말한다(인코더만)')
 
-a = sh.encoding_advice(cfg(rec_encoder='jim_nvenc'))
+a = sh.encoding_advice(cfg(rec_encoder='obs_x264'))
 check(keys(a) == ['double_encode'] and "(방송 인코더 사용)" in a[0]['text'],
       "고급 모드 녹화 인코더가 따로면 → '(방송 인코더 사용)'(리플레이 버퍼가 늘 켜져 방송 중 인코딩 두 번)", a)
+a = sh.encoding_advice(cfg(rec_encoder='jim_nvenc'))
+check(keys(a) == ['hw_double'] and "(스트리밍 인코더 사용)" in a[0]['text'] and a[0].get('green'),
+      "같은 그래픽 인코더 둘(NVENC+NVENC)이면 → hw_double(유튜브 초록 화면 의심 · 2026-11-11)", a)
 check(sh.encoding_advice(cfg(rec_encoder='')) == [] and sh.encoding_advice(cfg(rec_encoder='none')) == [],
       "녹화 인코더 'none'(방송 인코더 사용)·빈 값이면 괜찮다")
 check(keys(sh.encoding_advice({'mode': 'Simple', 'encoder': 'nvenc', 'rec_quality': 'Small'})) == ['double_encode'],
@@ -242,7 +245,7 @@ check(r['enc'] == {'preset2': 'p7', 'multipass': 'fullres', 'lookahead': True, '
 check(r['sw_decode_cameras'] == ['코트 카메라'], '카메라 중 하드웨어 디코딩을 안 켠 것만(로컬 파일은 안 본다)', r['sw_decode_cameras'])
 check(c.client.sets == [], '읽기만 한다(설정을 바꾸지 않는다)', c.client.sets)
 adv = sh.encoding_advice(r)
-check(keys(adv) == ['double_encode', 'fps', 'preset'], '읽은 설정 → 고칠 칸 셋(카메라 디코딩은 안 권한다)', keys(adv))
+check(keys(adv) == ['hw_double', 'fps', 'preset'], '읽은 설정 → 고칠 칸 셋(카메라 디코딩은 안 권한다)', keys(adv))
 
 # 프로필 폴더 찾기
 os.remove(os.path.join(root, 'user.ini'))

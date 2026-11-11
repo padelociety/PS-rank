@@ -602,6 +602,215 @@ def _frame_check():
         return {'bad': bad_names, 'note': note}
 
 
+# ── 송출 영상 검사 · OBS 다시 켜기 (2026-11-11 — "또 유투브 초록화면이야") ─────────────
+# OBS 화면(캔버스)은 정상인데 유튜브만 초록이었고, 한 번 그러면 새 방송도 계속 초록 — OBS 를 다시 켜야 풀렸다.
+# OBS 스크린샷(_frame_check)은 인코더 **앞**이라 이걸 못 본다. 녹화 인코더가 '(스트리밍 인코더 사용)' 이면 리플레이
+# 버퍼 파일 = 유튜브로 나가는 바로 그 영상이라, 방송 중 그 파일을 잠깐 저장해 끝쪽 키프레임을 32x18 로 풀어 본다
+# (재인코딩 없음 · 키프레임만 · 1초 안팎). 두 번 연속 한 가지 색이고 OBS 화면은 정상이면 '유튜브 초록 화면' —
+# 서버가 OBS 를 다시 켜고 같은 유튜브 방송으로 이어 보낸다(방송 하나에 한 번 · config output_check.auto_restart).
+# 녹화 인코더가 따로면(검사가 유튜브 영상을 못 본다) 검사하지 않고 인코딩 권고(hw_double)만 남는다.
+OUTPUT_CFG = config.get('output_check') or {}
+OUTPUT_ON = OUTPUT_CFG.get('enabled', True) is not False
+OUTPUT_AUTO_RESTART = OUTPUT_CFG.get('auto_restart', True) is not False
+OUTPUT_FIRST_S = 45          # 방송 시작 뒤 첫 검사(초록은 보통 시작할 때 생긴다)
+OUTPUT_EVERY_S = max(120, int(OUTPUT_CFG.get('every_s', 300) or 300))
+OUTPUT_RECHECK_S = 30        # 한 번 걸리면 이만큼 뒤 다시(두 번 연속이어야 손댄다)
+OUTPUT_HIGHLIGHT_GAP_S = 60  # 하이라이트를 막 저장했으면 그 사이엔 검사 저장을 안 한다
+_output_mem = {'bid': None, 'next_at': 0.0, 'bad': 0, 'restarted': False}
+output_state = {'at': None, 'checked': None, 'label': '', 'bad': False, 'note': '', 'skipped': '', 'frames': 0,
+                'last_action': '', 'last_action_at': None}
+_ingest = {'broadcast_id': None, 'rtmp': '', 'key': ''}   # 메모리에만(키는 비밀 — 파일·로그·/health 에 안 남긴다)
+_last_highlight_at = [0.0]
+SMALL_W, SMALL_H = 32, 18
+
+
+def _small_frames(path, seconds: int = 12):
+    """영상 파일 끝 seconds 초의 키프레임만 32x18 RGB 로 풀어 [[(r,g,b)…]…] — 못 풀면 []."""
+    import subprocess
+    cmd = [_ffmpeg_exe(), '-hide_banner', '-loglevel', 'error', '-sseof', f'-{int(seconds)}', '-skip_frame', 'nokey',
+           '-i', path, '-vf', f'scale={SMALL_W}:{SMALL_H}:flags=area', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1']
+    flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0) if os.name == 'nt' else 0   # 키프레임만이라 1초 안팎
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=60, creationflags=flags)
+    except Exception as e:
+        logger.warning(f"송출 영상 풀기 실패(무시): {e}")
+        return []
+    data = r.stdout or b''
+    n = SMALL_W * SMALL_H * 3
+    return [[tuple(data[i + j:i + j + 3]) for j in range(0, n, 3)] for i in range(0, len(data) - n + 1, n)]
+
+
+def _output_covers_stream() -> bool:
+    """리플레이 버퍼가 방송 인코더를 같이 쓰나(= 리플레이 파일이 유튜브로 나가는 그 영상인가)."""
+    cfg = ((getattr(obs, 'encoding_status', None) or {}).get('config')) or {}
+    mode = str(cfg.get('mode') or '').strip().lower()
+    if mode == 'advanced':
+        return str(cfg.get('rec_encoder') or '').strip().lower() in ('', 'none')
+    if mode == 'simple':
+        return str(cfg.get('rec_quality') or '').strip().lower() == 'stream'
+    return False
+
+
+def _output_check_once() -> dict:
+    """리플레이 버퍼를 잠깐 저장해 인코더가 낸 영상을 판정 → stream_health.output_verdict + canvas(OBS 화면 판정).
+    못 하면 {'skipped': 이유}. 저장한 검사 파일은 지운다."""
+    if not _output_covers_stream():
+        return {'skipped': "녹화 인코더가 따로라 유튜브 영상을 못 봐요 — 녹화 인코더 '(스트리밍 인코더 사용)' 이면 검사해요"}
+    if time.time() - _last_highlight_at[0] < OUTPUT_HIGHLIGHT_GAP_S:
+        return {'skipped': '하이라이트를 막 저장했어요'}
+    if not stream_op_lock.acquire(blocking=False):   # RLock 엔 locked() 가 없다
+        return {'skipped': '방송을 켜고 끄는 중'}
+    stream_op_lock.release()
+    if not obs.is_replay_buffer_active():
+        return {'skipped': '리플레이 버퍼 꺼짐'}
+    path = obs.save_replay_buffer_nowait()
+    if not path:
+        return {'skipped': '검사용 저장 실패(하이라이트 저장 중일 수 있어요)'}
+    try:
+        v = stream_health.output_verdict(_small_frames(path))
+    finally:
+        with _story_lock:
+            used = any(x.get('path') == path for x in _recent_highlights)
+        if not used:
+            try:
+                os.remove(path)
+            except OSError as e:
+                logger.info(f"검사용 리플레이 파일을 못 지움(무시): {e}")
+    canvas = None
+    if v.get('bad'):
+        scene = obs.program_scene()
+        canvas = stream_health.frame_verdict(obs.frame_pixels(scene)) if scene else None
+    v['canvas_uniform'] = bool(canvas and canvas.get('ok') and canvas.get('uniform'))
+    return v
+
+
+def _set_output_state(**kw):
+    with state_lock:
+        output_state.update(kw)
+
+
+def _note_output_action(text: str):
+    logger.warning(f"📺 {text}")
+    _set_output_state(last_action=text, last_action_at=datetime.now(timezone.utc).isoformat())
+
+
+def _restart_obs_and_resume(reason: str) -> dict:
+    """OBS 를 다시 켜고, 방송 중이었으면 같은 유튜브 방송(같은 키)으로 이어 보낸다. 유튜브 방송은 끝내지 않는다
+    (enableAutoStop=False — 끊긴 몇십 초는 시청자에게 '버퍼링' 으로 보인다). {'ok', 'text'}."""
+    with stream_op_lock:
+        with state_lock:
+            active = bool(stream_state['active'])
+            bid = stream_state.get('broadcast_id')
+        rtmp, key = ('', '')
+        if active and bid:
+            if _ingest.get('broadcast_id') == bid and _ingest.get('key'):
+                rtmp, key = _ingest['rtmp'], _ingest['key']
+            else:
+                rtmp, key = youtube.ingest_of(bid)
+            if not (rtmp and key):
+                return {'ok': False, 'text': '유튜브 방송 주소를 못 읽어 OBS 를 다시 켜지 않았어요 — 방송을 끄고 다시 켜 주세요'}
+            try:
+                obs.stop_stream()
+            except Exception:
+                pass
+        if not obs.restart_obs_process():
+            err = ((getattr(obs, 'obs_restart_status', None) or {}).get('error')) or 'OBS 가 다시 뜨지 않았어요'
+            return {'ok': False, 'text': f"OBS 를 다시 켜지 못했어요 — {err} · 방송 PC 에서 OBS 를 직접 켜 주세요"}
+        if not active:
+            obs.ensure_replay_buffer()
+            return {'ok': True, 'text': 'OBS 를 다시 켰어요'}
+        try:
+            obs.set_stream_settings(rtmp, key)
+            obs.start_stream()
+            ok = obs.wait_until_streaming()
+        except Exception as e:
+            ok = False
+            logger.error(f"OBS 다시 켠 뒤 송출 시작 실패: {e}")
+        try:
+            obs.start_replay_buffer()
+        except Exception:
+            pass
+        if not ok:
+            return {'ok': False, 'text': 'OBS 는 다시 켰는데 송출이 안 붙었어요 — 태블릿에서 라이브를 끄고 다시 켜 주세요'}
+        logger.info(f"🔄 OBS 다시 켜고 같은 방송으로 이어 보냄({reason})")
+        return {'ok': True, 'text': 'OBS 를 다시 켜고 같은 유튜브 방송으로 이어 보냈어요 — 20~30초 뒤 유튜브 화면을 봐 주세요'}
+
+
+def _output_tick(now_t: float = None):
+    """송출 영상 검사 한 바퀴 — 테스트가 직접 부른다. 방송 중일 때만 · 시작 45초 뒤 · 5분마다 · 걸리면 30초 뒤 다시."""
+    now_t = time.time() if now_t is None else now_t
+    with state_lock:
+        active = stream_state['active']
+        bid = stream_state.get('broadcast_id')
+        started = stream_state.get('started_at')
+    if not OUTPUT_ON or not active or not bid:
+        if _output_mem['bid'] is not None:
+            _output_mem.update({'bid': None, 'next_at': 0.0, 'bad': 0, 'restarted': False})
+            _set_output_state(bad=False, note='', label='')
+        return None
+    if _output_mem['bid'] != bid:
+        try:
+            t0 = datetime.fromisoformat(started).timestamp() if started else now_t
+        except (TypeError, ValueError):
+            t0 = now_t
+        _output_mem.update({'bid': bid, 'next_at': t0 + OUTPUT_FIRST_S, 'bad': 0, 'restarted': False})
+        _set_output_state(bad=False, note='', label='', skipped='', checked=None)
+    if now_t < _output_mem['next_at']:
+        return None
+    v = _output_check_once()
+    stamp = datetime.now(timezone.utc).isoformat()
+    if v.get('skipped'):
+        _output_mem['next_at'] = now_t + 60
+        _set_output_state(at=stamp, skipped=v['skipped'])
+        return v
+    if not v.get('ok'):
+        _output_mem['next_at'] = now_t + 60
+        _set_output_state(at=stamp, checked=False, skipped='영상을 풀지 못했어요')
+        return v
+    if not v.get('bad') or v.get('canvas_uniform'):
+        # 정상 — 또는 OBS 화면부터 한 가지 색(인코더가 아니라 장면·카메라 — 화면 검사 몫)
+        if _output_mem['bad']:
+            logger.info('✅ 유튜브로 나가는 영상 돌아옴')
+        _output_mem.update({'bad': 0, 'next_at': now_t + OUTPUT_EVERY_S})
+        _set_output_state(at=stamp, checked=True, bad=False, label='', note='', skipped='', frames=v.get('frames', 0))
+        return v
+    _output_mem['bad'] += 1
+    _output_mem['next_at'] = now_t + OUTPUT_RECHECK_S
+    _set_output_state(at=stamp, checked=True, label=v.get('label') or '', skipped='', frames=v.get('frames', 0))
+    if _output_mem['bad'] < 2:
+        logger.warning(f"⚠️ 유튜브로 나가는 영상이 {v.get('label')} — {OUTPUT_RECHECK_S}초 뒤 다시 봐요(OBS 화면은 정상)")
+        return v
+    if OUTPUT_AUTO_RESTART and not _output_mem['restarted']:
+        _output_mem['restarted'] = True
+        _set_output_state(bad=True, note='서버가 OBS 를 다시 켜는 중')
+        _note_output_action(f"유튜브로 나가는 영상이 {v.get('label')} → OBS 다시 켜기")
+        res = _restart_obs_and_resume('송출 영상 ' + (v.get('label') or '깨짐'))
+        _note_output_action(res['text'])
+        _output_mem.update({'bad': 0, 'next_at': time.time() + OUTPUT_FIRST_S})
+        _set_output_state(bad=not res['ok'], note='' if res['ok'] else res['text'])
+        return v
+    _set_output_state(bad=True, note=('서버가 이미 한 번 OBS 를 다시 켰어요 — 방송 PC 를 봐 주세요'
+                                      if _output_mem['restarted'] else '방송 PC 에서 OBS 를 다시 켜 주세요'))
+    return v
+
+
+def _output_loop():
+    while True:
+        try:
+            _output_tick()
+        except Exception as e:
+            logger.warning(f"송출 영상 검사 오류(무시): {e}")
+        time.sleep(15)
+
+
+def _output_view():
+    with state_lock:
+        v = dict(output_state)
+    v['covers_stream'] = _output_covers_stream()
+    v['restart'] = getattr(obs, 'obs_restart_status', None)
+    return v
+
+
 def _health_tick(now_t: float = None):
     """감시 한 바퀴 — 테스트가 직접 부른다. 방송 중이 아니면 기억을 비운다."""
     now_t = time.time() if now_t is None else now_t
@@ -643,8 +852,10 @@ def _health_tick(now_t: float = None):
             _health_mem['frame'] = _frame_check()
         except Exception as e:
             logger.warning(f"화면 검사 오류(무시): {e}")
+    with state_lock:
+        out = {'bad': bool(output_state.get('bad')), 'note': output_state.get('note') or ''}
     h = stream_health.evaluate(prev, snap, elapsed_s=elapsed, camera_bad_ticks=_health_mem['cams'],
-                               youtube=_health_mem['yt'], advice=advice, frame=_health_mem['frame'])
+                               youtube=_health_mem['yt'], advice=advice, frame=_health_mem['frame'], output=out)
     _health_mem['prev'] = snap
     _health_mem['prev_t'] = now_t
     if h['reconnecting'] and not _health_mem['reconnecting']:
@@ -859,6 +1070,8 @@ def health():
         'obs_stop': _stop_view(),
         # 방송 화면 검사(2026-11-01 — 초록 화면) — 카메라마다 마지막 판정(label 이 비면 정상) · 서버가 마지막으로 한 일.
         'camera_frame': _frame_view(),
+        # 송출 영상 검사(2026-11-11 — 유튜브 초록 화면) — 리플레이 버퍼로 본 인코더 출력 · covers_stream false 면 검사 안 함.
+        'output_check': _output_view(),
     })
 
 
@@ -1066,6 +1279,7 @@ def _start_stream_locked(mode, team_a, team_b, league, category, match_number,
         # 1. YouTube 방송 생성
         broadcast_id, rtmp_url, stream_key = youtube.create_broadcast_and_stream(title, description)
         watch_url = YouTubeAPI.get_watch_url(broadcast_id)
+        _ingest.update({'broadcast_id': broadcast_id, 'rtmp': rtmp_url, 'key': stream_key})
 
         # 2. OBS 설정 + 스트리밍 시작
         obs.connect()
@@ -1477,6 +1691,7 @@ def save_highlight():
     """리플레이 버퍼를 클립으로 저장(즉시 응답) + 백엔드 업로드(백그라운드).
     Body(선택): { "seconds": 60 } — 버퍼(권장 90초)에서 뒤쪽 N초만 잘라 업로드."""
     data = request.get_json(silent=True) or {}
+    _last_highlight_at[0] = time.time()   # 송출 영상 검사가 이 사이엔 리플레이를 저장하지 않는다
     seconds = int(data.get('seconds') or 0)
     if seconds and not (15 <= seconds <= 300):
         seconds = 0  # 이상값은 무시 — 버퍼 전체 길이로
@@ -1719,6 +1934,19 @@ def camera_restart():
     return jsonify({'success': True, 'ok': not still, 'text': text, 'sources': rows})
 
 
+@app.route('/obs-restart', methods=['POST'])
+@_require_operator
+def obs_restart():
+    """OBS 다시 켜기(2026-11-11) — 유튜브가 초록인데 OBS 화면은 정상일 때. 방송 중이면 같은 유튜브 방송으로 이어 보낸다."""
+    _note_output_action('[OBS 다시 켜기] 요청')
+    res = _restart_obs_and_resume('운영자 요청')
+    _note_output_action(f"[OBS 다시 켜기] {res['text']}")
+    if res['ok']:
+        _output_mem.update({'bad': 0, 'next_at': time.time() + OUTPUT_FIRST_S})
+        _set_output_state(bad=False, note='')
+    return jsonify({'success': True, 'ok': res['ok'], 'text': res['text']})
+
+
 @app.route('/status', methods=['GET'])
 def status():
     """현재 스트림 상태 반환"""
@@ -1809,6 +2037,7 @@ if __name__ == '__main__':
     threading.Thread(target=_auto_stop_loop, daemon=True).start()
     # 방송 상태 감시 — 재연결·업로드·카메라·YouTube 경고를 /health 와 로그에(2026-10-21)
     threading.Thread(target=_health_loop, daemon=True, name='health').start()
+    threading.Thread(target=_output_loop, daemon=True, name='output-check').start()
     # 지난번에 끝내지 못한 방송 정리·이어받기 — OBS 가 늦게 뜰 수 있어 조금 기다렸다가(2026-10-21)
     _rec = threading.Timer(20.0, _recover_leftover)
     _rec.daemon = True
