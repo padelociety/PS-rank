@@ -28,6 +28,7 @@ import itertools
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
@@ -93,12 +94,22 @@ CORS_ORIGINS = list(dict.fromkeys(
 CORS(app, origins=CORS_ORIGINS, allow_headers=['Content-Type', 'Authorization'])
 
 # ── 운영자 확인 (방송을 바꾸는 요청) ───────────────────────────────
-# 태블릿은 운영자 로그인 토큰(psToken)을 Authorization: Bearer 로 보낸다. 그 토큰을 Playus 백엔드
-# myProfile 에 물어 역할을 본다. 이 PC 에서 직접 부른 요청(터널·LAN 이 아닌 127.0.0.1)만 토큰 없이 통과 —
-# OBS PC 브라우저의 /reload-html 과 make_thumbnail.py 가 그 길이다.
+# 태블릿은 운영자 로그인 토큰(psToken)을 Authorization: Bearer 로 보낸다. 그 토큰을 Playus 백엔드에 물어
+# **이 방송 PC 의 센터를 조작해도 되나** 를 본다(2026-11-09 · 검토 S4-04·B1-06 — 예전엔 myProfile 의 역할만 봐서
+# 어느 센터의 center_admin 이든 본점 방송을 켜고 끄고 [무효] 를 붙였다):
+#   GET {api_base}/api/stream/operator-check[?centerId=<control_auth.center_id>] → data.ok
+#   = 슈퍼어드민 ∨ 그 센터에 묶인 태블릿 계정(league_operator) ∨ 그 센터 관리자(메인·부관리자).
+#   center_id 를 비우면 백엔드의 본점 설정(서버 .env HQ_CENTER_ID · 없으면 PUBLIC_BOOKING_CENTER_ID — 어스센터 isDefault 아님).
+# 옛 백엔드(그 주소가 없어 404)면 예전처럼 myProfile 역할로 본다 — 그때 기본 역할엔 center_admin 이 없다(센터를 못 가린다).
+# 이 PC 에서 직접 부른 요청(터널·LAN 이 아닌 127.0.0.1)만 토큰 없이 통과 — OBS PC 브라우저의 /reload-html 과
+# make_thumbnail.py 가 그 길이다.
 _AUTH_CFG = config.get('control_auth') or {}
 CONTROL_AUTH_ENABLED = _AUTH_CFG.get('enabled', True) is not False
-CONTROL_ROLES = frozenset(_AUTH_CFG.get('roles') or ['league_operator', 'super_admin', 'center_admin'])
+# 이 방송 PC 의 센터(Playus 센터 id) — 비우면 백엔드의 본점 설정(HQ_CENTER_ID). 백엔드가 이 센터로 판정한다.
+# ⚠️ 적어 두는 게 맞다 — 비워 두면 백엔드 본점 설정이 바뀌는 순간 이 PC 의 운영자가 따라 바뀐다.
+CONTROL_CENTER_ID = str(_AUTH_CFG.get('center_id') or '').strip()
+# 옛 백엔드(확인 주소 없음)일 때만 쓰는 역할 목록 — center_admin 은 기본에서 뺐다(어느 센터 관리자든 들어왔다).
+CONTROL_ROLES = frozenset(_AUTH_CFG.get('roles') or ['league_operator', 'super_admin'])
 AUTH_API_BASE = (_AUTH_CFG.get('api_base') or (config.get('highlight') or {}).get('api_base')
                  or 'https://api.padelsociety.co.kr').rstrip('/')
 _AUTH_OK_TTL = 600            # 통과한 토큰은 10분 동안 다시 안 묻는다
@@ -110,8 +121,16 @@ _auth_cache: dict = {}        # sha256(토큰) → {'verdict': 'ok'|'forbidden'|
 
 AUTH_REQUIRED_MSG = '운영자 로그인이 필요해요 — 태블릿 ⚙ 설정에서 로그인해 주세요'
 AUTH_FORBIDDEN_MSG = '이 계정엔 운영자 권한이 없어요 — 운영자 계정으로 ⚙ 설정에서 다시 로그인해 주세요'
+AUTH_CENTER_CFG_MSG = ('방송 PC 의 센터 설정이 틀렸어요 — config.json 의 control_auth.center_id 를 '
+                       'Playus 센터 id(24자리)로 고치거나 비워 주세요')
 AUTH_DOWN_MSG = ('운영자 확인 서버(Playus)에 연결하지 못했어요 — 방송 PC 의 인터넷 연결을 확인한 뒤 '
                  '다시 시도해 주세요')
+
+if CONTROL_CENTER_ID and not re.fullmatch(r'[0-9a-fA-F]{24}', CONTROL_CENTER_ID):
+    logger.error(f"❌ control_auth.center_id 가 센터 id 모양이 아니에요({CONTROL_CENTER_ID!r}) — 운영자 확인이 전부 거절됩니다")
+elif CONTROL_AUTH_ENABLED and not CONTROL_CENTER_ID:
+    logger.warning("⚠️ control_auth.center_id 가 비어 있어요 — 백엔드 본점 설정(HQ_CENTER_ID)의 센터로 운영자를 확인합니다. "
+                   "이 PC 의 센터 id 를 적어 두세요")
 
 if not CONTROL_AUTH_ENABLED:
     logger.warning("!" * 60)
@@ -164,6 +183,54 @@ def _fetch_profile_role(token: str):
     return 'ok', str(data.get('role') or 'user')
 
 
+_old_backend_warned = [False]
+
+
+def _fetch_operator_verdict(token: str):
+    """백엔드에 '이 토큰이 이 방송 PC(센터)를 조작해도 되나' 를 묻는다 → (상태, 정보). 테스트가 이 함수를 갈아 끼운다.
+    상태: 'ok'(정보 = 통과 이유) · 'forbidden'(로그인은 맞는데 이 센터 권한 없음 — 정보 = 서버 문장) ·
+          'invalid'(401·403·433) · 'down'(못 물어봤다 — 정보 = 이유) · 'old'(옛 백엔드 — 주소가 없어 404)."""
+    qs = f"?centerId={urllib.parse.quote(CONTROL_CENTER_ID)}" if CONTROL_CENTER_ID else ''
+    req = urllib.request.Request(
+        f"{AUTH_API_BASE}/api/stream/operator-check{qs}",
+        headers={'Authorization': f'Bearer {token}', 'Accept': 'application/json'},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = json.loads(resp.read(2_000_000).decode('utf-8') or '{}')
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403, 433):   # 433 = 백엔드의 '토큰 만료'
+            return 'invalid', ''
+        if e.code == 404:
+            return 'old', ''
+        if e.code == 422:               # centerId 모양이 틀렸다 — 설정 오타
+            return 'forbidden', AUTH_CENTER_CFG_MSG
+        return 'down', f'HTTP {e.code}'
+    except Exception as e:
+        return 'down', str(e)
+    if not isinstance(body, dict) or body.get('isSuccess') is False:
+        return 'invalid', ''
+    data = body.get('data') if isinstance(body.get('data'), dict) else {}
+    if data.get('ok') is True:
+        return 'ok', str(data.get('reason') or '')
+    return 'forbidden', str(data.get('message') or '')
+
+
+def _operator_state(token: str):
+    """운영자 확인 한 번 → (상태, 정보). 새 주소가 먼저 — 옛 백엔드(404)면 myProfile 역할(CONTROL_ROLES)로 떨어진다."""
+    state, info = _fetch_operator_verdict(token)
+    if state != 'old':
+        return state, info
+    if not _old_backend_warned[0]:
+        _old_backend_warned[0] = True
+        logger.warning("⚠️ Playus 백엔드에 방송 운영자 확인 주소(/api/stream/operator-check)가 없어요 — "
+                       f"옛 규칙(역할 {sorted(CONTROL_ROLES)} · 센터 구분 없음)으로 확인합니다. 백엔드를 배포해 주세요")
+    state, role = _fetch_profile_role(token)
+    if state == 'ok':
+        return ('ok', role) if role in CONTROL_ROLES else ('forbidden', '')
+    return state, role
+
+
 def _check_operator_token(token: str):
     """토큰을 확인한다 → None(통과) 또는 (상태코드, 응답 dict). 결과는 토큰 해시로 잠깐 기억한다."""
     key = hashlib.sha256(token.encode('utf-8')).hexdigest()
@@ -171,13 +238,12 @@ def _check_operator_token(token: str):
     with _auth_lock:
         ent = dict(_auth_cache.get(key) or {})
     if not ent or ent.get('until', 0) <= now:
-        state, info = _fetch_profile_role(token)   # info = 역할('ok') 또는 못 물어본 이유('down')
+        state, info = _operator_state(token)   # info = 통과 이유·역할('ok') · 서버 문장('forbidden') · 못 물어본 이유('down')
         now = time.time()
         if state == 'ok':
-            if info in CONTROL_ROLES:
-                ent = {'verdict': 'ok', 'until': now + _AUTH_OK_TTL, 'last_ok': now}
-            else:
-                ent = {'verdict': 'forbidden', 'until': now + _AUTH_DENY_TTL, 'last_ok': 0}
+            ent = {'verdict': 'ok', 'until': now + _AUTH_OK_TTL, 'last_ok': now}
+        elif state == 'forbidden':
+            ent = {'verdict': 'forbidden', 'until': now + _AUTH_DENY_TTL, 'last_ok': 0, 'msg': info}
         elif state == 'invalid':
             ent = {'verdict': 'invalid', 'until': now + _AUTH_DENY_TTL, 'last_ok': 0}
         elif ent.get('last_ok') and now - ent['last_ok'] <= _AUTH_GRACE:
@@ -195,7 +261,7 @@ def _check_operator_token(token: str):
     if ent['verdict'] == 'ok':
         return None
     if ent['verdict'] == 'forbidden':
-        return 403, {'success': False, 'error': AUTH_FORBIDDEN_MSG, 'auth': 'forbidden'}
+        return 403, {'success': False, 'error': ent.get('msg') or AUTH_FORBIDDEN_MSG, 'auth': 'forbidden'}
     return 401, {'success': False, 'error': AUTH_REQUIRED_MSG, 'auth': 'required'}
 
 

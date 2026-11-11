@@ -38,7 +38,7 @@ const body = (name) => {
 const FNS = ['selectMatch', 'fetchFreshMatch', 'syncMatchRow', 'showTeamStep', 'parApplyOn', 'parStateOf',
   'parApplyLocked', 'renderParToggle', 'goParStep', 'renderParStep', 'chooseParApply', 'replayDifferentPair',
   'goToScore', 'goBack', 'applyTeams', 'psPhoto', 'psName', 'psAirName', 'psAirPhoto',
-  'parSkipNote', 'saveConfirmText', 'parDoneLine', 'showDonePar', 'showDone', 'saveMatch', 'psEsc'];
+  'parSkipNote', 'saveConfirmText', 'parDoneLine', 'showDonePar', 'showDone', 'saveMatch', 'psEsc', 'psDenied'];
 
 // 새 매치의 PAR 칸 — 진짜 서버(backend utils/leagueMatchType.newMatchParFields)와 같은 모양(c16).
 // 켬 리그(기본) = 태블릿의 '켬' 그대로, 끔 리그 = '반영 안 함'. 모노repo 에선 아래 ⑫ 가 백엔드 함수와 대조한다.
@@ -55,7 +55,8 @@ function makeServer(matches) {
   let nextId = 100;
   const srv = {
     db, calls,
-    rejectParApply: null,     // 문자열이면 그 메시지로 400
+    rejectParApply: null,     // 문자열이면 그 메시지로 400(rejectStatus 가 있으면 그 코드)
+    rejectStatus: 400,
     echoWrong: false,         // true 면 par-apply 가 바꾸지 않은 값을 돌려준다(옛 서버 흉내)
     parWarning: '',
     leagueParDefault: 'on',   // 리그 'PAR 반영 기본'(웹어드민) — 새 매치가 이 값으로 태어난다
@@ -71,7 +72,7 @@ function makeServer(matches) {
       calls.push([o.method || 'GET', url, o.body || '']);
       let m;
       if ((m = /\/league\/(\w+)\/matches\/(\w+)\/par-apply$/.exec(url))) {
-        if (srv.rejectParApply) { const e = new Error(srv.rejectParApply); e.status = 400; throw e; }
+        if (srv.rejectParApply) { const e = new Error(srv.rejectParApply); e.status = srv.rejectStatus; throw e; }
         const row = db.get(m[2]);
         const apply = JSON.parse(o.body).apply !== false;
         if (!srv.echoWrong) { row.matchType = apply ? 'Competitive' : 'Friendly'; row.parForced = apply; }
@@ -222,6 +223,24 @@ const curBtn = (html) => (/class="par-opt (on|off) current"/.exec(html) || [])[1
     assert(tab.ctx.els['par-step'].innerHTML.includes('점수가 들어간 뒤에는'), '서버 이유가 화면에 없다');
     assert(curBtn(tab.ctx.els['par-step'].innerHTML) === 'off', "'지금' 이 그대로가 아니다");
     assert(s.parDecidedFor === null, '실패했는데 정한 것으로 쳤다');
+  });
+
+  await t('④-2 403(다른 센터 리그 — 태블릿 계정은 묶인 센터만 · 2026-11-09)은 로그인 만료가 아니라 서버 이유 + 센터 안내 · 401 은 로그인', async () => {
+    const srv = makeServer([base({ matchType: 'Friendly', parForced: false })]);
+    srv.rejectParApply = '이 경기의 PAR 반영을 바꿀 권한이 없어요';
+    srv.rejectStatus = 403;
+    const tab = makeTablet(srv, [{ m: base({ matchType: 'Friendly' }), lg: LG }]);
+    await tab.selectMatch(0);
+    await tab.chooseParApply(true);
+    let s = tab.get();
+    assert(s.curStep === 2, '거절됐는데 넘어갔다');
+    assert(s.parError.includes('이 경기의 PAR 반영을 바꿀 권한이 없어요'), '서버 이유가 없다: ' + s.parError);
+    assert(s.parError.includes('센터'), '센터 안내가 없다: ' + s.parError);
+    assert(!/로그인이 만료/.test(s.parError), '403 을 로그인 만료라고 했다');
+    srv.rejectStatus = 401;
+    await tab.chooseParApply(true);
+    s = tab.get();
+    assert(/로그인이 만료/.test(s.parError), '401 인데 로그인 안내가 없다: ' + s.parError);
   });
 
   await t('⑤ 서버가 고른 값을 확인해 주지 않으면(옛 서버) 넘어가지 않는다', async () => {
@@ -541,10 +560,10 @@ const curBtn = (html) => (/class="par-opt (on|off) current"/.exec(html) || [])[1
     }
   });
 
-  await t('빌드 배지 c20 · BUILD · SW v54 같이', () => {
+  await t('빌드 배지 c21 · BUILD · SW v55 같이', () => {
     const sw = fs.readFileSync(path.join(__dirname, '..', 'ps_court', 'ps_court_sw.js'), 'utf8');
-    assert(src.includes('<!--COURTBUILD:c20-->') && src.includes('var BUILD = "c20";') && src.includes('>앱 c20</div>'), '배지');
-    assert(sw.includes("const CACHE = 'ps-court-v54';"), 'SW');
+    assert(src.includes('<!--COURTBUILD:c21-->') && src.includes('var BUILD = "c21";') && src.includes('>앱 c21</div>'), '배지');
+    assert(sw.includes("const CACHE = 'ps-court-v55';"), 'SW');
   });
 
   console.log(fails ? `\n실패 ${fails}건\n` : '\n전부 통과\n');

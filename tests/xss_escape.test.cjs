@@ -11,13 +11,18 @@
 //   ④ 방송 PC 로 가는 바꾸는 요청(켜기 ×2 · 끄기 · [무효] · 하이라이트)은 전부 streamHeaders() — /health 만 토큰 없이
 //   ⑤ 운영자 확인에서 막힌 끄기는 '종료됨' 으로 읽지 않는다(방송은 그대로 나가는 중)
 //   ⑥ 아메리카노 보드 창은 opener 를 끊는다 · 팝업이 막히면 예전처럼 같은 창
-//   ⑦ 옛 태블릿(ps_court.html)도 같은 두 가지
+//   ⑦ 옛 태블릿(ps_court.html)도 같은 두 가지 · 시트 프록시는 codetabs → corsproxy → allorigins(죽은 thingproxy 없음)
+//   ⑧ 공개 순위 페이지 두 장(padel_live_ranking.html · padel_app/padel_app.html)은 **내렸다**(2026-11-10 대표 결정 25 · 검토 S4-01) —
+//      태블릿·PS Control 과 **같은 출처**(padelociety.github.io)라 무료 프록시로 받은 시트 글자에서 스크립트가 돌면 lg_token·ps_token 이 샌다.
+//      이제 스크립트·프록시·innerHTML 이 하나도 없는 안내 한 장이고, 옛 PWA 서비스워커는 캐시를 비우고 스스로 등록을 푼다.
 //
 // ⚠️ 소스를 그대로 떼어 와 돌린다(테스트에 로직을 베끼지 않는다).
 const fs = require('fs');
 const path = require('path');
 const src = fs.readFileSync(path.join(__dirname, '..', 'ps_court', 'ps_court_playus.html'), 'utf8');
 const old = fs.readFileSync(path.join(__dirname, '..', 'ps_court', 'ps_court.html'), 'utf8');
+const LIVE = fs.readFileSync(path.join(__dirname, '..', 'padel_live_ranking.html'), 'utf8');
+const APP = fs.readFileSync(path.join(__dirname, '..', 'padel_app', 'padel_app.html'), 'utf8');
 
 let fails = 0;
 const t = async (name, fn) => { try { await fn(); console.log('  ok   ' + name); } catch (e) { fails++; console.log('  FAIL ' + name + ' — ' + e.message); } };
@@ -74,6 +79,35 @@ const SAFE = {
 };
 // 변수를 통째로 되돌리는 자리(저장해 둔 버튼 모양) — 템플릿이 아니다.
 const RESTORE_ONLY = { saveHighlight: /btn\.innerHTML = original/ };
+
+// ⑦ 시트를 받는 옛 태블릿(ps_court.html)의 프록시 — 죽은 thingproxy 는 빠지고(도메인을 넘겨받은 사람이
+//    CSV 를 지어낸다 · 남은 셋도 '남의 서버' 라 화면엔 늘 psEsc) 나머지 셋은 순서 그대로 · 실패하면 다음 · 다 실패하면 던진다.
+const checkProxies = async (scriptText, fb) => {
+  // 줄 머리 주석만 지운다(`https://thingproxy…` 의 // 부터 지우면 주소 줄이 통째로 빠져 이 검사가 헛돈다)
+  assert(!/thingproxy/.test(scriptText.replace(/^\s*\/\/[^\n]*/gm, '')), 'thingproxy 가 남았다');
+  const hosts = [...fb.matchAll(/`https:\/\/([^/?`]+)[^`]*`/g)].map((x) => x[1]);
+  assert(JSON.stringify(hosts) === JSON.stringify(['api.codetabs.com', 'corsproxy.io', 'api.allorigins.win']), '프록시: ' + hosts.join(','));
+  assert((fb.match(/encodeURIComponent\(sheetUrl\)/g) || []).length === 3, '시트 주소를 감싸지 않은 프록시');
+  const mkFetch = (okAt) => {
+    const seen = [];
+    // eslint-disable-next-line no-new-func
+    const f = new Function('ctx', `
+      const SHEET = 'https://sheet.example/pub';
+      const AbortSignal = { timeout: () => null };
+      const setTimeout = (fn) => fn();
+      const fetch = (u) => { ctx.seen.push(u.split('/')[2]); return ctx.seen.length === ctx.okAt
+        ? Promise.resolve({ ok: true, text: async () => 'a,b,c\\n1,2,3' }) : Promise.reject(new Error('down')); };
+      ${fb}; return fetchCSV;`)({ seen, okAt });
+    return { f, seen };
+  };
+  const a = mkFetch(2);
+  const rows = await a.f('1');
+  assert(JSON.stringify(rows) === JSON.stringify([['a', 'b', 'c'], ['1', '2', '3']]), 'CSV');
+  assert(JSON.stringify(a.seen) === JSON.stringify(['api.codetabs.com', 'corsproxy.io']), '두 번째로 넘어가기: ' + a.seen.join(','));
+  const z = mkFetch(99); let threw = false;
+  try { await z.f('1'); } catch (e) { threw = true; }
+  assert(threw && z.seen.length === 4 && z.seen[3] === 'api.codetabs.com', '다 실패: ' + z.seen.join(','));
+};
 
 (async () => {
   await t('① psEsc — < > & " \' 를 전부 바꾼다(속성 안에서도 안전) · 보통 이름은 그대로', () => {
@@ -256,6 +290,27 @@ const RESTORE_ONLY = { saveHighlight: /btn\.innerHTML = original/ };
     assert(/localStorage\.getItem\('ps_token'\)/.test(ob('streamHeaders')), '리그앱 태블릿과 같은 토큰');
     const banned = old.match(/\$\{\s*(p\}|teamA\.join|teamB\.join)/g) || [];
     assert(!banned.length, '남은 자리: ' + banned.join(' · '));
+  });
+
+  await t('⑦ 옛 태블릿(ps_court.html) — 시트 프록시: codetabs → corsproxy → allorigins(죽은 thingproxy 없음) · 넘어가기 · 다 실패',
+    () => checkProxies(old, bodyOf(old)('fetchCSV')));
+
+  for (const [file, text] of [['padel_live_ranking.html', LIVE], ['padel_app/padel_app.html', APP]]) {
+    await t(`⑧ ${file} — 내렸다: 스크립트·프록시·innerHTML·시트 주소가 없는 안내 한 장`, () => {
+      assert(!/<script/i.test(text), '스크립트가 남았다');
+      assert(!/\son[a-z]+\s*=/i.test(text), '속성 안 JS 가 남았다');
+      assert(!/codetabs|corsproxy|allorigins|thingproxy|spreadsheets|docs\.google/i.test(text), '시트·프록시 주소가 남았다');
+      assert(!/innerHTML|localStorage|fetch\(/.test(text), '스크립트 자리가 남았다');
+      assert(text.includes('이 순위 페이지는 내렸어요') && text.includes('Playus 앱'), '안내 문장');
+      assert(text.includes('fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR'), '글꼴(fontUnified)');
+    });
+  }
+
+  await t('⑧ padel_app/sw.js — 캐시를 비우고 스스로 등록을 푼다 · fetch 를 가로채지 않는다', () => {
+    const sw = fs.readFileSync(path.join(__dirname, '..', 'padel_app', 'sw.js'), 'utf8');
+    assert(/caches\.delete/.test(sw) && /registration\.unregister\(\)/.test(sw), '캐시 비우기·등록 풀기');
+    assert(!/addEventListener\('fetch'/.test(sw), 'fetch 를 가로챈다');
+    assert(!fs.existsSync(path.join(__dirname, '..', 'padel_app', 'manifest.json')), 'manifest.json 이 남았다(설치 유도)');
   });
 
   console.log(fails ? `\n실패 ${fails}건\n` : '\n전부 통과\n');

@@ -690,7 +690,7 @@ body {
 .hl-rail.off .hl-rail-state { color:var(--text-dim); }
 .hl-rail.busy .hl-rail-btn { opacity:.6; pointer-events:none; }
 .hl-rail.busy .hl-rail-state { color:var(--gold); }
-/* 📷 카메라 다시 연결(c20 · 2026-11-01 — 유튜브에 초록 화면만 나갔다) — 하이라이트 레일 맨 아래. 서버가 꺼져 있으면 숨긴다. */
+/* 📷 카메라 다시 연결(c21 · 2026-11-01 — 유튜브에 초록 화면만 나갔다) — 하이라이트 레일 맨 아래. 서버가 꺼져 있으면 숨긴다. */
 .hl-cam-btn {
   border:1px solid var(--border); border-radius:var(--radius-sm); cursor:pointer; width:100%; padding:10px 4px;
   font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-weight:900; font-size:13px; line-height:1.3;
@@ -809,10 +809,11 @@ body {
            c17(2026-10-19): 방송 PC(stream_server) 요청에 운영자 토큰 · 서버·회원 글자 이스케이프 · 보드 창 opener 끊기.
            c18(2026-10-21): 방송 중 문제(재연결 · 업로드 · 카메라 · PC 과부하 · 유튜브 경고)를 LIVE 줄에 — 서버 /health stream_health.
            c19(2026-11-01): 📱 인스타 스토리(최근 클립 → 미리보기 → 올리기 · 올리기는 관리자).
-           c20(2026-11-11): [📷 카메라 다시 연결](하이라이트 레일 아래 · 서버 /camera-restart) · '카메라 화면 깨짐'이면 버튼 강조 ·
+           c20(2026-11-09): 방송 PC 는 묶인 센터만 — 403 을 '로그인 만료' 가 아니라 '이 센터 리그가 아니에요' + 서버 문장(psDenied).
+           c21(2026-11-11): [📷 카메라 다시 연결](하이라이트 레일 아래 · 서버 /camera-restart) · '카메라 화면 깨짐'이면 버튼 강조 ·
                             '유튜브 초록 화면'(서버 송출 영상 검사)이면 같은 버튼이 [🔄 OBS 다시 켜기](/obs-restart) ·
                             하이라이트 [직전 랠리](앱 + 인스타 자동) · [60초](앱만) 두 개. -->
-      <!--COURTBUILD:c20--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c20</div>
+      <!--COURTBUILD:c21--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c21</div>
       <div class="step-indicator" id="step-label">STEP 1 / 4</div>
       <div class="step-dots">
         <div class="step-dot active" id="dot-1"></div>
@@ -893,7 +894,7 @@ body {
 </div>
 
 <!-- 🎬 하이라이트 — [직전 랠리](마지막 랠리 서브 3초 전 ~ 지금 · 앱 하이라이트 + 인스타 스토리 자동) · [60초](뒤쪽 60초 · 앱 하이라이트만)
-     (c20 · 2026-11-11 — 예전 30·60·90초). 라이브가 아니어도 된다(OBS 리플레이 버퍼 상시 · 버퍼 90초). 상태 그리기는 renderHlRail() 하나. -->
+     (c21 · 2026-11-11 — 예전 30·60·90초). 라이브가 아니어도 된다(OBS 리플레이 버퍼 상시 · 버퍼 90초). 상태 그리기는 renderHlRail() 하나. -->
 <aside class="hl-rail off" id="hl-rail">
   <div class="hl-rail-title"><span>🎬</span>하이라이트</div>
   <div class="hl-rail-sub">방금 그 장면을 클립으로.<br>라이브가 아니어도 돼요.</div>
@@ -1022,6 +1023,19 @@ async function psFetch(path, opts = {}) {
     throw err;
   }
   return body;
+}
+
+// 저장·편성이 막힌 이유를 가른다 — 401·433 = 로그인 만료(다시 로그인) · 403 = 로그인은 맞는데 **이 리그를 운영할 권한이 없다**
+// (2026-11-09 — 태블릿 계정은 묶인 센터의 리그·아메리카노만 운영한다 · 서버 utils/operatorScope). 403 을 '로그인 만료' 라고 하면
+// 다시 로그인해도 똑같이 막혀 코트에서 헤맨다 — 서버 문장 그대로 + 센터 안내. 그 밖이면 null.
+function psDenied(e) {
+  const st = e && e.status;
+  if (st === 401 || st === 433) return { kind: 'login', text: '로그인이 만료됐어요 — ⚙ 설정에서 다시 로그인해 주세요' };
+  if (st === 403) {
+    return { kind: 'forbidden', text: ((e && e.message) || '권한이 없어요')
+      + ' — 이 태블릿 계정이 운영하는 센터의 리그가 아니에요 (그 센터 태블릿 계정으로 하거나 본사에 센터 연결을 요청해 주세요)' };
+  }
+  return null;
 }
 
 // 일시적 네트워크 실패 대비 — GET 류는 1~2회 재시도. (와이파이 블립으로 카드 사라지는 것 방지)
@@ -1648,9 +1662,8 @@ async function chooseParApply(apply, inherited) {
   } catch (e) {
     parBusy = false;
     // ⚠️ 실패하면 **넘어가지 않는다.** 서버가 준 이유를 그대로 적는다(점수가 이미 들어갔다 · 권한 등).
-    parError = (e && (e.status === 401 || e.status === 403))
-      ? '권한이 없어요 — ⚙ 설정에서 다시 로그인해 주세요'
-      : ((e && e.message) || 'PAR 반영을 정하지 못했어요');
+    const denied = psDenied(e); // 401 = 로그인 만료 · 403 = 이 센터 리그가 아니다(서버 문장 그대로)
+    parError = denied ? denied.text : ((e && e.message) || 'PAR 반영을 정하지 못했어요');
     showToast('⚠️ ' + parError);
     if (selectedMatch && String(selectedMatch._id) === mid) renderParStep();
   }
@@ -1675,10 +1688,15 @@ async function doAssignTeams() {
     // ⚠️ 예전엔 무슨 에러든 '가능한 조합을 모두 사용했거나...'를 붙였다. 그래서 토큰이
     //    만료돼 401이 떨어져도 페어를 다 쓴 것처럼 보였고, 멀쩡한 조합을 두고 코트에서
     //    한참 헤맸다. 원인별로 다르게 말한다.
-    if (e.status === 401 || e.status === 403) {
+    const denied = psDenied(e);
+    if (denied && denied.kind === 'login') {
       document.getElementById('team-display').innerHTML =
         `<div class="no-combo-msg">🔑 운영자 로그인이 만료됐어요.<br><span style="font-size:14px">⚙ 설정에서 다시 로그인한 뒤 시도해주세요.</span></div>`;
       openSettings();
+      return;
+    }
+    if (denied) { // 403 — 로그인은 맞다(설정을 열지 않는다) · 다른 센터 리그
+      document.getElementById('team-display').innerHTML = `<div class="no-combo-msg">🚫 ${psEsc(denied.text)}</div>`;
       return;
     }
     document.getElementById('team-display').innerHTML =
@@ -1978,10 +1996,13 @@ async function saveMatch() {
     showDonePar(selectedLeague._id, selectedMatch._id, saved && saved.message);
   } catch(e) {
     const msg = e.message || '';
-    // 토큰 만료/권한 문제면 재로그인 유도. 그 외(네트워크 등)는 재시도 안내.
+    // 토큰 만료면 재로그인 유도 · 403(다른 센터 리그)은 서버 이유 그대로 · 그 외(네트워크 등)는 재시도 안내.
     // 저장 실패는 운영 중 놓치면 치명적 → toast 대신 alert(모달)로 확실히 인지시킨다.
-    const tokenIssue = /401|403|433|token|expired|authoriz|권한|로그인/i.test(msg);
-    if (tokenIssue) {
+    const denied = psDenied(e);
+    const tokenIssue = denied ? denied.kind === 'login' : /401|433|token|expired|authoriz|로그인/i.test(msg);
+    if (denied && denied.kind === 'forbidden') {
+      alert('⚠️ 저장 실패 — ' + denied.text + '\n\n(결과는 아직 저장되지 않았습니다)');
+    } else if (tokenIssue) {
       alert('⚠️ 저장 실패 — 로그인이 만료됐어요.\n\n⚙ 설정에서 다시 로그인한 뒤 "다시 저장"을 눌러주세요.\n(결과는 아직 저장되지 않았습니다)');
       openSettings();
     } else {
@@ -2468,7 +2489,7 @@ function renderHlRail(busyText) {
   }
 }
 
-// ── 하이라이트 저장 — [직전 랠리] · [60초] 두 개 (c20 · 2026-11-11) ──
+// ── 하이라이트 저장 — [직전 랠리] · [60초] 두 개 (c21 · 2026-11-11) ──
 // 사용자: "하이라이트는 직전랠리, 60초 이 두개로만 하자. 직전랠리는 인스타에 자동으로 올라가는거랑 앱 하이라이트에서 볼 수 있는거
 // 둘다 가능하고 60초는 하이라이트에만 올라가는거고." → 'rally' = 마지막 랠리(서브 3초 전 ~ 지금)를 앱 하이라이트로 올리고 같은 영상을
 // 센터 인스타 스토리에 **자동으로**(관리자 [올리기] 없이 · 인스타 연결 전이거나 실패하면 관리자 알림) · 60 = 뒤쪽 60초를 앱 하이라이트에만.
@@ -2687,7 +2708,7 @@ async function igPost() {
   if (gen === _igGen) { st.textContent = '⏳ 아직 처리 중이에요 — 잠시 뒤 다시 열어 확인해 주세요'; st.style.color = 'var(--gold)'; }
 }
 
-// ── 📷 카메라 다시 연결 (c20 · 2026-11-01 — "유투브 또 이러네ㅜㅜ") ──
+// ── 📷 카메라 다시 연결 (c21 · 2026-11-01 — "유투브 또 이러네ㅜㅜ") ──
 // 유튜브엔 초록 화면만 나가는데 송출 숫자는 정상이었다(카메라 영상을 푸는 디코더가 깨졌다). 서버가 방송 중 20초마다 화면을
 // 찍어 스스로 다시 열지만(stream_health 'frame'), 사람이 바로 누를 길도 둔다 — 서버가 다시 열고 몇 초 뒤 화면을 다시 보고,
 // 그래도 한 가지 색이면 하드웨어 디코딩을 끄고 한 번 더 본다. 결과 문장은 서버 것 그대로(토스트 — 글자로만 넣는다).
@@ -2705,7 +2726,7 @@ function renderCamBtn(busyText) {
     ? '🔄 OBS 다시 켜기<small>유튜브만 초록이고 OBS 화면은 정상일 때</small>'
     : '📷 카메라 다시 연결<small>OBS 화면의 카메라가 초록·검을 때</small>';
 }
-// c20(2026-11-11): 유튜브만 초록이고 OBS 화면은 정상이면(서버 송출 영상 검사 'output') 같은 버튼이 [OBS 다시 켜기] 가 된다 —
+// c21(2026-11-11): 유튜브만 초록이고 OBS 화면은 정상이면(서버 송출 영상 검사 'output') 같은 버튼이 [OBS 다시 켜기] 가 된다 —
 // 카메라를 다시 열어도 소용없고 OBS 를 다시 켜야 풀렸다. 서버가 같은 유튜브 방송으로 이어 보낸다(POST /obs-restart).
 function camBtnObsMode() { return !!(_liveIssue && _liveIssue.issue === 'output'); }
 async function restartCamera() {
@@ -3228,7 +3249,7 @@ if ('serviceWorker' in navigator) {
 -->
 <script>
 (function () {
-  var BUILD = "c20";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
+  var BUILD = "c21";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
   var el = document.getElementById('app-build');
   if (el) el.textContent = '앱 ' + BUILD;
 
