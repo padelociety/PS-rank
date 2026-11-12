@@ -59,6 +59,9 @@ logging.basicConfig(
     datefmt='%H:%M:%S',
 )
 logger = logging.getLogger(__name__)
+# ⚠️ obsws_python 은 붙을 때마다 INFO 로 'Connecting with parameters: … password=…' 를 찍는다 — OBS 웹소켓 비밀번호가
+#    로그 파일에 그대로 남았다(2026-11-12 발견). 그 로거는 경고부터만 받는다.
+logging.getLogger('obsws_python').setLevel(logging.WARNING)
 
 # ── 설정 로드 ──────────────────────────────────────────────────
 _DIR = os.path.dirname(os.path.abspath(__file__))
@@ -860,6 +863,125 @@ def _output_tick(now_t: float = None):
     return v
 
 
+# ── 유튜브가 영상을 못 받는 방송 살리기 (2026-11-12 — '예정' 에서 안 넘어감) ──────────────────
+# Match230: OBS 는 '송출 시작됨' 이라 답했는데 유튜브는 처음부터 noData 였고(방송이 '예정' 에 머문다), 53분 동안 아무도
+# 몰랐다. 리플레이 버퍼 저장도 그동안 전부 빈손이었다 — 방송·리플레이가 같이 쓰는 인코더가 아무것도 안 내고 있었다.
+# 방송을 켠 뒤 유튜브가 영상을 받을 때까지 지켜보고, 못 받으면 ① 송출만 껐다 다시 켜고 ② 그래도면 OBS 를 다시 켠다.
+# 한 번이라도 영상을 받으면 그 방송은 더 안 본다(도중 끊김은 재연결·방송 상태 감시 몫).
+NODATA_CFG = config.get('nodata_guard') or {}
+NODATA_ON = NODATA_CFG.get('enabled', True) is not False
+NODATA_FIRST_S = 30      # 방송 시작 뒤 첫 확인(유튜브가 받기 시작하는 데 10~20초)
+NODATA_RETRY_S = 15      # 받는 중인지 다시 묻는 간격
+NODATA_AFTER_FIX_S = 35  # 손댄 뒤 다시 묻기까지
+_nodata_mem = {'bid': None, 'next_at': 0.0, 'step': 0, 'seen': 0}
+nodata_state = {'at': None, 'status': '', 'step': 0, 'note': '', 'done': False}
+
+
+def _restream_same(reason: str) -> dict:
+    """OBS 송출만 껐다가 같은 유튜브 방송(같은 키)으로 다시 켠다. {'ok', 'text'}. 유튜브 방송은 끝내지 않는다."""
+    with stream_op_lock:
+        with state_lock:
+            active = bool(stream_state['active'])
+            bid = stream_state.get('broadcast_id')
+        if not (active and bid):
+            return {'ok': False, 'text': '방송 중이 아니에요'}
+        if _ingest.get('broadcast_id') == bid and _ingest.get('key'):
+            rtmp, key = _ingest['rtmp'], _ingest['key']
+        else:
+            rtmp, key = youtube.ingest_of(bid)
+        if not (rtmp and key):
+            return {'ok': False, 'text': '유튜브 방송 주소를 못 읽었어요'}
+        try:
+            obs.stop_stream()
+            time.sleep(2.0)
+            obs.connect()
+            obs.set_stream_settings(rtmp, key)
+            obs.start_stream()
+            ok = obs.wait_until_streaming()
+        except Exception as e:
+            ok = False
+            logger.error(f"송출 다시 켜기 실패: {e}")
+        if ok:
+            logger.info(f"🔁 OBS 송출을 껐다 다시 켬({reason})")
+        return {'ok': bool(ok), 'text': '송출을 껐다 다시 켰어요' if ok else '송출을 다시 켜지 못했어요'}
+
+
+def _set_nodata_state(**kw):
+    with state_lock:
+        nodata_state.update(kw)
+
+
+def _nodata_tick(now_t: float = None):
+    """한 바퀴 — 테스트가 직접 부른다. 방송을 켠 뒤 유튜브가 영상을 받을 때까지만 본다."""
+    now_t = time.time() if now_t is None else now_t
+    with state_lock:
+        active = stream_state['active']
+        bid = stream_state.get('broadcast_id')
+        started = stream_state.get('started_at')
+    if not NODATA_ON or not active or not bid:
+        if _nodata_mem['bid'] is not None:
+            _nodata_mem.update({'bid': None, 'next_at': 0.0, 'step': 0, 'seen': 0})
+            _set_nodata_state(at=None, status='', step=0, note='', done=False)
+        return None
+    if _nodata_mem['bid'] != bid:
+        try:
+            t0 = datetime.fromisoformat(started).timestamp() if started else now_t
+        except (TypeError, ValueError):
+            t0 = now_t
+        _nodata_mem.update({'bid': bid, 'next_at': t0 + NODATA_FIRST_S, 'step': 0, 'seen': 0})
+        _set_nodata_state(at=None, status='', step=0, note='', done=False)
+    if _nodata_mem['step'] >= 9 or now_t < _nodata_mem['next_at']:
+        return None
+    yt = youtube.stream_health(bid)
+    status = str((yt or {}).get('status') or '')
+    stamp = datetime.now(timezone.utc).isoformat()
+    if yt is None or not status:
+        _nodata_mem['next_at'] = now_t + NODATA_RETRY_S          # 유튜브에 못 물었다 — 손대지 않고 다시 묻는다
+        return None
+    if status != 'noData':
+        if _nodata_mem['step']:
+            _note_output_action('유튜브가 영상을 받기 시작했어요')
+        _nodata_mem['step'] = 9                                   # 받았다 — 이 방송은 더 안 본다
+        _set_nodata_state(at=stamp, status=status, note='', done=True)
+        return status
+    _nodata_mem['seen'] += 1
+    _set_nodata_state(at=stamp, status=status)
+    if _nodata_mem['seen'] < 2:                                   # 한 번은 넘긴다(받기 직전일 수 있다)
+        _nodata_mem['next_at'] = now_t + NODATA_RETRY_S
+        return status
+    step = _nodata_mem['step']
+    if step == 0:
+        _nodata_mem['step'] = 1
+        _set_nodata_state(step=1, note='유튜브가 영상을 못 받아 송출을 다시 켜는 중')
+        _note_output_action("유튜브가 영상을 못 받고 있어요(noData · 방송이 '예정' 에 머문다) → 송출 껐다 다시 켜기")
+        res = _restream_same('유튜브 noData')
+        _note_output_action(res['text'])
+    elif step == 1:
+        _nodata_mem['step'] = 2
+        _set_nodata_state(step=2, note='유튜브가 영상을 못 받아 OBS 를 다시 켜는 중')
+        _note_output_action('송출을 다시 켜도 유튜브가 영상을 못 받아요 → OBS 다시 켜기')
+        res = _restart_obs_and_resume('유튜브 noData')
+        _note_output_action(res['text'])
+    else:
+        _nodata_mem['step'] = 9
+        note = "유튜브가 영상을 못 받고 있어요 — 방송 PC 의 OBS 를 봐 주세요(방송이 '예정' 에 머물러요)"
+        _set_nodata_state(step=3, note=note, done=True)
+        _set_output_state(bad=True, note=note)
+        logger.error(f"❌ {note}")
+        return status
+    _nodata_mem.update({'seen': 0, 'next_at': time.time() + NODATA_AFTER_FIX_S})
+    return status
+
+
+def _nodata_loop():
+    while True:
+        try:
+            _nodata_tick()
+        except Exception as e:
+            logger.warning(f"유튜브 수신 확인 오류(무시): {e}")
+        time.sleep(5)
+
+
 def _output_loop():
     while True:
         try:
@@ -1138,6 +1260,8 @@ def health():
         'camera_frame': _frame_view(),
         # 송출 영상 검사(2026-11-11 — 유튜브 초록 화면) — 리플레이 버퍼로 본 인코더 출력 · covers_stream false 면 검사 안 함.
         'output_check': _output_view(),
+        # 유튜브가 영상을 받는지(2026-11-12 — '예정' 에서 안 넘어감) — step 1 송출 다시 · 2 OBS 다시 · 3 사람이 봐야 함.
+        'nodata_guard': dict(nodata_state),
     })
 
 
@@ -2164,6 +2288,7 @@ if __name__ == '__main__':
     # 방송 상태 감시 — 재연결·업로드·카메라·YouTube 경고를 /health 와 로그에(2026-10-21)
     threading.Thread(target=_health_loop, daemon=True, name='health').start()
     threading.Thread(target=_output_loop, daemon=True, name='output-check').start()
+    threading.Thread(target=_nodata_loop, daemon=True, name='nodata-guard').start()
     # 지난번에 끝내지 못한 방송 정리·이어받기 — OBS 가 늦게 뜰 수 있어 조금 기다렸다가(2026-10-21)
     _rec = threading.Timer(20.0, _recover_leftover)
     _rec.daemon = True
