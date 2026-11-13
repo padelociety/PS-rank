@@ -27,6 +27,8 @@
     "audio_sync_inputs": [],
     "_camera_refresh_설명": "방송을 켤 때마다 RTSP 카메라 소스를 다시 시작한다 — 오래 켜 둔 카메라는 소리가 화면보다 점점 밀린다. false 면 끈다.",
     "camera_refresh_on_start": true,
+    "_fresh_encoder_설명": "방송을 켤 때마다 리플레이 버퍼를 잠깐 꺼 인코더를 새로 띄운다(2026-11-13 — 방송 하나가 끝난 뒤의 방송이 유튜브 noData 였다). false 면 안 건드린다.",
+    "fresh_encoder_on_start": true,
     "_obs_task_설명": "OBS 를 띄우는 작업 스케줄러 이름 — 유튜브가 초록이면 서버가 OBS 를 껐다 이 작업으로 다시 띄운다(2026-11-11).",
     "obs_task": "PS-OBS-Studio"
   },

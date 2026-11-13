@@ -763,13 +763,30 @@ def _note_output_action(text: str):
     _set_output_state(last_action=text, last_action_at=datetime.now(timezone.utc).isoformat())
 
 
-def _restart_obs_and_resume(reason: str) -> dict:
+def _fresh_encoder():
+    """송출을 켜기 직전 — 리플레이 버퍼를 잠깐 꺼 인코더를 새로 띄우게 한다(obs.fresh_encoder · 2026-11-13).
+    실패해도 방송은 켠다. 켠 뒤 리플레이 버퍼는 부르는 쪽이 다시 켠다(start_replay_buffer)."""
+    fn = getattr(obs, 'fresh_encoder', None)
+    if not fn:
+        return None
+    try:
+        return fn()
+    except Exception as e:
+        logger.warning(f"인코더 새로 띄우기 오류(무시): {e}")
+        return None
+
+
+def _restart_obs_and_resume(reason: str, only_bid: str = None) -> dict:
     """OBS 를 다시 켜고, 방송 중이었으면 같은 유튜브 방송(같은 키)으로 이어 보낸다. 유튜브 방송은 끝내지 않는다
-    (enableAutoStop=False — 끊긴 몇십 초는 시청자에게 '버퍼링' 으로 보인다). {'ok', 'text'}."""
+    (enableAutoStop=False — 끊긴 몇십 초는 시청자에게 '버퍼링' 으로 보인다). {'ok', 'text'}.
+    only_bid(자동 감시가 넘긴다): 잠금을 기다리는 사이 **그 방송이 끝났거나 다른 방송이 됐으면 OBS 를 안 건드린다**
+    (2026-11-13 — 끝난 방송 때문에 OBS 를 끄면 다음 경기가 OBS 없이 시작한다)."""
     with stream_op_lock:
         with state_lock:
             active = bool(stream_state['active'])
             bid = stream_state.get('broadcast_id')
+        if only_bid and not (active and bid == only_bid):
+            return {'ok': False, 'skipped': True, 'text': '그 방송은 이미 끝났어요 — OBS 를 그대로 둬요'}
         rtmp, key = ('', '')
         if active and bid:
             if _ingest.get('broadcast_id') == bid and _ingest.get('key'):
@@ -853,10 +870,11 @@ def _output_tick(now_t: float = None):
         _output_mem['restarted'] = True
         _set_output_state(bad=True, note='서버가 OBS 를 다시 켜는 중')
         _note_output_action(f"유튜브로 나가는 영상이 {v.get('label')} → OBS 다시 켜기")
-        res = _restart_obs_and_resume('송출 영상 ' + (v.get('label') or '깨짐'))
+        res = _restart_obs_and_resume('송출 영상 ' + (v.get('label') or '깨짐'), only_bid=bid)
         _note_output_action(res['text'])
         _output_mem.update({'bad': 0, 'next_at': time.time() + OUTPUT_FIRST_S})
-        _set_output_state(bad=not res['ok'], note='' if res['ok'] else res['text'])
+        gone = bool(res.get('skipped'))   # 그 사이 방송이 끝났다 — 경고를 남기지 않는다
+        _set_output_state(bad=not (res['ok'] or gone), note='' if (res['ok'] or gone) else res['text'])
         return v
     _set_output_state(bad=True, note=('서버가 이미 한 번 OBS 를 다시 켰어요 — 방송 PC 를 봐 주세요'
                                       if _output_mem['restarted'] else '방송 PC 에서 OBS 를 다시 켜 주세요'))
@@ -896,11 +914,16 @@ def _restream_same(reason: str) -> dict:
             time.sleep(2.0)
             obs.connect()
             obs.set_stream_settings(rtmp, key)
+            _fresh_encoder()     # 송출만 껐다 켜면 죽은 인코더에 다시 붙는다 — 리플레이 버퍼까지 내려 새로 띄운다
             obs.start_stream()
             ok = obs.wait_until_streaming()
         except Exception as e:
             ok = False
             logger.error(f"송출 다시 켜기 실패: {e}")
+        try:
+            obs.start_replay_buffer()
+        except Exception:
+            pass
         if ok:
             logger.info(f"🔁 OBS 송출을 껐다 다시 켬({reason})")
         return {'ok': bool(ok), 'text': '송출을 껐다 다시 켰어요' if ok else '송출을 다시 켜지 못했어요'}
@@ -960,7 +983,7 @@ def _nodata_tick(now_t: float = None):
         _nodata_mem['step'] = 2
         _set_nodata_state(step=2, note='유튜브가 영상을 못 받아 OBS 를 다시 켜는 중')
         _note_output_action('송출을 다시 켜도 유튜브가 영상을 못 받아요 → OBS 다시 켜기')
-        res = _restart_obs_and_resume('유튜브 noData')
+        res = _restart_obs_and_resume('유튜브 noData', only_bid=bid)
         _note_output_action(res['text'])
     else:
         _nodata_mem['step'] = 9
@@ -1262,6 +1285,8 @@ def health():
         'output_check': _output_view(),
         # 유튜브가 영상을 받는지(2026-11-12 — '예정' 에서 안 넘어감) — step 1 송출 다시 · 2 OBS 다시 · 3 사람이 봐야 함.
         'nodata_guard': dict(nodata_state),
+        # 방송을 켤 때 인코더를 새로 띄웠나(2026-11-13) — did(리플레이 버퍼를 껐나) · released(멈춘 걸 봤나) · error.
+        'encoder_reset': getattr(obs, 'encoder_reset_status', None),
     })
 
 
@@ -1476,6 +1501,8 @@ def _start_stream_locked(mode, team_a, team_b, league, category, match_number,
         obs.set_stream_settings(rtmp_url, stream_key)
         # 카메라 소스를 다시 시작해 소리 밀림을 매 경기 처음으로 되돌린다(2026-11-07 · 실패해도 방송은 켠다).
         obs.refresh_cameras()
+        # 인코더를 새로 띄운다(2026-11-13) — 앞 방송이 쓰던 인코더에 붙으면 유튜브에 아무것도 안 갔다(noData).
+        _fresh_encoder()
         obs.start_stream()
 
         # OBS가 진짜로 송출을 시작했는지 확인한다. 여기를 안 보면 OBS가 대화상자를

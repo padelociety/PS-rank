@@ -264,13 +264,14 @@ def fake_connect(retries=3, delay=2.0):
     c.client = object()
 oc.time.sleep = lambda s: None
 c.connect = fake_connect
-check(c.restart_obs_process(wait_s=30) is True and ran == ['taskkill', 'schtasks'] and c.obs_restart_status['ok'],
-      'taskkill → 작업 스케줄러(PS-OBS-Studio) → 웹소켓이 붙을 때까지', (ran, c.obs_restart_status))
+check(c.restart_obs_process(wait_s=30) is True and ran == ['taskkill', 'tasklist', 'schtasks', 'schtasks']
+      and c.obs_restart_status['ok'],
+      'taskkill → 프로세스가 사라졌나 → 작업 /End·/Run(PS-OBS-Studio) → 웹소켓이 붙을 때까지', (ran, c.obs_restart_status))
 c2 = oc.OBSController({'obs': {'obs_task': '내OBS'}})
 cmds = []
 c2._run = lambda cmd, timeout=20: (cmds.append(cmd), RR(1))[1]
 c2.connect = lambda *a, **k: (_ for _ in ()).throw(RuntimeError('안 뜸'))
-check(c2.restart_obs_process(wait_s=6) is False and cmds[1][-1] == '내OBS' and '내OBS' in c2.obs_restart_status['error'],
+check(c2.restart_obs_process(wait_s=6) is False and [x for x in cmds if x[0] == 'schtasks' and '/Run' in x][0][-1] == '내OBS' and '내OBS' in c2.obs_restart_status['error'],
       '작업 이름은 config(obs.obs_task) · 실패는 이유를 적고 던지지 않는다', c2.obs_restart_status)
 c3 = oc.OBSController({'obs': {}})
 c3._replay_save_lock.acquire()

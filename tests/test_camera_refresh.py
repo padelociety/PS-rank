@@ -96,8 +96,8 @@ check([a[0] for a in c.client.actions] == ['미디어'], '지금 OBS 의 카메�
 
 print('\n[6] stream_server 가 송출 직전에 부르고 /health 에 싣는다')
 src = open(os.path.join(ROOT, 'stream_server.py'), encoding='utf-8').read()
-check(re.search(r"obs\.set_stream_settings\(rtmp_url, stream_key\)\s*\n(\s*#[^\n]*\n)*\s*obs\.refresh_cameras\(\)\s*\n\s*obs\.start_stream\(\)", src) is not None,
-      'set_stream_settings → refresh_cameras → start_stream 순서')
+check(re.search(r"obs\.set_stream_settings\(rtmp_url, stream_key\)\s*\n(\s*#[^\n]*\n)*\s*obs\.refresh_cameras\(\)\s*\n(\s*#[^\n]*\n)*\s*_fresh_encoder\(\)\s*\n\s*obs\.start_stream\(\)", src) is not None,
+      'set_stream_settings → refresh_cameras → (인코더 새로) → start_stream 순서')
 check("'camera_refresh': getattr(obs, 'camera_refresh_status', None)" in src, '/health camera_refresh')
 
 print('\n[7] 다시 연 카메라가 초록이면 켜기 전에 고친다 — 하드웨어 디코딩이 켜져 있으면 끈다 (2026-11-11 "또 유투브 초록화면이야")')

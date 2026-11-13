@@ -60,6 +60,9 @@ class OBSController:
         # OBS 를 껐다 켜는 길(2026-11-11 — 인코더가 초록으로 굳으면 OBS 를 다시 켜야 풀렸다 · restart_obs_process).
         #   obs_task : OBS 를 띄우는 작업 스케줄러 이름(SETUP 3절 — 리플레이 버퍼까지 켜서 뜬다).
         self.obs_task = str(obs_cfg.get('obs_task') or 'PS-OBS-Studio')
+        # 방송을 켤 때마다 인코더를 새로 띄운다(2026-11-13 — fresh_encoder). false 면 예전처럼 리플레이 버퍼를 안 건드린다.
+        self.fresh_encoder_on_start = obs_cfg.get('fresh_encoder_on_start', True) is not False
+        self.encoder_reset_status = None
         self.obs_restart_status = None
         self.client = None
         # OBS WebSocket(ReqClient)은 스레드 안전하지 않음 — 키프알라이브 스레드와
@@ -972,6 +975,58 @@ class OBSController:
             except Exception as e:
                 logger.warning(f"리플레이 버퍼 종료 중 오류: {e}")
 
+    # ── 방송을 켤 때 인코더 새로 띄우기 (2026-11-13 — 두 번째 방송부터 유튜브 noData) ─────────
+    # 녹화 인코더를 '(스트리밍 인코더 사용)' 으로 바꾼 뒤(11-11) 방송과 리플레이 버퍼가 인코더 **하나**를 같이 쓴다.
+    # 리플레이 버퍼는 늘 켜 두니 그 인코더는 방송이 끝나도 안 내려가고, 다음 방송은 앞 방송이 쓰던 인코더에 그대로 붙는다 —
+    # 첫 방송은 멀쩡한데 **방송 하나가 끝난 뒤의 방송**은 OBS 가 '송출 중' 이라면서 유튜브엔 아무것도 안 갔고(noData),
+    # noData 감시가 OBS 를 통째로 껐다 켰다("자꾸 OBS 강제종료 되버리는데? 방송 하나 끝나고나서").
+    # 그래서 송출을 켜기 직전에 리플레이 버퍼를 잠깐 끈다 — 인코더를 쓰는 출력이 하나도 없으면 OBS 가 인코더를 내리고,
+    # 송출을 켤 때 새로 만든다(OBS 를 껐다 켠 것과 같은 상태). 리플레이 버퍼는 송출이 붙은 뒤 다시 켠다(부르는 쪽).
+    # 잃는 것: 방송 시작 전 60초 버퍼(경기 전이라 하이라이트로 쓸 게 없다). 끄기: config obs.fresh_encoder_on_start: false
+    ENCODER_RESET_WAIT_S = 6.0
+
+    def fresh_encoder(self, wait_s: float = None) -> dict:
+        """송출을 켜기 직전에 부른다 — 리플레이 버퍼를 끄고 멈출 때까지 기다린다. **예외를 던지지 않는다.**
+        {'at','did'(껐나),'released'(멈춘 걸 확인했나),'error','seconds'} — encoder_reset_status 에도 남긴다."""
+        wait_s = self.ENCODER_RESET_WAIT_S if wait_s is None else float(wait_s)
+        t0 = time.time()
+        st = {'at': t0, 'did': False, 'released': False, 'error': '', 'seconds': 0.0}
+        if not self.fresh_encoder_on_start:
+            st['error'] = '꺼 둠(config)'
+            self.encoder_reset_status = st
+            return st
+        try:
+            with self._lock:
+                if not self.client:
+                    self.connect(retries=2, delay=1.0)
+                if not self.client.get_replay_buffer_status().output_active:
+                    st['released'] = True       # 이미 꺼져 있다 — 인코더를 쥔 출력이 없다
+                else:
+                    self.client.stop_replay_buffer()
+                    st['did'] = True
+            deadline = t0 + max(0.5, wait_s)
+            while st['did'] and not st['released']:
+                with self._lock:
+                    if self.client and not self.client.get_replay_buffer_status().output_active:
+                        st['released'] = True
+                        break
+                if time.time() >= deadline:
+                    break
+                time.sleep(0.3)
+            if st['released'] and st['did']:
+                time.sleep(0.5)                 # 출력이 멈춘 뒤 인코더가 내려갈 틈
+            if not st['released']:
+                st['error'] = f'리플레이 버퍼가 {wait_s:.0f}초 안에 안 멈췄어요'
+        except Exception as e:
+            st['error'] = f'{e}'
+        st['seconds'] = round(time.time() - t0, 1)
+        if st['error']:
+            logger.warning(f"⚠️ 인코더 새로 띄우기 실패(방송은 그대로 켭니다): {st['error']}")
+        elif st['did']:
+            logger.info(f"♻️ 송출 전 리플레이 버퍼를 껐다 켭니다 — 인코더 새로({st['seconds']}초)")
+        self.encoder_reset_status = st
+        return st
+
     def is_replay_buffer_active(self) -> bool:
         """리플레이 버퍼가 켜져 있는지 — 빠른 확인(즉시 에러 피드백용)."""
         with self._lock:
@@ -1081,32 +1136,59 @@ class OBSController:
     # ── OBS 다시 켜기 (2026-11-11 — 유튜브 초록 화면) ─────────────────
     # OBS 화면은 멀쩡한데 인코더(QuickSync)가 빈 버퍼를 내며 굳으면 새 방송도 계속 초록이었고, OBS 를 껐다 켜야 풀렸다
     # (사용자가 Stop-Process obs64 → Start-ScheduledTask PS-OBS-Studio 로 확인). 그걸 서버가 한다.
-    OBS_RESTART_WAIT_S = 60.0
+    OBS_RESTART_WAIT_S = 90.0
+    OBS_EXE = 'obs64.exe'
 
     def _run(self, cmd, timeout=20):
         import subprocess
         flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0) if os.name == 'nt' else 0
         return subprocess.run(cmd, capture_output=True, timeout=timeout, creationflags=flags)
 
-    def restart_obs_process(self, wait_s: float = None) -> bool:
-        """OBS 를 끄고(taskkill) 작업 스케줄러로 다시 띄운 뒤 웹소켓이 붙을 때까지(최대 wait_s) 기다린다.
-        송출 중이었다면 송출은 끊긴다 — 부르는 쪽이 다시 켠다. 결과는 obs_restart_status. **예외를 던지지 않는다.**"""
-        wait_s = self.OBS_RESTART_WAIT_S if wait_s is None else float(wait_s)
-        t0 = time.time()
-        st = {'at': t0, 'ok': False, 'error': '', 'seconds': 0.0}
-        self.disconnect()
+    def _obs_running(self):
+        """obs64.exe 프로세스가 있나 — True/False · 모르면 None."""
         try:
-            self._run(['taskkill', '/IM', 'obs64.exe', '/F'])
-        except Exception as e:
-            st['error'] = f'OBS 끄기 실패: {e}'
-        time.sleep(2.0)
+            r = self._run(['tasklist', '/FI', f'IMAGENAME eq {self.OBS_EXE}', '/NH'])
+            return self.OBS_EXE in (r.stdout or b'').decode('utf-8', 'ignore').lower()
+        except Exception:
+            return None
+
+    def _launch_obs(self) -> str:
+        """작업 스케줄러로 OBS 를 띄운다. 못 띄웠으면 이유(문장), 됐으면 ''.
+        ⚠️ 작업이 'IgnoreNew'(같은 작업이 돌고 있으면 새로 안 띄움)라, 방금 죽인 OBS 의 작업이 아직 '실행 중' 으로
+           남아 있으면 /Run 이 **성공이라 답하고 아무것도 안 띄운다**(2026-11-13 — 60초 안에 OBS 가 안 떴다). 먼저 /End."""
+        try:
+            self._run(['schtasks', '/End', '/TN', self.obs_task])
+        except Exception:
+            pass
+        time.sleep(1.0)
         try:
             r = self._run(['schtasks', '/Run', '/TN', self.obs_task])
             if getattr(r, 'returncode', 1) != 0:
-                st['error'] = (f"작업 스케줄러 '{self.obs_task}' 를 못 켰어요: "
-                               + (r.stderr or r.stdout or b'').decode('utf-8', 'ignore').strip()[:160])
+                return (f"작업 스케줄러 '{self.obs_task}' 를 못 켰어요: "
+                        + (r.stderr or r.stdout or b'').decode('utf-8', 'ignore').strip()[:160])
         except Exception as e:
-            st['error'] = f"작업 스케줄러 '{self.obs_task}' 를 못 켰어요: {e}"
+            return f"작업 스케줄러 '{self.obs_task}' 를 못 켰어요: {e}"
+        return ''
+
+    def restart_obs_process(self, wait_s: float = None) -> bool:
+        """OBS 를 끄고(taskkill) 작업 스케줄러로 다시 띄운 뒤 웹소켓이 붙을 때까지(최대 wait_s) 기다린다.
+        송출 중이었다면 송출은 끊긴다 — 부르는 쪽이 다시 켠다. 결과는 obs_restart_status. **예외를 던지지 않는다.**
+        2026-11-13: 프로세스가 사라진 걸 보고 띄운다 · 작업을 /End 한 뒤 /Run · 20초 뒤에도 프로세스가 없으면 한 번 더."""
+        wait_s = self.OBS_RESTART_WAIT_S if wait_s is None else float(wait_s)
+        t0 = time.time()
+        st = {'at': t0, 'ok': False, 'error': '', 'seconds': 0.0, 'launches': 0}
+        self.disconnect()
+        try:
+            self._run(['taskkill', '/IM', self.OBS_EXE, '/F'])
+        except Exception as e:
+            st['error'] = f'OBS 끄기 실패: {e}'
+        for _ in range(10):                     # 프로세스가 정말 사라질 때까지(최대 10초)
+            time.sleep(1.0)
+            if not self._obs_running():
+                break
+        st['error'] = self._launch_obs()
+        st['launches'] = 1
+        launched_at = time.time()
         deadline = t0 + max(5.0, wait_s)
         while time.time() < deadline:
             time.sleep(3.0)
@@ -1116,9 +1198,16 @@ class OBSController:
                 st['error'] = ''
                 break
             except Exception:
-                continue
+                pass
+            if st['launches'] < 2 and time.time() - launched_at >= 20 and self._obs_running() is False:
+                logger.warning("⚠️ OBS 프로세스가 안 보여요 — 한 번 더 띄웁니다")
+                st['error'] = self._launch_obs()
+                st['launches'] = 2
+                launched_at = time.time()
         if not st['ok'] and not st['error']:
-            st['error'] = f'{wait_s:.0f}초 안에 OBS 가 다시 뜨지 않았어요'
+            st['error'] = (f'{wait_s:.0f}초 안에 OBS 가 다시 뜨지 않았어요'
+                           + (' (OBS 는 떠 있는데 웹소켓이 안 붙어요 — 대화상자가 떠 있는지 봐 주세요)'
+                              if self._obs_running() else ''))
         st['seconds'] = round(time.time() - t0, 1)
         (logger.info if st['ok'] else logger.error)(
             f"🔄 OBS 다시 켜기: {'됨' if st['ok'] else '실패 — ' + st['error']} ({st['seconds']}초)")
