@@ -730,6 +730,20 @@ body {
   font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-size: 17px; font-weight: 800;
 }
 .dur-chip.on { background: rgba(var(--gold-rgb),0.15); border-color: var(--gold); color: var(--gold); }
+/* 자유 라이브 제목(c22 · 2026-11-17) — 적은 그대로 유튜브 제목 · 넣기 버튼은 커서 자리에 */
+#fl-title { width:100%; min-height: 76px; resize:none; background: var(--bg); color: var(--text); border: 2px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px 14px; font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-size: 17px; font-weight:600; line-height:1.45; }
+#fl-title:focus { outline:none; border-color: var(--gold); }
+.fl-count { display:flex; justify-content:space-between; gap:8px; font-size:12px; color: var(--text-dim); margin-top:6px; font-variant-numeric: tabular-nums; }
+.fl-count .over { color: var(--red); }
+.fl-chips { display:flex; flex-wrap:wrap; gap:8px; }
+.fl-chip { padding: 10px 14px; border-radius: 999px; cursor:pointer; background: var(--surface2); color: var(--text);
+  border: 2px solid var(--border); font-family:'IBM Plex Sans KR',system-ui,sans-serif; font-size: 15px; font-weight: 700; }
+.fl-chip.date { border-color: var(--gold); color: var(--gold); }
+.fl-chip:active { transform: scale(.97); }
+.fl-preview { margin-top: 14px; background: var(--bg); border: 1px dashed var(--border); border-radius: var(--radius-sm); padding: 10px 14px; }
+.fl-preview .k { font-size: 11px; color: var(--text-dim); font-weight:700; }
+.fl-preview .v { font-size: 15px; font-weight: 700; margin-top: 2px; word-break: keep-all; }
 
 /* ── 오늘의 아메리카노 — 누르면 보드(/am/:id)가 새 창으로 열린다 ── */
 .amer { background: var(--surface); border: 2px solid rgba(var(--gold-rgb),0.35); border-radius: var(--radius);
@@ -812,8 +826,10 @@ body {
            c20(2026-11-09): 방송 PC 는 묶인 센터만 — 403 을 '로그인 만료' 가 아니라 '이 센터 리그가 아니에요' + 서버 문장(psDenied).
            c21(2026-11-11): [📷 카메라 다시 연결](하이라이트 레일 아래 · 서버 /camera-restart) · '카메라 화면 깨짐'이면 버튼 강조 ·
                             '유튜브 초록 화면'(서버 송출 영상 검사)이면 같은 버튼이 [🔄 OBS 다시 켜기](/obs-restart) ·
-                            하이라이트 [직전 랠리](앱 + 인스타 자동) · [60초](앱만) 두 개. -->
-      <!--COURTBUILD:c21--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c21</div>
+                            하이라이트 [직전 랠리](앱 + 인스타 자동) · [60초](앱만) 두 개.
+           c22(2026-11-17): 자유 라이브 — 팀 A·B 칸 대신 유튜브 제목 한 칸 · [📅 오늘 날짜(요일)]·[개인 레슨]·[PSA 그룹 레슨]·
+                            센터 코치 버튼('OOO 코치') · 60분. -->
+      <!--COURTBUILD:c22--><div id="app-build" style="font-size:10px;font-weight:700;color:var(--text-dim);margin-bottom:4px;letter-spacing:.5px">앱 c22</div>
       <div class="step-indicator" id="step-label">STEP 1 / 4</div>
       <div class="step-dots">
         <div class="step-dot active" id="dot-1"></div>
@@ -938,15 +954,25 @@ body {
     <h3>🔴 자유 라이브 시작</h3>
     <label>방송 시간 — 시간이 다 되면 자동으로 꺼져요</label>
     <div class="dur-row">
+      <button class="dur-chip" data-min="60" onclick="pickDuration(60)">60분</button>
       <button class="dur-chip on" data-min="90" onclick="pickDuration(90)">90분</button>
       <button class="dur-chip" data-min="120" onclick="pickDuration(120)">2시간</button>
       <button class="dur-chip" data-min="180" onclick="pickDuration(180)">3시간</button>
     </div>
-    <label>팀 A 이름 (선택 · 쉼표로 구분)</label>
-    <input id="fl-team-a" placeholder="예: 김빠델, 이소사" autocomplete="off">
-    <label>팀 B 이름 (선택)</label>
-    <input id="fl-team-b" placeholder="예: 박라켓, 최코트" autocomplete="off">
-    <div class="modal-status" id="fl-status" style="color:var(--text-dim)">이름을 적으면 유튜브 제목과 하이라이트에 같이 남아요.</div>
+    <!-- c22(2026-11-17): 팀 A·B 칸 대신 유튜브 제목 한 칸 — 적은 그대로 제목 · 버튼은 커서 자리에 넣는다 -->
+    <label for="fl-title">유튜브 제목</label>
+    <textarea id="fl-title" maxlength="100" autocomplete="off" placeholder="비우면 'Padel Society 라이브 날짜 시각'" oninput="flRender()" onkeyup="flCaret()" onclick="flCaret()" onblur="flCaret()"></textarea>
+    <div class="fl-count"><span>적은 그대로 유튜브 제목이 돼요</span><span id="fl-count">0/100</span></div>
+    <label>넣기</label>
+    <div class="fl-chips">
+      <button class="fl-chip date" onclick="flInsert(flToday())">📅 오늘 날짜</button>
+      <button class="fl-chip" onclick="flInsert('개인 레슨')">개인 레슨</button>
+      <button class="fl-chip" onclick="flInsert('PSA 그룹 레슨')">PSA 그룹 레슨</button>
+    </div>
+    <label id="fl-coach-label">코치</label>
+    <div class="fl-chips" id="fl-coaches"><span style="font-size:13px;color:var(--text-dim)">코치 이름 불러오는 중…</span></div>
+    <div class="fl-preview"><div class="k">유튜브 제목 미리보기</div><div class="v" id="fl-preview"></div></div>
+    <div class="modal-status" id="fl-status" style="color:var(--text-dim)">제목은 하이라이트 이름에도 같이 남아요.</div>
     <div class="modal-btns">
       <button class="btn btn-back" style="flex:0 0 auto" onclick="closeFreeLive()">닫기</button>
       <button class="btn btn-primary" id="fl-start-btn" onclick="startFreeLive()">▶️ 라이브 시작</button>
@@ -2769,7 +2795,8 @@ async function checkStreamServer() {
       _streamServerOnline = true;
       _streamActive = data.streaming;
       _watchUrl = data.watch_url;
-      _bufferReady = !!data.buffer_ready;  // 상태 갱신 후 버튼 노출 판단
+      _bufferReady = !!data.buffer_ready;
+      _flCenterId = String(data.center_id || '');   // c22 — 자유 라이브 코치 버튼이 이 센터 코치를 읽는다(옛 서버면 '' = 본점)  // 상태 갱신 후 버튼 노출 판단
       // 진행 중인 방송의 정체 — 태블릿이 꺼졌다 켜져도 자유 라이브 카드가 그대로 살아난다.
       _liveMode = data.streaming ? (data.mode || 'league') : '';
       _liveEndsAt = data.streaming ? (data.ends_at || null) : null;
@@ -3017,7 +3044,7 @@ async function _stopStreamOnce(opts) {
 // 태블릿은 카운트다운을 그릴 뿐이고, 화면이 꺼져도 방송은 제시간에 꺼진다.
 // ════════════════════════════════════════════════════════════
 let _flMinutes = 90;
-const FREE_LIVE_MINUTES = [90, 120, 180];
+const FREE_LIVE_MINUTES = [60, 90, 120, 180]; // 60분 c22(2026-11-17) — 옛 방송 PC 는 거절한다(그 문장을 그대로 띄운다)
 
 function _fmtLeft(ms) {
   const t = Math.max(0, Math.floor(ms / 1000));
@@ -3083,8 +3110,101 @@ function openFreeLive() {
   if (_streamActive) { showToast('이미 방송 중이에요'); return; }
   pickDuration(_flMinutes);
   const fs = document.getElementById('fl-status');
-  if (fs) { fs.textContent = '이름을 적으면 유튜브 제목과 하이라이트에 같이 남아요.'; fs.style.color = 'var(--text-dim)'; }
+  if (fs) { fs.textContent = '제목은 하이라이트 이름에도 같이 남아요.'; fs.style.color = 'var(--text-dim)'; }
   document.getElementById('free-live-modal').classList.add('show');
+  _flCaret = (document.getElementById('fl-title').value || '').length;
+  flRender();
+  flLoadCoaches();
+}
+
+// ── 자유 라이브 제목(c22 · 2026-11-17 · 사용자 "팀 A, 팀 B 선택하는 거 빼버리고 그냥 유튜브 제목 쓴 대로 그대로 들어가게만 하자 …
+//    날짜 넣기 버튼 … 코치 이름도 지금 우리 센터에 등록된 코치 이름 누르면 들어가게끔" → "개인 레슨, PSA 그룹 레슨 넣는 버튼 …
+//    60분짜리도 … 날짜에 요일도 넣고 OOO 코치로") ──
+const FL_TITLE_MAX = 100; // 유튜브 제목 한도 — 방송 PC clean_free_title 과 같은 수
+const FL_WEEK = ['일', '월', '화', '수', '목', '금', '토'];
+let _flCaret = 0;
+let _flCenterId = '';      // 방송 PC 의 센터(/health center_id · 비면 본점)
+let _flCoachesFor = null;  // 코치 목록을 읽은 센터 — 같은 센터면 다시 안 읽는다
+/** 오늘(KST) '2026.11.17 (화)' — 기기 시간대와 무관하게 한국 날짜. */
+function flToday(now = Date.now()) {
+  const d = new Date(now + 9 * 3600 * 1000);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}.${p(d.getUTCMonth() + 1)}.${p(d.getUTCDate())} (${FL_WEEK[d.getUTCDay()]})`;
+}
+/** 서버로 보낼 제목 — 줄바꿈·겹친 띄어쓰기 정리 · 100자. 비면 ''(서버가 예전 제목을 만든다). */
+function flCleanTitle(v) {
+  return String(v || '').replace(/[\u0000-\u001f<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, FL_TITLE_MAX).trim();
+}
+/** 커서 자리에 넣는다 — 앞뒤 띄어쓰기를 맞춘다(붙어 쓰지 않게). 100자를 넘으면 넣지 않는다. */
+function flInsertAt(value, caret, text) {
+  const at = Math.max(0, Math.min(caret, value.length));
+  const before = value.slice(0, at), after = value.slice(at);
+  const pre = before && !/\s$/.test(before) ? ' ' : '';
+  const post = after ? (/^\s/.test(after) ? '' : ' ') : ' ';
+  const head = before + pre + text + post;
+  return { value: head + after, caret: head.length };
+}
+function flCaret() { const ta = document.getElementById('fl-title'); if (ta) _flCaret = ta.selectionStart || 0; }
+function flInsert(text) {
+  const ta = document.getElementById('fl-title');
+  if (!ta || !text) return;
+  const r = flInsertAt(ta.value, _flCaret, text);
+  if (r.value.trim().length > FL_TITLE_MAX) { showToast(`제목은 ${FL_TITLE_MAX}자까지예요`); return; }
+  ta.value = r.value;
+  _flCaret = r.caret;
+  try { ta.focus(); ta.setSelectionRange(r.caret, r.caret); } catch (_) {}
+  flRender();
+}
+function flRender() {
+  const ta = document.getElementById('fl-title');
+  const v = ta ? ta.value : '';
+  const t = flCleanTitle(v);
+  const pv = document.getElementById('fl-preview');
+  if (pv) {
+    const d = new Date(Date.now() + 9 * 3600 * 1000);
+    const p = (n) => String(n).padStart(2, '0');
+    pv.textContent = t || `Padel Society 라이브 ${d.getUTCFullYear()}.${p(d.getUTCMonth() + 1)}.${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+  }
+  const c = document.getElementById('fl-count');
+  if (c) { c.textContent = `${v.length}/${FL_TITLE_MAX}`; c.className = v.length > FL_TITLE_MAX ? 'over' : ''; }
+}
+/** 이 센터 활동 코치 이름 — 서버 GET /stream/coaches(방송 PC 를 조작할 수 있는 계정만 · 이름만). 못 읽으면 버튼 없이 한 줄. */
+/** 코치 칸에 한 줄(버튼 없이) — 글자는 textContent 로만. */
+function flCoachNote(box, text) {
+  box.innerHTML = '';
+  const sp = document.createElement('span');
+  sp.style.cssText = 'font-size:13px;color:var(--text-dim)';
+  sp.textContent = text;
+  box.appendChild(sp);
+}
+function flCoachPath() { return _flCenterId ? '/stream/coaches?centerId=' + encodeURIComponent(_flCenterId) : '/stream/coaches'; }
+async function flLoadCoaches() {
+  const box = document.getElementById('fl-coaches');
+  if (!box) return;
+  if (_flCoachesFor === _flCenterId && box.dataset.loaded === '1') return;
+  if (!psToken) { flCoachNote(box, '⚙ 설정에서 운영자로 로그인하면 코치 이름이 떠요'); return; }
+  flCoachNote(box, '코치 이름 불러오는 중…');
+  try {
+    const r = await psFetch(flCoachPath());
+    const d = (r && r.data) || {};
+    const names = (Array.isArray(d.coaches) ? d.coaches : []).map((c) => String((c && c.name) || '').trim()).filter(Boolean);
+    if (!d.ok) { flCoachNote(box, d.message || '이 계정으론 코치 목록을 볼 수 없어요'); return; }
+    if (!names.length) flCoachNote(box, '이 센터에 등록된 코치가 없어요');
+    else {
+      box.innerHTML = '';
+      names.forEach((n) => {
+        const btn = document.createElement('button');
+        btn.className = 'fl-chip';
+        btn.textContent = n;
+        btn.onclick = () => flInsert(n + ' 코치');
+        box.appendChild(btn);
+      });
+    }
+    box.dataset.loaded = '1';
+    _flCoachesFor = _flCenterId;
+  } catch (e) {
+    flCoachNote(box, e.status === 404 ? '서버가 아직 코치 목록을 모르는 판이에요 — 이름은 직접 적어 주세요' : '코치 이름을 못 불러왔어요 — 직접 적어 주세요');
+  }
 }
 function closeFreeLive() { document.getElementById('free-live-modal').classList.remove('show'); }
 function pickDuration(min) {
@@ -3094,13 +3214,13 @@ function pickDuration(min) {
     b.classList.toggle('on', Number(b.dataset.min) === min);
   });
 }
-const _splitNames = (v) => String(v || '').split(/[,，/·]/).map((x) => x.trim()).filter(Boolean).slice(0, 4);
 
 async function startFreeLive() {
   const btn = document.getElementById('fl-start-btn');
   const fs = document.getElementById('fl-status');
-  const teamA = _splitNames(document.getElementById('fl-team-a').value);
-  const teamB = _splitNames(document.getElementById('fl-team-b').value);
+  // c22: 팀 칸이 없다 — 적은 제목 그대로(옛 방송 PC 는 title 을 몰라 예전 'Padel Society 라이브 날짜 시각' 으로 나간다).
+  const title = flCleanTitle(document.getElementById('fl-title').value);
+  const teamA = [], teamB = [];
   if (btn) { btn.disabled = true; btn.textContent = '⏳ 유튜브 방송 만드는 중...'; }
   if (fs) { fs.textContent = '유튜브 방송을 만들고 OBS 송출을 시작해요 — 10~20초 걸려요.'; fs.style.color = 'var(--text-dim)'; }
   _updateStreamStatus('starting');
@@ -3108,7 +3228,7 @@ async function startFreeLive() {
     const res = await fetch(`${STREAM_SERVER}/start-stream`, {
       method: 'POST',
       headers: streamHeaders(),
-      body: JSON.stringify({ mode: 'free', durationMinutes: _flMinutes, teamA, teamB }),
+      body: JSON.stringify({ mode: 'free', durationMinutes: _flMinutes, title, teamA, teamB }),
       signal: AbortSignal.timeout(40000),
     });
     const data = await res.json().catch(() => ({}));
@@ -3249,7 +3369,7 @@ if ('serviceWorker' in navigator) {
 -->
 <script>
 (function () {
-  var BUILD = "c21";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
+  var BUILD = "c22";   // ⚠️ 배포마다 위 <!--COURTBUILD:xx--> 와 함께 올릴 것
   var el = document.getElementById('app-build');
   if (el) el.textContent = '앱 ' + BUILD;
 

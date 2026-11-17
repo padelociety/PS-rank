@@ -154,8 +154,8 @@ def main():
         print('  ✓', msg)
 
     # 1) 시간 검증
-    r = c.post('/start-stream', json={'mode': 'free', 'durationMinutes': 60})
-    check(r.status_code == 400, '자유 라이브 60분은 거절(90/120/180 만)')
+    r = c.post('/start-stream', json={'mode': 'free', 'durationMinutes': 45})
+    check(r.status_code == 400, '자유 라이브 45분은 거절(60/90/120/180 만)')
     check(not ss.stream_state['active'], '거절된 요청이 자리를 차지하지 않는다')
 
     # 2) 시작 — 이름 없이도 된다
@@ -768,6 +768,15 @@ def main():
         check(ss._fetch_operator_verdict('T1')[0] == 'down', '확인 주소 네트워크 오류 → down')
     finally:
         _ur.urlopen = real_open
+
+    # 자유 라이브 제목(c22 · 2026-11-17) — 적은 그대로 유튜브 제목 · 비면 예전 제목 · 60분
+    t, d = ss.build_free_title_and_desc([], [], 60, '  2026.11.17 (화)\n김민준 코치 <개인 레슨> ')
+    check(t == '2026.11.17 (화) 김민준 코치 개인 레슨', f'자유 라이브 제목 그대로(줄바꿈·<> 정리) — {t!r}')
+    check(t in d and '⏱ 60분' in d, '설명에 제목·시간')
+    t2, _ = ss.build_free_title_and_desc([], [], 90, '   ')
+    check(t2.startswith('Padel Society 라이브 '), '빈 제목이면 예전 제목')
+    check(len(ss.clean_free_title('가' * 150)) == 100, '제목 100자')
+    check(60 in ss.FREE_LIVE_MINUTES, '60분 방송')
 
     print(f'\nALL OK — {ok} checks')
 

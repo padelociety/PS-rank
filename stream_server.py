@@ -1159,7 +1159,7 @@ def build_title_and_desc(team_a: list, team_b: list, league: str,
 # 남길 수 있게 한다. 리그 방송과 다른 점 하나: **끝나는 시각을 시작할 때 정한다.**
 # 리그 방송은 점수를 저장하면 끝나지만 자유 라이브엔 그런 신호가 없어서, 시간을 안
 # 정해 두면 사람들이 집에 간 뒤에도 빈 코트가 몇 시간씩 방송된다(유튜브에 그대로 남는다).
-FREE_LIVE_MINUTES = (90, 120, 180)
+FREE_LIVE_MINUTES = (60, 90, 120, 180)   # 60분은 2026-11-17 (개인 레슨 한 시간)
 
 _thumb_seq = itertools.count(1)   # 썸네일 임시 파일 순번(push_thumbnail)
 
@@ -1219,17 +1219,31 @@ def merge_roster(names: list, roster: list) -> list:
     return thumbnail.normalize(names)
 
 
-def build_free_title_and_desc(team_a: list, team_b: list, minutes: int) -> tuple:
+FREE_TITLE_MAX = 100   # 유튜브 제목 한도
+
+
+def clean_free_title(raw) -> str:
+    """태블릿이 적은 자유 라이브 제목(2026-11-17 · 사용자 "유튜브 제목 쓴 대로 그대로 들어가게").
+    줄바꿈·제어 문자 → 띄어쓰기 · 겹친 띄어쓰기 하나로 · 유튜브가 거절하는 '<' '>' 빼기 · 100자."""
+    s = ''.join(' ' if (ord(ch) < 32 or ch in '<>') else ch for ch in str(raw or ''))
+    return ' '.join(s.split())[:FREE_TITLE_MAX].strip()
+
+
+def build_free_title_and_desc(team_a: list, team_b: list, minutes: int, title: str = '') -> tuple:
     date_str = datetime.now().strftime('%Y.%m.%d %H:%M')
+    title = clean_free_title(title)
     names = ''
     if team_a or team_b:
         a_str = ' / '.join(team_a) if team_a else '팀 A'
         b_str = ' / '.join(team_b) if team_b else '팀 B'
         names = f" · {a_str} vs {b_str}"
-    title = f"Padel Society 라이브 {date_str}{names}"
+    # 적은 제목이 있으면 그대로가 유튜브 제목이다(2026-11-17 · 옛 태블릿은 title 을 안 보내 아래 예전 제목).
+    custom = bool(title)
+    title = title or f"Padel Society 라이브 {date_str}{names}"
     description = (
         f"🎾 Padel Society 코트 라이브\n\n"
-        f"📅 {date_str}\n"
+        + (f"{title}\n" if custom else '')
+        + f"📅 {date_str}\n"
         f"⏱ {minutes}분\n"
         + (f"🟢 Team A: {' / '.join(team_a)}\n" if team_a else '')
         + (f"🟡 Team B: {' / '.join(team_b)}\n" if team_b else '')
@@ -1253,6 +1267,8 @@ def health():
         'watch_url': st.get('watch_url'),
         # 리플레이 버퍼가 대기 중이면 라이브 아니어도 하이라이트 버튼 노출
         'buffer_ready': _buffer_ready,
+        # 이 방송 PC 의 센터(config control_auth.center_id · 비면 '' = 백엔드 본점) — 태블릿이 그 센터 코치 이름을 받아 온다(자유 라이브 제목).
+        'center_id': CONTROL_CENTER_ID,
         # 태블릿이 다시 켜져도 진행 중인 라이브(무슨 모드·언제 끝나나)를 그대로 그릴 수 있게
         'mode': st.get('mode') or '',
         'title': st.get('title') or '',
@@ -1415,6 +1431,7 @@ def start_stream():
     match_number = int(data.get('matchNumber', 0) or 0)
     match_id = str(data.get('matchId') or '').strip()[:64] if mode == 'league' else ''
     minutes = int(data.get('durationMinutes', 0) or 0)
+    free_title = clean_free_title(data.get('title')) if mode == 'free' else ''
     # 썸네일용 선수 상세 — 있으면 사진·등급까지 그린다. 없으면 이름만 (구버전 태블릿).
     roster_a = merge_roster(team_a, data.get('rosterA'))
     roster_b = merge_roster(team_b, data.get('rosterB'))
@@ -1427,11 +1444,11 @@ def start_stream():
 
     with stream_op_lock:
         return _start_stream_locked(mode, team_a, team_b, league, category, match_number,
-                                    match_id, minutes, roster_a, roster_b)
+                                    match_id, minutes, roster_a, roster_b, free_title)
 
 
 def _start_stream_locked(mode, team_a, team_b, league, category, match_number,
-                         match_id, minutes, roster_a, roster_b):
+                         match_id, minutes, roster_a, roster_b, free_title=''):
     """/start-stream 의 본체 — stream_op_lock 을 쥔 채로 돈다(끄기·다른 켜기와 겹치지 않는다)."""
     takeover = ''
     with state_lock:
@@ -1484,7 +1501,7 @@ def _start_stream_locked(mode, team_a, team_b, league, category, match_number,
     broadcast_id = None   # 실패 시 정리해야 하므로 try 밖에서 잡아둔다
     try:
         if mode == 'free':
-            title, description = build_free_title_and_desc(team_a, team_b, minutes)
+            title, description = build_free_title_and_desc(team_a, team_b, minutes, free_title)
         else:
             title, description = build_title_and_desc(team_a, team_b, league, category, match_number)
         logger.info(f"🎬 스트리밍 시작({mode}): {title}")
